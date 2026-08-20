@@ -8,15 +8,16 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx drizzle/migrate.ts",
-    "db:seed": "tsx drizzle/seed.ts"
+    "db:generate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
+    "db:migrate": "tsx --env-file-if-exists=.env drizzle/migrate.ts",
+    "db:migrate:test": "tsx --env-file-if-exists=.env drizzle/migrate.ts --test",
+    "db:seed": "tsx --env-file-if-exists=.env drizzle/seed.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
