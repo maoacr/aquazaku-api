@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { headersDesdeFastify } from '@/lib/http'
 import { env } from '@/lib/env'
 import { auth } from '@/modules/auth/better-auth'
+import { auditarSinBloquear } from '@/modules/auth/routes'
 
 /**
  * Monta los endpoints de Better-Auth en Fastify.
@@ -50,10 +51,52 @@ async function manejarAuth(req: FastifyRequest, reply: FastifyReply): Promise<vo
 
   const cuerpo = await respuesta.text()
 
+  await auditarIntentoDeLogin(req, respuesta.status, cuerpo)
+
   // 204 y 304 no llevan cuerpo; mandarlo rompe el protocolo.
   if (cuerpo.length === 0) {
     return reply.send()
   }
 
   return reply.send(cuerpo)
+}
+
+/**
+ * Deja constancia de cada intento de inicio de sesión.
+ *
+ * Los intentos FALLIDOS son la señal que más importa: una ráfaga de fallos
+ * contra el mismo email es un ataque de fuerza bruta, y sin registro no hay
+ * forma de verlo ni después ni en el momento. Por eso se auditan con
+ * `userId: null` — no hay sesión detrás, pero sí hay un hecho que registrar.
+ *
+ * Nunca se guarda la contraseña, ni siquiera la fallida. Solo el email, que es
+ * lo que permite reconstruir contra quién iba el intento.
+ */
+async function auditarIntentoDeLogin(
+  req: FastifyRequest,
+  status: number,
+  cuerpo: string,
+): Promise<void> {
+  if (!req.url.includes('/sign-in/')) return
+
+  const exitoso = status >= 200 && status < 300
+  const email = (req.body as { email?: unknown } | undefined)?.email
+
+  let userId: string | null = null
+  if (exitoso) {
+    try {
+      userId = (JSON.parse(cuerpo) as { user?: { id?: string } }).user?.id ?? null
+    } catch {
+      // El cuerpo no era JSON. No es motivo para perder el registro del login.
+    }
+  }
+
+  await auditarSinBloquear(req, {
+    userId,
+    rolEjercido: [],
+    action: 'auth:sign-in',
+    resource: 'auth',
+    result: exitoso ? 'ok' : 'denied',
+    payload: typeof email === 'string' ? { email } : undefined,
+  })
 }

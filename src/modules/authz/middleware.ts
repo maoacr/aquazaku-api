@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { headersDesdeFastify } from '@/lib/http'
 import { auth } from '@/modules/auth/better-auth'
+import { COOKIE_SESION } from '@/modules/auth/cookie'
 import { debeAuditarseAlPermitir, emit } from './audit'
 import { type UserContext, can } from './can'
 import type { Action, Resource, Role } from './matrix'
@@ -12,8 +13,9 @@ declare module 'fastify' {
   }
 }
 
-/** Nombre de la cookie de sesión. Lo comparte Better-Auth (Task 5). */
-export const COOKIE_SESION = 'aquazaku_session'
+// Se reexporta por comodidad de quien ya la importaba desde acá. La fuente es
+// `auth/cookie.ts`, que no importa nada: ver ahí por qué.
+export { COOKIE_SESION }
 
 /**
  * Códigos de error de autenticación.

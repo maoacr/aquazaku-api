@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { roles as rolesTable, sessions, userRoles, users } from '@/db/schema'
 import { auth } from '@/modules/auth/better-auth'
-import { COOKIE_SESION } from '@/modules/authz/middleware'
+import { COOKIE_SESION } from '@/modules/auth/cookie'
 import { ROLES, type Role } from '@/modules/authz/matrix'
 
 /**
@@ -90,7 +90,15 @@ export async function crearSesion(
     .find((c) => c.startsWith(`${COOKIE_SESION}=`))
     ?.split(';')[0]
 
-  if (!cookie) throw new Error(`el login de ${usuario.email} no devolvió cookie de sesión`)
+  if (!cookie) {
+    // Sin el detalle de la respuesta, un fallo acá solo dice "no hubo cookie" y
+    // hay que salir a adivinar por qué.
+    const cuerpo = await respuesta.text().catch(() => '<sin cuerpo>')
+    throw new Error(
+      `el login de ${usuario.email} no devolvió cookie de sesión ` +
+        `(HTTP ${respuesta.status}): ${cuerpo.slice(0, 300)}`,
+    )
+  }
 
   // Para probar el vencimiento se retrocede la fecha en la base. La cookie sigue
   // siendo válida (la firma es sobre el token), que es exactamente el escenario

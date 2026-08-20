@@ -5,7 +5,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { accounts, sessions, userRoles, users, verifications } from '@/db/schema'
 import { env } from '@/lib/env'
-import { COOKIE_SESION } from '@/modules/authz/middleware'
+import { COOKIE_SESION } from './cookie'
 
 /**
  * Better-Auth: SOLO identidad.

@@ -3,6 +3,7 @@ import cors from '@fastify/cors'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { env } from '@/lib/env'
 import { buildLoggerOptions } from '@/lib/logger'
+import { authRoutes } from '@/modules/auth/routes'
 import { authPlugin } from '@/plugins/auth-plugin'
 
 /**
@@ -44,6 +45,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   })
 
   await app.register(authPlugin)
+  await app.register(authRoutes)
 
   return app
 }
