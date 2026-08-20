@@ -16,8 +16,9 @@
     "skipLibCheck": true,
 
     "noEmit": true,
-    // Sin `baseUrl`: TypeScript 7 lo eliminó. Los paths se resuelven relativos
-    // a la ubicación de este tsconfig.json.
+    // Sin `baseUrl` a propósito: TypeScript 7 lo eliminó, y `paths` funciona
+    // solo desde TS 4.4 resolviendo relativo a este archivo. Así el día que
+    // migremos a TS 7 esta config ya está lista.
     "paths": {
       "@/*": ["./src/*"]
     }
