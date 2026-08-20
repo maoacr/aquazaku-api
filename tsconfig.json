@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+
+    "noEmit": true,
+    // Sin `baseUrl`: TypeScript 7 lo eliminó. Los paths se resuelven relativos
+    // a la ubicación de este tsconfig.json.
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src/**/*", "drizzle/**/*", "vitest.config.ts", "drizzle.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

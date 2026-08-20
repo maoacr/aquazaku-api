@@ -1,0 +1,4 @@
+# esbuild necesita correr su script de instalación para bajar el binario nativo.
+# Sin esto no arrancan ni tsx (dev) ni vitest (tests).
+allowBuilds:
+  esbuild: true
