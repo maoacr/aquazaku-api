@@ -1,3 +1,4 @@
+import cookie from '@fastify/cookie'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { buildLoggerOptions } from '@/lib/logger'
 
@@ -16,6 +17,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     // servicios. Si no, Fastify genera el suyo.
     genReqId: (req) => req.headers['x-request-id']?.toString() ?? crypto.randomUUID(),
   })
+
+  // Sin esto `req.cookies` no existe, y toda la autenticación depende de leer
+  // la cookie de sesión.
+  await app.register(cookie)
 
   // Devuelve el request id al cliente para que el error sea rastreable desde
   // el browser hasta el log de api/.
