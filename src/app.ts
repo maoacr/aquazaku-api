@@ -1,6 +1,9 @@
 import cookie from '@fastify/cookie'
+import cors from '@fastify/cors'
 import Fastify, { type FastifyInstance } from 'fastify'
+import { env } from '@/lib/env'
 import { buildLoggerOptions } from '@/lib/logger'
+import { authPlugin } from '@/plugins/auth-plugin'
 
 /**
  * Construye la instancia de Fastify sin levantarla.
@@ -28,9 +31,19 @@ export async function buildApp(): Promise<FastifyInstance> {
     reply.header('x-request-id', req.id)
   })
 
+  // El browser nunca habla directo con api/ (patrón BFF), así que el único
+  // origen permitido es web/. `credentials` va en true porque la sesión viaja
+  // en cookie.
+  await app.register(cors, {
+    origin: [env.WEB_PUBLIC_URL],
+    credentials: true,
+  })
+
   app.get('/health', async () => {
     return { status: 'ok', service: 'aquazaku-api' }
   })
+
+  await app.register(authPlugin)
 
   return app
 }

@@ -79,7 +79,7 @@ describe('requireAuth', () => {
     expect(res.json().code).toBe(ERROR_AUTH.SIN_SESION)
   })
 
-  it('con un token que no existe devuelve 401', async () => {
+  it('con un token adulterado devuelve 401: trajo credencial y no vale', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/protegido',
@@ -87,18 +87,16 @@ describe('requireAuth', () => {
     })
 
     expect(res.statusCode).toBe(401)
-    expect(res.json().code).toBe(ERROR_AUTH.SIN_SESION)
+    // Vencida, revocada o inventada son el mismo caso para el usuario: la
+    // credencial que presentó ya no sirve, tiene que volver a entrar.
+    expect(res.json().code).toBe(ERROR_AUTH.SESION_VENCIDA)
   })
 
   it('con la sesión vencida devuelve 401 con código propio', async () => {
     const usuario = await crearUsuario({ roles: ['admin'] })
-    const token = await crearSesion(usuario, { vencaEn: -1000 })
+    const cookie = await crearSesion(usuario, { vencaEn: -1000 })
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/protegido',
-      headers: { cookie: `aquazaku_session=${token}` },
-    })
+    const res = await app.inject({ method: 'GET', url: '/protegido', headers: { cookie } })
 
     expect(res.statusCode).toBe(401)
     expect(res.json().code).toBe(ERROR_AUTH.SESION_VENCIDA)
@@ -108,13 +106,9 @@ describe('requireAuth', () => {
     // RN-ACC-05: desactivar tiene que hacer efecto en el request siguiente, no
     // cuando le venza la sesión.
     const usuario = await crearUsuario({ roles: ['admin'], status: 'inactive' })
-    const token = await crearSesion(usuario)
+    const cookie = await crearSesion(usuario)
 
-    const res = await app.inject({
-      method: 'GET',
-      url: '/protegido',
-      headers: { cookie: `aquazaku_session=${token}` },
-    })
+    const res = await app.inject({ method: 'GET', url: '/protegido', headers: { cookie } })
 
     expect(res.statusCode).toBe(401)
     expect(res.json().code).toBe(ERROR_AUTH.USUARIO_INACTIVO)
@@ -238,13 +232,9 @@ describe('qué queda en la bitácora', () => {
 
   it('una lectura DENEGADA sí deja rastro', async () => {
     const usuario = await crearUsuario({ roles: [] })
-    const token = await crearSesion(usuario)
+    const cookie = await crearSesion(usuario)
 
-    await app.inject({
-      method: 'GET',
-      url: '/ventas',
-      headers: { cookie: `aquazaku_session=${token}` },
-    })
+    await app.inject({ method: 'GET', url: '/ventas', headers: { cookie } })
 
     const filas = await registros()
     expect(filas).toHaveLength(1)

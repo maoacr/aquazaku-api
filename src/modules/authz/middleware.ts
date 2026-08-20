@@ -1,7 +1,6 @@
-import { eq } from 'drizzle-orm'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { db } from '@/db/client'
-import { sessions, users } from '@/db/schema'
+import { headersDesdeFastify } from '@/lib/http'
+import { auth } from '@/modules/auth/better-auth'
 import { debeAuditarseAlPermitir, emit } from './audit'
 import { type UserContext, can } from './can'
 import type { Action, Resource, Role } from './matrix'
@@ -22,6 +21,14 @@ export const COOKIE_SESION = 'aquazaku_session'
  * Son distintos a propósito: `web/` los usa para mostrar el mensaje correcto
  * ("tu sesión venció" no es lo mismo que "tu cuenta fue desactivada"). Un 401
  * genérico obligaría al usuario a adivinar por qué lo echaron.
+ *
+ * La frontera entre los dos primeros es si el request TRAJO cookie de sesión:
+ *
+ *   · `UNAUTHENTICATED` — no vino ninguna cookie. Nunca inició sesión, o
+ *     cerró la que tenía.
+ *   · `SESSION_EXPIRED` — vino una cookie que el servidor ya no acepta:
+ *     vencida, revocada o adulterada. Para el usuario los tres casos son el
+ *     mismo: volvé a entrar.
  */
 export const ERROR_AUTH = {
   SIN_SESION: 'UNAUTHENTICATED',
@@ -34,52 +41,46 @@ export const ERROR_AUTH = {
 /**
  * Valida la sesión y puebla `req.user`.
  *
- * Una sola consulta con join: se ejecuta en cada request autenticado, y dos
- * viajes a la base donde alcanza uno se pagan en cada endpoint del sistema.
+ * La validación se **delega a Better-Auth**, que es el dueño de la identidad
+ * (ADR-0001). Él verifica la firma de la cookie, controla el vencimiento y
+ * aplica la ventana deslizante del spec §7.5.
  *
- * NO renueva la expiración. El spec §7.5 pide ventana deslizante, pero el ciclo
- * de vida de la sesión lo administra Better-Auth (Task 5) con su `updateAge`.
- * Implementarlo también acá sería tener dos dueños del mismo dato.
+ * La primera versión de este middleware consultaba `sessions` por su cuenta, y
+ * eso estaba mal por partida doble: duplicaba lógica de la que Better-Auth ya
+ * es dueño, y **no verificaba la firma** — la cookie es `token.firma`, así que
+ * la comparación contra el token crudo nunca matcheaba. Un test de integración
+ * lo destapó; con la delegación el problema desaparece por construcción.
+ *
+ * Lo que sí queda de nuestro lado: el estado del usuario. Better-Auth no conoce
+ * `status`, y RN-ACC-05 exige que desactivar a alguien haga efecto en el
+ * request siguiente, no cuando le venza la sesión.
  */
 export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const token = req.cookies[COOKIE_SESION]
+  const sesion = await auth.api.getSession({ headers: headersDesdeFastify(req) })
 
-  if (!token) {
-    return reply.code(401).send({ code: ERROR_AUTH.SIN_SESION })
+  if (!sesion) {
+    // Distinguir "nunca hubo sesión" de "la sesión ya no vale" se resuelve
+    // mirando si el request TRAJO cookie, sin tocar la base.
+    //
+    // Consultar `sessions` después no serviría: al detectar una sesión vencida
+    // Better-Auth borra la fila antes de devolver `null`, así que para cuando
+    // uno va a buscarla ya no está. Lo descubrió un test de integración.
+    const traiaCookie = Boolean(req.cookies[COOKIE_SESION])
+
+    return reply
+      .code(401)
+      .send({ code: traiaCookie ? ERROR_AUTH.SESION_VENCIDA : ERROR_AUTH.SIN_SESION })
   }
 
-  const [fila] = await db
-    .select({
-      userId: users.id,
-      status: users.status,
-      roles: sessions.roles,
-      expiresAt: sessions.expiresAt,
-    })
-    .from(sessions)
-    .innerJoin(users, eq(users.id, sessions.userId))
-    .where(eq(sessions.token, token))
-    .limit(1)
+  const usuario = sesion.user as { id: string; status?: string }
 
-  // Token inexistente y token vencido devuelven lo mismo hacia afuera salvo el
-  // código: no queremos que un atacante distinga "no existe" de "venció".
-  if (!fila) {
-    return reply.code(401).send({ code: ERROR_AUTH.SIN_SESION })
-  }
-
-  if (fila.expiresAt.getTime() <= Date.now()) {
-    return reply.code(401).send({ code: ERROR_AUTH.SESION_VENCIDA })
-  }
-
-  // Se chequea en CADA request, no solo al login: RN-ACC-05 dice que un usuario
-  // no se borra, se desactiva — y la desactivación tiene que hacer efecto en el
-  // request siguiente, no cuando le venza la sesión.
-  if (fila.status !== 'active') {
+  if (usuario.status !== 'active') {
     return reply.code(401).send({ code: ERROR_AUTH.USUARIO_INACTIVO })
   }
 
   req.user = {
-    id: fila.userId,
-    roles: fila.roles as Role[],
+    id: usuario.id,
+    roles: ((sesion.session as { roles?: string[] }).roles ?? []) as Role[],
   }
 }
 
