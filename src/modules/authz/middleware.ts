@@ -103,7 +103,26 @@ export async function requireAuth(req: FastifyRequest, reply: FastifyReply): Pro
  *     sería incumplir la regla en silencio. Preferimos un endpoint caído a una
  *     acción sensible sin rastro.
  */
-export function requirePermission(resource: Resource, action: Action) {
+export interface OpcionesDePermiso {
+  /**
+   * La ruta se encarga de auditar el éxito por su cuenta.
+   *
+   * Sirve cuando el handler conoce detalles que acá todavía no existen: el id
+   * del usuario recién creado, qué roles se asignaron, qué campos cambiaron.
+   * Sin esto quedarían DOS filas por acción —una del chequeo de permiso, sin
+   * detalle, y otra del resultado— y la bitácora se leería el doble de larga
+   * diciendo la mitad.
+   *
+   * Los DENEGADOS se siguen auditando siempre acá. Esa parte no es opcional.
+   */
+  auditaLaRuta?: true
+}
+
+export function requirePermission(
+  resource: Resource,
+  action: Action,
+  opciones: OpcionesDePermiso = {},
+) {
   return async (req: FastifyRequest, reply: FastifyReply): Promise<void> => {
     if (!req.user) {
       return reply.code(401).send({ code: ERROR_AUTH.SIN_SESION })
@@ -136,7 +155,7 @@ export function requirePermission(resource: Resource, action: Action) {
       return reply.code(403).send({ code: ERROR_AUTH.SIN_PERMISO, resource, action })
     }
 
-    if (debeAuditarseAlPermitir(resource, action)) {
+    if (!opciones.auditaLaRuta && debeAuditarseAlPermitir(resource, action)) {
       try {
         await emit({ ...registro, result: 'ok' })
       } catch (err) {

@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { env } from '@/lib/env'
 import { buildLoggerOptions } from '@/lib/logger'
 import { authRoutes } from '@/modules/auth/routes'
+import { userRoutes } from '@/modules/users/routes'
 import { authPlugin } from '@/plugins/auth-plugin'
 
 /**
@@ -46,6 +47,7 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   await app.register(authPlugin)
   await app.register(authRoutes)
+  await app.register(userRoutes)
 
   return app
 }
