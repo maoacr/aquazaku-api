@@ -1,0 +1,34 @@
+meta {
+  name: Solo denegados
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/audit?result=denied&limite=20
+}
+
+docs {
+  La consulta de seguridad más útil sobre esta tabla: todo lo que alguien
+  intentó y no pudo.
+
+  Después de correr esta colección tiene que aparecer al menos el intento de
+  quitarle el rol al último admin.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("todas las filas son denegadas", function() {
+    expect(res.getBody().filas.every(f => f.result === "denied")).to.equal(true);
+  });
+
+  test("encontró el intento contra el último admin", function() {
+    const intento = res.getBody().filas.find(
+      f => f.payload && f.payload.motivo === "ULTIMO_ADMIN"
+    );
+    expect(intento, "no apareció el intento de ULTIMO_ADMIN").to.not.equal(undefined);
+  });
+}

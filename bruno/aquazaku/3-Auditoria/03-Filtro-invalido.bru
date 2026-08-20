@@ -1,0 +1,24 @@
+meta {
+  name: Filtro invalido
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/audit?userId=no-es-un-uuid
+}
+
+docs {
+  Un filtro mal formado tiene que dar 400 con el detalle, no un 500. Una lista
+  vacía tampoco serviría: parecería un sistema sin datos.
+}
+
+tests {
+  test("responde 400, no 500", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("dice qué campo está mal", function() {
+    expect(res.getBody().detalle[0].campo).to.equal("userId");
+  });
+}

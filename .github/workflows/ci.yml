@@ -1,0 +1,165 @@
+name: api-ci
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      # Misma línea de versión que el entorno local (ver /empezar/entorno-local/):
+      # es lo que mantiene la paridad sin obligar a Docker en desarrollo.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aquazaku
+          POSTGRES_PASSWORD: aquazaku
+          POSTGRES_DB: aquazaku_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      # Los tests de correo mandan mensajes DE VERDAD y después los leen de la
+      # API de Mailpit. Sin este servicio fallan con un mensaje que lo explica,
+      # que es preferible a saltearlos en silencio y creer que el envío anda.
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - '1025:1025'
+          - '8025:8025'
+
+    env:
+      # Dos roles, igual que en desarrollo (ADR-0004): la app no es dueña de las
+      # tablas, y sobre audit_log solo puede leer e insertar. Si CI corriera todo
+      # con el rol dueño, los tests de inmutabilidad pasarían por el motivo
+      # equivocado.
+      DATABASE_URL_TEST: postgres://aquazaku_app:aquazaku_app@localhost:5432/aquazaku_test
+      DATABASE_MIGRATION_URL_TEST: postgres://aquazaku:aquazaku@localhost:5432/aquazaku_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Lee la versión de `packageManager` en package.json: una sola fuente de
+      # verdad en vez de un número repetido acá que se desincroniza.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # El rol de la aplicación es un objeto de CLUSTER, no de base: no puede
+      # crearlo una migración. En desarrollo lo crea el provisionamiento del
+      # entorno; acá, este paso.
+      - name: Crear el rol de la aplicación
+        run: |
+          psql "postgres://aquazaku:aquazaku@localhost:5432/aquazaku_test" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'aquazaku_app') THEN
+              CREATE ROLE aquazaku_app LOGIN PASSWORD 'aquazaku_app';
+            END IF;
+          END $$;
+          GRANT CONNECT ON DATABASE aquazaku_test TO aquazaku_app;
+          GRANT USAGE ON SCHEMA public TO aquazaku_app;
+          SQL
+
+      - run: pnpm typecheck
+
+      - name: Aplicar migraciones sobre la base de tests
+        run: pnpm db:migrate:test
+
+      # Los umbrales de coverage viven en vitest.config.ts, así que si bajan, el
+      # comando falla solo: no hace falta un paso aparte que los verifique.
+      - name: Tests con coverage
+        run: pnpm test:coverage
+
+  # Corre la colección de Bruno contra un servidor de verdad.
+  #
+  # Es la única verificación que atraviesa un socket real. El resto de los tests
+  # usan `app.inject()`, que no pasa por la red — y esa diferencia ya nos
+  # escondió un bug una vez (ver /frontend/bff-pattern/, sección del header
+  # Origin).
+  bruno:
+    runs-on: ubuntu-latest
+    needs: test
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: aquazaku
+          POSTGRES_PASSWORD: aquazaku
+          POSTGRES_DB: aquazaku_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mailpit:
+        image: axllent/mailpit:latest
+        ports:
+          - '1025:1025'
+          - '8025:8025'
+
+    env:
+      NODE_ENV: development
+      PORT: '3001'
+      DATABASE_URL: postgres://aquazaku_app:aquazaku_app@localhost:5432/aquazaku_ci
+      DATABASE_MIGRATION_URL: postgres://aquazaku:aquazaku@localhost:5432/aquazaku_ci
+      BETTER_AUTH_SECRET: secreto-de-ci-que-no-se-usa-en-ningun-lado-real
+      BETTER_AUTH_URL: http://localhost:3001
+      WEB_PUBLIC_URL: http://localhost:3000
+      MAIL_TRANSPORT: smtp
+      SMTP_HOST: localhost
+      SMTP_PORT: '1025'
+      SEED_ADMIN_EMAIL: admin@aquazaku.com
+      SEED_ADMIN_PASSWORD: contrasena-de-ci-2026
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Crear el rol de la aplicación
+        run: |
+          psql "postgres://aquazaku:aquazaku@localhost:5432/aquazaku_ci" -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'aquazaku_app') THEN
+              CREATE ROLE aquazaku_app LOGIN PASSWORD 'aquazaku_app';
+            END IF;
+          END $$;
+          GRANT CONNECT ON DATABASE aquazaku_ci TO aquazaku_app;
+          GRANT USAGE ON SCHEMA public TO aquazaku_app;
+          SQL
+
+      - run: pnpm db:migrate
+      # El seed es idempotente: puede correr en cada pipeline sin romper nada.
+      - run: pnpm db:seed
+
+      - name: Levantar api/
+        run: pnpm dev &
+
+      - name: Esperar a que responda
+        run: |
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3001/health > /dev/null && exit 0
+            sleep 1
+          done
+          echo "api/ no respondió en 60s"
+          exit 1
+
+      - run: npm install -g @usebruno/cli
+
+      - name: Correr la colección
+        run: bru run bruno/aquazaku --env ci --recursive

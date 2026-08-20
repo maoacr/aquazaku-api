@@ -1,0 +1,39 @@
+meta {
+  name: Consultar bitacora
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/audit?limite=10
+}
+
+docs {
+  Consulta de la bitácora. Trae el nombre del usuario ya resuelto, para que la
+  pantalla no muestre UUIDs.
+
+  Consultar la bitácora QUEDA en la bitácora: la primera fila suele ser tu
+  propia consulta. Es intencional — sin eso, el único control del sistema no
+  tendría control sobre sí mismo.
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setVar("cursorAuditoria", res.getBody().siguienteCursor);
+  }
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("respeta el límite pedido", function() {
+    expect(res.getBody().filas.length).to.be.at.most(10);
+  });
+
+  test("resuelve el nombre del usuario, no solo el id", function() {
+    const conUsuario = res.getBody().filas.find(f => f.userId !== null);
+    if (conUsuario) expect(conUsuario).to.have.property("userName");
+  });
+}

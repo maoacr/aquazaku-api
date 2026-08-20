@@ -1,0 +1,13 @@
+headers {
+  ~Content-Type: application/json
+}
+
+script:pre-request {
+  // Better-Auth rechaza con 403 MISSING_OR_NULL_ORIGIN toda peticion que
+  // cambie estado y llegue sin este header. Un cliente HTTP no lo manda solo,
+  // igual que `fetch` del lado del servidor.
+  //
+  // Va en la coleccion y no en cada request para que ninguno nuevo nazca sin
+  // el. Ver /frontend/bff-pattern/, seccion del header Origin.
+  req.setHeader("Origin", bru.getEnvVar("webOrigin"));
+}

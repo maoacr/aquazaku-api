@@ -1,0 +1,21 @@
+meta {
+  name: Cerrar sesion
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/auth/sign-out
+  body: none
+}
+
+docs {
+  Invalida la sesión en la base y devuelve la cookie de borrado con los mismos
+  atributos con que se creó.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

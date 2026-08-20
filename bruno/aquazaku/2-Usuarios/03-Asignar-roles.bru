@@ -1,0 +1,34 @@
+meta {
+  name: Asignar roles
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/users/{{usuarioCreadoId}}/roles
+  body: json
+}
+
+body:json {
+  {
+    "roles": ["pos", "seller"]
+  }
+}
+
+docs {
+  PUT y no POST: manda el conjunto COMPLETO de roles, no un agregado. Repetir la
+  llamada da el mismo resultado.
+
+  El cambio hace efecto en el request siguiente del usuario, sin que tenga que
+  volver a entrar (RN-ACC-07).
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("reemplaza el conjunto completo", function() {
+    expect(res.getBody().roles.sort()).to.eql(["pos", "seller"]);
+  });
+}

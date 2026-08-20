@@ -1,0 +1,39 @@
+meta {
+  name: Proteccion del ultimo admin
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/users/{{adminId}}/roles
+  body: json
+}
+
+body:json {
+  {
+    "roles": ["pos"]
+  }
+}
+
+docs {
+  Intenta quitarle el rol admin al ÚNICO administrador activo. Tiene que fallar.
+
+  Sin esta regla (RN-ACC-06), un click de más en la pantalla de usuarios deja el
+  sistema inadministrable: nadie queda con permiso para devolver el rol.
+
+  Que este request devuelva 200 sería un fallo grave, no un éxito.
+}
+
+tests {
+  test("responde 409", function() {
+    expect(res.getStatus()).to.equal(409);
+  });
+
+  test("el código dice cuál es el problema", function() {
+    expect(res.getBody().code).to.equal("ULTIMO_ADMIN");
+  });
+
+  test("el mensaje explica qué hacer, no solo que falló", function() {
+    expect(res.getBody().mensaje).to.contain("otra persona");
+  });
+}

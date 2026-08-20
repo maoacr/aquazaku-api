@@ -1,0 +1,46 @@
+meta {
+  name: Login
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{adminEmail}}",
+    "password": "{{adminPassword}}"
+  }
+}
+
+docs {
+  Inicia sesión. La cookie que devuelve queda guardada y viaja sola en los
+  requests siguientes de esta colección.
+
+  Si responde 403 MISSING_OR_NULL_ORIGIN, falta el header Origin — lo pone el
+  script de la colección con la variable `webOrigin`.
+
+  Si responde 429, se disparó el límite de 5 intentos por 15 minutos.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("entrega la cookie de sesión", function() {
+    const cookies = res.getHeader("set-cookie") ?? [];
+    const lista = Array.isArray(cookies) ? cookies : [cookies];
+    expect(lista.some(c => c.startsWith("aquazaku_session="))).to.equal(true);
+  });
+
+  test("la cookie es httpOnly: nada de tokens accesibles desde JS", function() {
+    const cookies = res.getHeader("set-cookie") ?? [];
+    const lista = Array.isArray(cookies) ? cookies : [cookies];
+    const sesion = lista.find(c => c.startsWith("aquazaku_session=")) ?? "";
+    expect(sesion.toLowerCase()).to.contain("httponly");
+  });
+}

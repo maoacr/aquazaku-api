@@ -1,0 +1,37 @@
+meta {
+  name: La cookie ya no sirve
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/auth/me
+}
+
+docs {
+  Después de salir, la misma sesión tiene que quedar afuera. Si esto devolviera
+  200, el logout no habría invalidado nada y el usuario creería que salió.
+
+  El código depende de si el cliente TRAJO cookie:
+
+    · UNAUTHENTICATED — no vino ninguna. Es lo que pasa acá: Bruno respeta la
+      cookie de borrado que emitió el logout, así que ya no manda nada.
+    · SESSION_EXPIRED — vino una que el servidor ya no acepta. Es lo que ve un
+      cliente que conservó la cookie vieja.
+
+  Los dos son correctos y significan lo mismo para la persona: volvé a entrar.
+  Que este request dé UNAUTHENTICATED confirma, de paso, que la cookie de
+  borrado llegó bien.
+}
+
+tests {
+  test("responde 401", function() {
+    expect(res.getStatus()).to.equal(401);
+  });
+
+  test("el logout borró la cookie: ya no se manda ninguna", function() {
+    // Si el borrado no hubiera llegado, el cliente seguiría mandando la cookie
+    // vieja y la respuesta sería SESSION_EXPIRED.
+    expect(res.getBody().code).to.equal("UNAUTHENTICATED");
+  });
+}

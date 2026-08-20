@@ -1,0 +1,42 @@
+meta {
+  name: Perfil
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/auth/me
+}
+
+docs {
+  Todo lo que web/ necesita para armar la pantalla, en un solo viaje: identidad,
+  roles y permisos ya resueltos.
+
+  Los permisos sirven para OCULTAR opciones, nunca para autorizar (RN-ACC-02).
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    bru.setVar("adminId", res.getBody().id);
+  }
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("es el admin del seed", function() {
+    expect(res.getBody().email).to.equal(bru.getEnvVar("adminEmail"));
+    expect(res.getBody().roles).to.contain("admin");
+  });
+
+  test("trae los permisos ya resueltos", function() {
+    expect(res.getBody().permisos).to.contain("usuarios:crear");
+    expect(res.getBody().permisos).to.contain("auditoria:ver");
+  });
+
+  test("nunca devuelve la contraseña", function() {
+    expect(JSON.stringify(res.getBody())).to.not.contain("password");
+  });
+}

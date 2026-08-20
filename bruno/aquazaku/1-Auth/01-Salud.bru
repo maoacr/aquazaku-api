@@ -1,0 +1,28 @@
+meta {
+  name: Salud
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+}
+
+docs {
+  Señal de vida. Es lo primero que hay que mirar cuando algo no anda: si esto
+  falla, el problema no está en tu request.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("dice qué servicio es", function() {
+    expect(res.getBody().service).to.equal("aquazaku-api");
+  });
+
+  test("devuelve el x-request-id para poder correlacionar logs", function() {
+    expect(res.getHeader("x-request-id")).to.be.a("string");
+  });
+}

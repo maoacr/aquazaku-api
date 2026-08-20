@@ -1,0 +1,28 @@
+meta {
+  name: Listar usuarios
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/users
+}
+
+docs {
+  Lista con los roles incluidos, para que la pantalla de administración se arme
+  con un solo request en vez de uno por fila.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("cada usuario trae sus roles", function() {
+    expect(res.getBody()[0].roles).to.be.an("array");
+  });
+
+  test("nunca expone el hash de la contraseña", function() {
+    expect(JSON.stringify(res.getBody())).to.not.contain("$argon2");
+  });
+}
