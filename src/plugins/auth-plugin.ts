@@ -3,6 +3,14 @@ import { headersDesdeFastify } from '@/lib/http'
 import { env } from '@/lib/env'
 import { auth } from '@/modules/auth/better-auth'
 import { auditarSinBloquear } from '@/modules/auth/routes'
+import {
+  LIMITE_LOGIN,
+  LIMITE_RESET,
+  type OpcionesDeLimite,
+  claveDeIntento,
+  limpiarIntentos,
+  registrarIntento,
+} from '@/modules/auth/rate-limit'
 
 /**
  * Monta los endpoints de Better-Auth en Fastify.
@@ -26,7 +34,50 @@ export async function authPlugin(app: FastifyInstance): Promise<void> {
   })
 }
 
+/**
+ * Rutas de Better-Auth que llevan límite de intentos, y con qué regla.
+ *
+ * El límite se aplica ACÁ y no dentro de Better-Auth porque este plugin es el
+ * único punto por el que pasan todos sus endpoints: una regla en un solo lugar
+ * es una regla que no se puede olvidar en el próximo endpoint que se agregue.
+ */
+const RUTAS_LIMITADAS: ReadonlyArray<{ patron: string; limite: OpcionesDeLimite }> = [
+  { patron: '/sign-in/', limite: LIMITE_LOGIN },
+  { patron: '/request-password-reset', limite: LIMITE_RESET },
+  { patron: '/forget-password', limite: LIMITE_RESET },
+]
+
+function limiteAplicable(url: string): OpcionesDeLimite | null {
+  return RUTAS_LIMITADAS.find((r) => url.includes(r.patron))?.limite ?? null
+}
+
 async function manejarAuth(req: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const limite = limiteAplicable(req.url)
+
+  if (limite) {
+    const email = (req.body as { email?: unknown } | undefined)?.email
+    const clave = claveDeIntento(req.ip, typeof email === 'string' ? email : '')
+    const resultado = registrarIntento(clave, limite)
+
+    if (!resultado.permitido) {
+      // Queda registrado: una ráfaga que llega al límite es justamente lo que
+      // hay que poder ver después.
+      await auditarSinBloquear(req, {
+        userId: null,
+        rolEjercido: [],
+        action: 'auth:rate-limit',
+        resource: 'auth',
+        result: 'denied',
+        payload: typeof email === 'string' ? { email, ruta: req.url } : { ruta: req.url },
+      })
+
+      return reply
+        .code(429)
+        .header('retry-after', String(resultado.reintentarEn))
+        .send({ code: 'RATE_LIMITED', reintentarEn: resultado.reintentarEn })
+    }
+  }
+
   const url = new URL(req.url, env.BETTER_AUTH_URL)
 
   const respuesta = await auth.handler(
@@ -81,6 +132,12 @@ async function auditarIntentoDeLogin(
 
   const exitoso = status >= 200 && status < 300
   const email = (req.body as { email?: unknown } | undefined)?.email
+
+  // Quien entra bien deja de arrastrar sus intentos fallidos: era el dueño de
+  // la cuenta y simplemente se equivocó unas veces.
+  if (exitoso && typeof email === 'string') {
+    limpiarIntentos(claveDeIntento(req.ip, email))
+  }
 
   let userId: string | null = null
   if (exitoso) {

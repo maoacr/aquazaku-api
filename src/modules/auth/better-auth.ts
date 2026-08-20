@@ -6,6 +6,7 @@ import { db } from '@/db/client'
 import { accounts, sessions, userRoles, users, verifications } from '@/db/schema'
 import { env } from '@/lib/env'
 import { COOKIE_SESION } from './cookie'
+import { enviarEmailDeReset } from './email'
 
 /**
  * Better-Auth: SOLO identidad.
@@ -56,6 +57,48 @@ export const auth = betterAuth({
       // spec §5 y es el estándar actual para contraseñas.
       hash: (password) => argonHash(password),
       verify: ({ hash, password }) => argonVerify(hash, password),
+    },
+
+    /**
+     * Recuperación de contraseña (spec §7.3).
+     *
+     * Se usa el flujo que Better-Auth ya trae en vez de una tabla
+     * `password_resets` propia: el token, su vencimiento y el uso único ya
+     * viven en `verifications`. Dos mecanismos para lo mismo es una invitación
+     * a que se desincronicen.
+     */
+    sendResetPassword: async ({ user, token }) => {
+      // Se arma el link a mano, apuntando a `web/`, en vez de usar la `url` que
+      // Better-Auth propone.
+      //
+      // La suya apunta a `api/` (`/api/auth/reset-password/{token}?callbackURL=…`)
+      // y rebota al front. Eso mandaría al browser directo contra la API, que es
+      // exactamente lo que el patrón BFF prohíbe (ADR-0002): el browser habla
+      // solo con `web/`. Además el spec §7.3 pide este formato.
+      const url = `${env.WEB_PUBLIC_URL}/reset-password?token=${encodeURIComponent(token)}`
+
+      await enviarEmailDeReset({ to: user.email, nombre: user.name, url })
+    },
+    resetPasswordTokenExpiresIn: 60 * 60,
+
+    /**
+     * Después de cambiar la contraseña se cierran TODAS las sesiones.
+     *
+     * Es el punto del sistema donde más importa: si alguien te robó la sesión y
+     * vos cambiás la contraseña para recuperar la cuenta, sin esto el atacante
+     * se queda adentro. Cambiar la contraseña tiene que echar a todo el mundo,
+     * incluido quien la está cambiando — vuelve a entrar con la nueva.
+     *
+     * Y se limpia `mustChangePassword`: el usuario acaba de elegir una propia,
+     * así que ya no hay nada que forzar.
+     */
+    onPasswordReset: async ({ user }) => {
+      await db
+        .update(users)
+        .set({ mustChangePassword: false })
+        .where(eq(users.id, user.id))
+
+      await db.delete(sessions).where(eq(sessions.userId, user.id))
     },
   },
 

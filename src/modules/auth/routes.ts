@@ -1,4 +1,8 @@
+import { eq } from 'drizzle-orm'
 import type { FastifyInstance } from 'fastify'
+import { z } from 'zod'
+import { db } from '@/db/client'
+import { users } from '@/db/schema'
 import { headersDesdeFastify } from '@/lib/http'
 import { emit } from '@/modules/authz/audit'
 import { permisosDe } from '@/modules/authz/can'
@@ -69,7 +73,74 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
     return { ok: true }
   })
+
+  /**
+   * Cambio de contraseña con sesión abierta (spec §7.2).
+   *
+   * Exige la contraseña actual. No es burocracia: sin ese requisito, cualquiera
+   * que se apodere de una sesión —una computadora sin bloquear, una cookie
+   * robada— puede cambiar la contraseña y dejar afuera al dueño de la cuenta de
+   * forma permanente. Pedirla convierte un robo de sesión en algo temporal.
+   *
+   * Al cambiarla se cierran las demás sesiones, por la misma razón.
+   */
+  app.post('/auth/change-password', { preHandler: requireAuth }, async (req, reply) => {
+    const usuario = req.user
+    if (!usuario) return reply.code(401).send()
+
+    const datos = esquemaCambioDePassword.safeParse(req.body)
+    if (!datos.success) {
+      return reply.code(400).send({
+        code: 'VALIDATION_ERROR',
+        detalle: datos.error.issues.map((i) => ({ campo: i.path.join('.'), mensaje: i.message })),
+      })
+    }
+
+    try {
+      await auth.api.changePassword({
+        body: {
+          currentPassword: datos.data.currentPassword,
+          newPassword: datos.data.newPassword,
+          revokeOtherSessions: true,
+        },
+        headers: headersDesdeFastify(req),
+      })
+    } catch {
+      await auditarSinBloquear(req, {
+        userId: usuario.id,
+        rolEjercido: usuario.roles,
+        action: 'auth:change-password',
+        resource: 'auth',
+        result: 'denied',
+      })
+
+      // Mismo mensaje para "contraseña actual incorrecta" y para cualquier otro
+      // rechazo: no hay nada que ganar contándole al que ya está adentro cuál de
+      // los dos fue.
+      return reply.code(400).send({ code: 'INVALID_CREDENTIALS' })
+    }
+
+    await db
+      .update(users)
+      .set({ mustChangePassword: false })
+      .where(eq(users.id, usuario.id))
+
+    await auditarSinBloquear(req, {
+      userId: usuario.id,
+      rolEjercido: usuario.roles,
+      action: 'auth:change-password',
+      resource: 'auth',
+      result: 'ok',
+    })
+
+    return { ok: true }
+  })
 }
+
+const esquemaCambioDePassword = z.object({
+  currentPassword: z.string().min(1, 'la contraseña actual es obligatoria'),
+  newPassword: z.string().min(8, 'la contraseña nueva necesita al menos 8 caracteres'),
+})
 
 type DatosDeAuditoria = {
   userId: string | null
