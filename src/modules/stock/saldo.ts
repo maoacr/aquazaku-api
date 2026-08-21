@@ -45,7 +45,12 @@ export interface Salida {
   loteId: string
   /** Positiva: cuánto sacar. */
   cantidad: number
-  tipo: 'venta' | 'descarte'
+  /**
+   * `ajuste` también sale: un conteo físico que da menos que el sistema resta,
+   * y ese movimiento es un ajuste, no una venta. Registrarlo como venta sería
+   * inventar una venta que nadie hizo — y el reporte de ventas mentiría.
+   */
+  tipo: 'venta' | 'descarte' | 'ajuste'
   motivo?: string | undefined
   causa?: MovimientoStock['causa']
   documentoId?: string | undefined

@@ -7,6 +7,7 @@ meta {
 post {
   url: {{baseUrl}}/users
   body: json
+  auth: none
 }
 
 body:json {
@@ -18,12 +19,8 @@ body:json {
   }
 }
 
-docs {
-  Alta de usuario. El email se genera en cada corrida para que la colección se
-  pueda correr muchas veces sin chocar con el 409 de email repetido.
-
-  Nace con mustChangePassword: la contraseña la eligió un admin, así que la
-  persona la cambia al entrar (spec §7.2).
+vars:pre-request {
+  emailNuevo: iam@maoacr.com
 }
 
 script:pre-request {
@@ -40,12 +37,20 @@ tests {
   test("responde 201", function() {
     expect(res.getStatus()).to.equal(201);
   });
-
+  
   test("devuelve el usuario con sus roles", function() {
     expect(res.getBody().roles).to.eql(["pos"]);
   });
-
+  
   test("nace obligado a cambiar la contraseña", function() {
     expect(res.getBody().mustChangePassword).to.equal(true);
   });
+}
+
+docs {
+  Alta de usuario. El email se genera en cada corrida para que la colección se
+  pueda correr muchas veces sin chocar con el 409 de email repetido.
+  
+  Nace con mustChangePassword: la contraseña la eligió un admin, así que la
+  persona la cambia al entrar (spec §7.2).
 }
