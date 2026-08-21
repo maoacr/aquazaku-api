@@ -1,8 +1,9 @@
 import { and, eq } from 'drizzle-orm'
 import { closeDb, db } from '@/db/client'
-import { roles, userRoles, users } from '@/db/schema'
+import { type NuevoProducto, productos, roles, userRoles, users } from '@/db/schema'
 import { auth } from '@/modules/auth/better-auth'
 import { ROLES } from '@/modules/authz/matrix'
+import { codigoBase } from '@/modules/productos/codigo'
 
 /**
  * Deja el sistema utilizable por primera vez: el catálogo de roles y un admin
@@ -47,6 +48,90 @@ export async function sembrarRoles(): Promise<void> {
     .onConflictDoNothing()
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Catálogo de productos — M1
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Los tres productos reales de Aquazaku, con sus equivalencias confirmadas
+ * (/dominio/productos/).
+ *
+ * ── Por qué las pacas nacen INACTIVAS ───────────────────────────────────────
+ *
+ * Solo el precio del botellón está confirmado: $10.000 (RN-CAT-08). Los de las
+ * pacas no, y hay dos formas de sembrarlos mal:
+ *
+ *   1. Inventar un número plausible. Nadie lo nota, y se vende a un precio que
+ *      no decidió el negocio.
+ *   2. Sembrar 0 y dejar el producto activo. Un `pos` puede vender una paca a
+ *      $0, y el problema aparece recién en el cierre, sin saber de dónde salió.
+ *
+ * Las dos fallan en silencio. Por eso las pacas entran **desactivadas**: no se
+ * pueden vender hasta que un `admin` les cargue el precio real y las active.
+ * Si se olvida, la venta se bloquea — que es un fallo ruidoso y se arregla en
+ * el momento.
+ *
+ * Es el mismo criterio de ADR-0005: ante la duda, cerrado.
+ */
+// `unidades` es opcional en `NuevoProducto` porque la columna tiene default,
+// pero el generador de código la necesita sí o sí: acá va explícita.
+type SemillaDeProducto = Omit<NuevoProducto, 'codigo' | 'unidades'> & { unidades: number }
+
+const CATALOGO_INICIAL: readonly SemillaDeProducto[] = [
+  {
+    nombre: 'Paca de 20 bolsas de 600 ml',
+    presentacion: 'paca',
+    contenidoMl: 600,
+    unidades: 20,
+    precioResidencial: '0.00',
+    precioComercial: '0.00',
+    precioMinimo: '0.00',
+    activo: false,
+  },
+  {
+    nombre: 'Paca de 50 bolsas de 300 ml',
+    presentacion: 'paca',
+    contenidoMl: 300,
+    unidades: 50,
+    precioResidencial: '0.00',
+    precioComercial: '0.00',
+    precioMinimo: '0.00',
+    activo: false,
+  },
+  {
+    nombre: 'Recarga de botellón de 20 L',
+    presentacion: 'botellon',
+    contenidoMl: 20000,
+    unidades: 1,
+    // El único precio confirmado por Aquazaku — RN-CAT-08. Es dato semilla,
+    // editable desde la UI: un precio en el código es un deploy cada vez que
+    // sube el agua.
+    precioResidencial: '10000.00',
+    precioComercial: '10000.00',
+    precioMinimo: '10000.00',
+    activo: true,
+  },
+]
+
+/**
+ * Inserta el catálogo inicial. Idempotente.
+ *
+ * El código sale de `codigoBase()`, el mismo generador que usa el alta por API
+ * (RN-CAT-11). Escribirlo a mano acá dejaría dos fuentes del formato que se
+ * separan el día que cambie.
+ */
+export async function sembrarProductos(): Promise<number> {
+  const filas = CATALOGO_INICIAL.map((p) => ({ ...p, codigo: codigoBase(p) }))
+
+  const insertados = await db
+    .insert(productos)
+    .values(filas)
+    .onConflictDoNothing({ target: productos.codigo })
+    .returning({ codigo: productos.codigo })
+
+  return insertados.length
+}
+
 /**
  * ¿Ya hay alguien que pueda administrar el sistema?
  *
@@ -67,6 +152,7 @@ async function hayAdminActivo(): Promise<boolean> {
 
 export async function sembrar(opciones: OpcionesDeSeed): Promise<ResultadoDeSeed> {
   await sembrarRoles()
+  await sembrarProductos()
 
   if (await hayAdminActivo()) {
     return { creado: false, motivo: 'ya-hay-admin' }
@@ -153,13 +239,24 @@ async function main(): Promise<void> {
 
   const resultado = await sembrar(entorno)
 
+  const sinPrecio = await db
+    .select({ codigo: productos.codigo })
+    .from(productos)
+    .where(and(eq(productos.activo, false), eq(productos.precioMinimo, '0.00')))
+
   if (!resultado.creado) {
     console.log('· Ya hay un administrador activo: no se creó ninguno. Nada que hacer.')
-    return
+  } else {
+    console.log(`✓ Administrador creado: ${resultado.email}`)
+    console.log('  Al entrar por primera vez va a tener que cambiar la contraseña.')
   }
 
-  console.log(`✓ Administrador creado: ${resultado.email}`)
-  console.log('  Al entrar por primera vez va a tener que cambiar la contraseña.')
+  if (sinPrecio.length > 0) {
+    console.log('')
+    console.log(`⚠ ${sinPrecio.length} producto(s) esperando precio, desactivados:`)
+    for (const p of sinPrecio) console.log(`    ${p.codigo}`)
+    console.log('  No se pueden vender hasta que un admin les cargue el precio y los active.')
+  }
 }
 
 // Solo corre como CLI. Importado desde un test, exporta las funciones y no

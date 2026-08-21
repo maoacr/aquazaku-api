@@ -1,8 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { leerEntorno, sembrar, sembrarRoles } from '../../../drizzle/seed'
+import { leerEntorno, sembrar, sembrarProductos, sembrarRoles } from '../../../drizzle/seed'
 import { closeDb, db } from '@/db/client'
-import { accounts, roles, userRoles, users } from '@/db/schema'
+import { accounts, productos, roles, userRoles, users } from '@/db/schema'
 import { ROLES } from '@/modules/authz/matrix'
 import { resetDb } from '@/test/db'
 
@@ -41,6 +41,78 @@ describe('catálogo de roles', () => {
     await sembrarRoles()
 
     expect(await db.select().from(roles)).toHaveLength(ROLES.length)
+  })
+})
+
+describe('catálogo de productos — M1', () => {
+  it('siembra los tres productos reales con su código generado', async () => {
+    await sembrarProductos()
+
+    const filas = await db.select().from(productos).orderBy(productos.codigo)
+
+    expect(filas.map((p) => p.codigo)).toEqual(['BOT_20L', 'P20U_600ML', 'P50U_300ML'])
+  })
+
+  it('los litros los calcula la base, no el semillero', async () => {
+    await sembrarProductos()
+
+    const filas = await db.select().from(productos)
+    const litros = Object.fromEntries(filas.map((p) => [p.codigo, Number(p.litros)]))
+
+    expect(litros).toEqual({ P20U_600ML: 12, P50U_300ML: 15, BOT_20L: 20 })
+  })
+
+  it('el botellón nace activo con el único precio confirmado — RN-CAT-08', async () => {
+    await sembrarProductos()
+
+    const [botellon] = await db.select().from(productos).where(eq(productos.codigo, 'BOT_20L'))
+
+    expect(botellon?.activo).toBe(true)
+    expect(botellon?.precioResidencial).toBe('10000.00')
+  })
+
+  it('las pacas nacen DESACTIVADAS: sin precio confirmado no se pueden vender', async () => {
+    await sembrarProductos()
+
+    const pacas = await db.select().from(productos).where(eq(productos.presentacion, 'paca'))
+
+    expect(pacas).toHaveLength(2)
+    for (const paca of pacas) {
+      expect(paca.activo, `${paca.codigo} no debería poder venderse todavía`).toBe(false)
+      expect(paca.precioMinimo).toBe('0.00')
+    }
+  })
+
+  it('no siembra un precio inventado: un número plausible se confunde con un dato real', async () => {
+    await sembrarProductos()
+
+    const pacas = await db.select().from(productos).where(eq(productos.presentacion, 'paca'))
+
+    for (const paca of pacas) {
+      expect(Number(paca.precioResidencial)).toBe(0)
+    }
+  })
+
+  it('corre dos veces sin duplicar', async () => {
+    await sembrarProductos()
+    const segundaVez = await sembrarProductos()
+
+    expect(segundaVez).toBe(0)
+    expect(await db.select().from(productos)).toHaveLength(3)
+  })
+
+  it('no pisa un precio que el admin ya cargó', async () => {
+    await sembrarProductos()
+    await db
+      .update(productos)
+      .set({ precioResidencial: '14000.00', precioComercial: '13000.00', precioMinimo: '12000.00', activo: true })
+      .where(eq(productos.codigo, 'P20U_600ML'))
+
+    await sembrarProductos()
+
+    const [paca] = await db.select().from(productos).where(eq(productos.codigo, 'P20U_600ML'))
+    expect(paca?.precioResidencial).toBe('14000.00')
+    expect(paca?.activo).toBe(true)
   })
 })
 
