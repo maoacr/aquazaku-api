@@ -132,6 +132,7 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'stock', action: 'ver', scope: 'todo' },
     { resource: 'stock', action: 'cargar_ruta', scope: 'todo' },
     { resource: 'stock', action: 'ajustar', scope: 'todo' },
+    { resource: 'stock', action: 'descartar', scope: 'todo' },
     { resource: 'insumos', action: 'ver', scope: 'todo' },
     { resource: 'insumos', action: 'ajustar', scope: 'todo' },
 
@@ -224,10 +225,27 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'clientes', action: 'crear', scope: 'todo' },
     { resource: 'clientes', action: 'verificar_documento', scope: 'todo' },
 
-    { resource: 'stock', action: 'ver', scope: 'BODEGA' },
+    /**
+     * `todo` y no `BODEGA` — M2.
+     *
+     * El alcance `BODEGA` exige una columna `ubicacion` en la tabla, y el stock
+     * no la tiene: hay una sola bodega y se decidió no modelarla (RN-STK-01).
+     * Con `BODEGA`, `scopeCondition` lanzaría `ScopeNoAplicableError` —el fallo
+     * cerrado de ADR-0005— y el `pos` recibiría un error en vez de ver el
+     * stock.
+     *
+     * Con una sola ubicación los dos alcances significan lo mismo, y `todo` es
+     * el honesto: el `pos` ve todo el stock porque todo está en el único lugar
+     * que hay. `BODEGA` sigue en el modelo, sin usar, para cuando M8 traiga una
+     * segunda ubicación.
+     */
+    { resource: 'stock', action: 'ver', scope: 'todo' },
     { resource: 'stock', action: 'cargar_ruta', scope: 'todo' },
     // "cantidades (con motivo)" es constraint de servicio, no alcance.
     { resource: 'stock', action: 'ajustar', scope: 'todo' },
+    // Es quien manipula el producto y ve el daño — RN-STK-06. Mismo criterio
+    // con el que ya descarta botellones y bases.
+    { resource: 'stock', action: 'descartar', scope: 'todo' },
     { resource: 'insumos', action: 'ver', scope: 'todo' },
     { resource: 'insumos', action: 'ajustar', scope: 'todo' },
 

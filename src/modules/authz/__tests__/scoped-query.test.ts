@@ -55,15 +55,22 @@ describe('applicableScopes()', () => {
     expect(applicableScopes(usuario('seller'), 'ventas', 'ver')).toEqual(['propio'])
   })
 
-  it('pos ve stock solo de bodega', () => {
-    expect(applicableScopes(usuario('pos'), 'stock', 'ver')).toEqual(['BODEGA'])
+  it('pos ve todo el stock: una sola bodega, sin ubicación que filtrar', () => {
+    expect(applicableScopes(usuario('pos'), 'stock', 'ver')).toEqual(['todo'])
   })
 
+  /**
+   * El ejemplo cambió, el comportamiento no.
+   *
+   * Este test usaba `stock` porque pos y seller tenían alcances distintos sobre
+   * él. M2 igualó los dos a `todo`, así que el ejemplo dejó de ilustrar nada y
+   * se movió a `ventas`, donde la diferencia sigue siendo real: el pos ve las
+   * propias y el admin ve todas.
+   */
   it('multi-rol suma alcances distintos sobre el mismo recurso', () => {
-    // seller ve stock con alcance `todo`; pos, solo `BODEGA`.
-    const scopes = applicableScopes(usuario('pos', 'seller'), 'stock', 'ver')
+    const scopes = applicableScopes(usuario('pos', 'admin'), 'ventas', 'ver')
 
-    expect(scopes).toContain('BODEGA')
+    expect(scopes).toContain('propio')
     expect(scopes).toContain('todo')
   })
 

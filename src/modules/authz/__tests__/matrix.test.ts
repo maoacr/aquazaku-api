@@ -38,6 +38,7 @@ const ESPERADO: Record<Role, string[]> = {
     'stock:ver:todo',
     'stock:cargar_ruta:todo',
     'stock:ajustar:todo',
+    'stock:descartar:todo',
     'insumos:ver:todo',
     'insumos:ajustar:todo',
     'botellones:ver:todo',
@@ -107,9 +108,10 @@ const ESPERADO: Record<Role, string[]> = {
     'clientes:ver:todo',
     'clientes:crear:todo',
     'clientes:verificar_documento:todo',
-    'stock:ver:BODEGA',
+    'stock:ver:todo',
     'stock:cargar_ruta:todo',
     'stock:ajustar:todo',
+    'stock:descartar:todo',
     'insumos:ver:todo',
     'insumos:ajustar:todo',
     'botellones:ver:todo',
@@ -286,11 +288,36 @@ describe('PERMISSION_MATRIX — reglas de negocio que no se pueden romper', () =
     expect(ajustes).toHaveLength(0)
   })
 
-  it('el pos ve stock solo de BODEGA, no de las rutas', () => {
+  /**
+   * Este test afirmaba `BODEGA`, y era correcto mientras existían las rutas.
+   *
+   * M2 (22-ago-2026) cerró ese modelo: hay una sola bodega y el stock no lleva
+   * columna de ubicación (RN-STK-01). Con `BODEGA`, `scopeCondition` lanzaría
+   * `ScopeNoAplicableError` —no encuentra la columna— y el `pos` recibiría un
+   * error en vez de ver el stock.
+   */
+  it('el pos ve todo el stock: hay una sola bodega y no se modela', () => {
     const stockVer = PERMISSION_MATRIX.pos.find(
       (r) => r.resource === 'stock' && r.action === 'ver',
     )
-    expect(stockVer?.scope).toBe('BODEGA')
+    expect(stockVer?.scope).toBe('todo')
+  })
+
+  it('nadie usa el alcance BODEGA: quedó reservado para cuando M8 traiga rutas', () => {
+    const conBodega = ROLES.flatMap((rol) =>
+      PERMISSION_MATRIX[rol].filter((r) => r.scope === 'BODEGA'),
+    )
+
+    expect(conBodega).toHaveLength(0)
+  })
+
+  it('solo admin y pos descartan producto — RN-STK-06', () => {
+    for (const rol of ROLES) {
+      const puede = PERMISSION_MATRIX[rol].some(
+        (r) => r.resource === 'stock' && r.action === 'descartar',
+      )
+      expect(puede, `${rol} no debería poder stock:descartar`).toBe(rol === 'admin' || rol === 'pos')
+    }
   })
 
   it('el contador NO ve tanques — el doc de dominio lo marca ❌', () => {
