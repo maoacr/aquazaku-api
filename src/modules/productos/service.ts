@@ -3,6 +3,7 @@ import { db } from '@/db/client'
 import { type Producto, productos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { emit } from '@/modules/authz/audit'
+import { saldoTotalDe } from '@/modules/stock/consultas'
 import { type DatosDeCodigo, generarCodigo } from './codigo'
 
 /**
@@ -207,18 +208,36 @@ export async function editarPrecios(
 /**
  * Desactiva un producto — RN-CAT-02.
  *
- * DEUDA CONOCIDA: RN-CAT-02 exige además que no queden unidades en stock. La
- * tabla de stock es de M2, así que hoy no hay contra qué verificarlo. El
- * criterio de aceptación de M2 incluye cerrar esta condición.
+ * Un producto solo se desactiva si **no quedan unidades en stock**. Uno inactivo
+ * con saldo es inventario fantasma: nadie puede venderlo, porque no aparece en
+ * la pantalla de venta, ni descartarlo, porque para descartarlo hay que
+ * encontrarlo. Queda ocupando lugar en la bodega y en ninguna cuenta.
  *
- * Queda escrito acá, citando la regla y diciendo cuándo se cierra, en vez de un
- * TODO suelto: un TODO es una intención sin dueño ni fecha.
+ * ── Por qué `productos` importa de `stock` y no al revés ────────────────────
+ *
+ * La regla es de productos —es RN-CAT-02, no una RN-STK— pero el dato vive en
+ * stock. La alternativa sería que stock bloqueara la desactivación, y eso lo
+ * obligaría a conocer el ciclo de vida del catálogo, que no es asunto suyo.
+ *
+ * La dependencia va contra el orden de los módulos (M1 → M2) y se acepta
+ * conscientemente: es una sola función de lectura, `stock/consultas.ts` no
+ * expone nada que mueva saldo, y no hay ciclo — stock lee la TABLA `productos`,
+ * no este módulo.
  */
 export async function desactivarProducto(id: string): Promise<Producto> {
   const producto = await exigirProducto(id)
 
   if (!producto.activo) {
     throw new ErrorDeNegocio('PRODUCTO_YA_INACTIVO', 409, 'el producto ya estaba desactivado')
+  }
+
+  const enStock = await saldoTotalDe(id)
+  if (enStock > 0) {
+    throw new ErrorDeNegocio(
+      'PRODUCTO_CON_STOCK',
+      409,
+      `quedan ${enStock} unidades en stock: vendelas o descartalas antes de desactivar el producto`,
+    )
   }
 
   const [actualizado] = await db

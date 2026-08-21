@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
 import { auditLog, productos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { descartar, registrarEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
 import {
   buscarProducto,
@@ -249,7 +250,81 @@ describe('servicio de productos (M1)', () => {
     })
   })
 
-  describe('listar', () => {
+  describe('no se desactiva un producto con stock — RN-CAT-02, deuda de M1 cerrada en M2', () => {
+  const CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
+  it('con unidades en stock, desactivar devuelve 409 y dice cuántas hay', async () => {
+    const producto = await crearProducto(PACA_600)
+    await registrarEntrada(
+      { productoId: producto.id, cantidad: 40, fechaEmpaque: '2026-08-22', motivo: 'carga inicial' },
+      CONTEXTO,
+    )
+
+    const error = await errorDeNegocioDe(desactivarProducto(producto.id))
+
+    expect(error.code).toBe('PRODUCTO_CON_STOCK')
+    expect(error.status).toBe(409)
+    expect(error.message).toContain('40')
+  })
+
+  it('el error dice qué hacer, no solo que no se puede', async () => {
+    const producto = await crearProducto(PACA_600)
+    await registrarEntrada(
+      { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'x' },
+      CONTEXTO,
+    )
+
+    const error = await errorDeNegocioDe(desactivarProducto(producto.id))
+
+    expect(error.message).toMatch(/vendelas o descartalas/)
+  })
+
+  it('el producto sigue activo tras el intento fallido', async () => {
+    const producto = await crearProducto(PACA_600)
+    await registrarEntrada(
+      { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'x' },
+      CONTEXTO,
+    )
+
+    await errorDeNegocioDe(desactivarProducto(producto.id))
+
+    expect((await buscarProducto(producto.id))?.activo).toBe(true)
+  })
+
+  it('descartado el stock, ya se puede desactivar', async () => {
+    const producto = await crearProducto(PACA_600)
+    const lote = await registrarEntrada(
+      { productoId: producto.id, cantidad: 12, fechaEmpaque: '2026-08-22', motivo: 'x' },
+      CONTEXTO,
+    )
+    await descartar({ loteId: lote.id, cantidad: 12, causa: 'vencido' }, CONTEXTO)
+
+    const desactivado = await desactivarProducto(producto.id)
+
+    expect(desactivado.activo).toBe(false)
+  })
+
+  it('un lote VENCIDO con saldo también bloquea: el producto sigue en la bodega', async () => {
+    const producto = await crearProducto(PACA_600)
+    // Vencido hace rato, pero las unidades existen y ocupan lugar.
+    await registrarEntrada(
+      { productoId: producto.id, cantidad: 9, fechaEmpaque: '2020-01-01', motivo: 'viejo' },
+      CONTEXTO,
+    )
+
+    const error = await errorDeNegocioDe(desactivarProducto(producto.id))
+
+    expect(error.code).toBe('PRODUCTO_CON_STOCK')
+  })
+
+  it('sin stock nunca cargado, desactivar sigue funcionando como en M1', async () => {
+    const producto = await crearProducto(PACA_600)
+
+    expect((await desactivarProducto(producto.id)).activo).toBe(false)
+  })
+})
+
+describe('listar', () => {
     it('ordena por código para que la pantalla sea estable entre cargas', async () => {
       await crearProducto(BOTELLON)
       await crearProducto(PACA_600)
