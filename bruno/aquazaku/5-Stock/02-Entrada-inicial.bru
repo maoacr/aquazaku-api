@@ -1,0 +1,62 @@
+meta {
+  name: Entrada de inventario
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/stock/entradas
+  body: json
+}
+
+body:json {
+  {
+    "productoId": "{{productoConStock}}",
+    "cantidad": 120,
+    "fechaEmpaque": "{{fechaDeEmpaque}}",
+    "motivo": "carga inicial de inventario desde Bruno"
+  }
+}
+
+docs {
+  En M2 esta es la única forma de que entre stock: la carga inicial es un ajuste
+  con motivo. Cuando llegue M4, el cierre de producción va a ser otro documento
+  que crea lotes, con la misma tabla y las mismas primitivas.
+
+  El código del lote lo genera el sistema con el formato YYYY-MM-DD-Ln, y el
+  vencimiento sale de sumarle 30 días al empaque (RN-STK-08). Ninguno de los dos
+  se tipea.
+}
+
+script:pre-request {
+  // Fecha de hoy, para que el lote nazca vigente en cualquier corrida.
+  bru.setVar("fechaDeEmpaque", new Date().toISOString().slice(0, 10));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    bru.setVar("loteId", res.getBody().id);
+    bru.setVar("loteCodigo", res.getBody().codigo);
+  }
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el código del lote lo generó el sistema", function() {
+    expect(res.getBody().codigo).to.match(/^\d{4}-\d{2}-\d{2}-L\d+$/);
+  });
+
+  test("el vencimiento son 30 días después del empaque", function() {
+    const empaque = new Date(res.getBody().fechaEmpaque + "T00:00:00Z");
+    const vence = new Date(res.getBody().fechaVencimiento + "T00:00:00Z");
+    const dias = (vence - empaque) / 86400000;
+    expect(dias).to.equal(30);
+  });
+
+  test("el saldo quedó cargado", function() {
+    expect(res.getBody().cantidadDisponible).to.equal(120);
+  });
+}

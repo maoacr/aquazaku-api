@@ -1,0 +1,43 @@
+meta {
+  name: Crear un contador
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailContador}}",
+    "name": "Contador de Bruno",
+    "password": "contrasena-de-prueba-123",
+    "roles": ["contador"]
+  }
+}
+
+docs {
+  Hace falta un rol que NO pueda tocar el stock, y el usuario que creó
+  2-Usuarios tiene `pos` + `seller`: como los roles se suman y el `pos` sí puede
+  ajustar, ese usuario no sirve para probar un rechazo.
+
+  El `contador` es el testigo externo: mira todo, no modifica nada. Es el rol
+  correcto para verificar que la lectura y la escritura están separadas de
+  verdad.
+}
+
+script:pre-request {
+  bru.setVar("emailContador", `contador-${Date.now()}@aquazaku.com`);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("quedó solo con el rol contador", function() {
+    expect(res.getBody().roles).to.eql(["contador"]);
+  });
+}

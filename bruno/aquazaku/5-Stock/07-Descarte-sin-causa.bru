@@ -1,0 +1,31 @@
+meta {
+  name: Descarte sin causa
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/stock/descartes
+  body: json
+}
+
+body:json {
+  {
+    "loteId": "{{loteId}}",
+    "cantidad": 3
+  }
+}
+
+docs {
+  Sin clasificar la causa, no se descarta. Tiene que fallar.
+
+  RN-STK-06: la causa no es metadato, decide qué pasa después. `falla_produccion`
+  la paga Aquazaku y genera reposición; `mal_manejo_cliente` entra al historial
+  del cliente. Descartar sin causa borra producto sin dejar quién responde.
+}
+
+tests {
+  test("responde 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

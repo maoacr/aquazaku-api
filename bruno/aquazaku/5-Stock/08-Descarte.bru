@@ -1,0 +1,37 @@
+meta {
+  name: Descarte con causa
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/stock/descartes
+  body: json
+}
+
+body:json {
+  {
+    "loteId": "{{loteId}}",
+    "cantidad": 2,
+    "causa": "falla_produccion",
+    "observaciones": "dos bolsas mal selladas"
+  }
+}
+
+docs {
+  El descarte es selectivo por unidad: dos bolsas dañadas no destruyen el lote
+  entero (RN-STK-06).
+
+  Ninguna causa castiga automáticamente. El sistema hace VISIBLE el historial;
+  quien decide qué hacer con eso es el admin. Visibilidad sin automatización.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("descuenta solo las unidades descartadas", function() {
+    expect(res.getBody().saldo).to.equal(110);
+  });
+}

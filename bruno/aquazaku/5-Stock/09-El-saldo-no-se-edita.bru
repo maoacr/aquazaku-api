@@ -1,0 +1,31 @@
+meta {
+  name: El saldo no se edita
+  type: http
+  seq: 9
+}
+
+patch {
+  url: {{baseUrl}}/stock/{{loteId}}
+  body: json
+}
+
+body:json {
+  {
+    "cantidadDisponible": 99999
+  }
+}
+
+docs {
+  Que esta ruta NO exista es parte del contrato, no una omisión.
+
+  RN-STK-02: el stock se mueve mediante documentos, nunca se corrige a mano. Si
+  algún día alguien agrega un PATCH "por comodidad", este test se pone en rojo y
+  obliga a discutirlo, en vez de descubrirlo cuando el inventario deje de
+  cuadrar sin que ningún documento lo explique.
+}
+
+tests {
+  test("responde 404: la ruta no existe", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

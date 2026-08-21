@@ -1,0 +1,35 @@
+meta {
+  name: Un producto con stock no se desactiva
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/productos/{{productoConStock}}/desactivar
+}
+
+docs {
+  La deuda que M1 dejó anotada y M2 cerró. Tiene que fallar.
+
+  RN-CAT-02 exige que no queden unidades en stock para desactivar. M1 lo dejó
+  escrito citando la regla porque la tabla no existía; ahora existe.
+
+  Un producto inactivo con saldo es inventario fantasma: nadie puede venderlo,
+  porque no aparece en la pantalla de venta, ni descartarlo, porque para
+  descartarlo primero hay que encontrarlo. Queda ocupando lugar en la bodega y
+  en ninguna cuenta.
+}
+
+tests {
+  test("responde 409", function() {
+    expect(res.getStatus()).to.equal(409);
+  });
+
+  test("el código dice cuál es el problema", function() {
+    expect(res.getBody().code).to.equal("PRODUCTO_CON_STOCK");
+  });
+
+  test("el mensaje dice qué hacer, no solo que no se puede", function() {
+    expect(res.getBody().mensaje).to.match(/vendelas o descartalas/);
+  });
+}

@@ -1,0 +1,43 @@
+meta {
+  name: Ajuste mayor al saldo
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/stock/ajustes
+  body: json
+}
+
+body:json {
+  {
+    "loteId": "{{loteId}}",
+    "cantidad": -99999,
+    "motivo": "esto no puede pasar"
+  }
+}
+
+docs {
+  No se puede descontar más de lo que hay. Tiene que fallar.
+
+  RN-STK-03: permitir negativo convierte el inventario en una sugerencia, y un
+  inventario que es una sugerencia no sirve para pedir insumos, ni para detectar
+  un faltante, ni para cerrar el día.
+
+  La respuesta trae el saldo real para que quien esté del otro lado sepa cuánto
+  hay, en vez de tener que ir a buscarlo.
+}
+
+tests {
+  test("responde 409", function() {
+    expect(res.getStatus()).to.equal(409);
+  });
+
+  test("el código dice cuál es el problema", function() {
+    expect(res.getBody().code).to.equal("STOCK_INSUFICIENTE");
+  });
+
+  test("el mensaje dice cuánto había de verdad", function() {
+    expect(res.getBody().mensaje).to.contain("112");
+  });
+}

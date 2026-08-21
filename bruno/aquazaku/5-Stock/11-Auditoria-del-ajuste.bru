@@ -1,0 +1,38 @@
+meta {
+  name: El ajuste dejó rastro
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/audit?action=stock:ajustar&limite=10
+}
+
+docs {
+  RN-ACC-04 nombra los ajustes de stock entre las acciones sensibles, y ADR-0007
+  fija que si no se pueden auditar, no se ejecutan.
+
+  Lo que se verifica acá no es que exista la fila, sino que sirva: sin el saldo
+  antes y después, la bitácora diría que hubo un ajuste pero no de cuánto a
+  cuánto — que es lo primero que se pregunta cuando el conteo físico no cuadra.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("encontró el ajuste que acaba de hacerse", function() {
+    const fila = res.getBody().filas.find(f => f.resourceId === bru.getVar("loteId"));
+    expect(fila, "no apareció el ajuste en la bitácora").to.not.equal(undefined);
+  });
+
+  test("guarda el saldo antes y después, y el motivo", function() {
+    const fila = res.getBody().filas.find(
+      f => f.resourceId === bru.getVar("loteId") && f.payload && f.payload.documento === "ajuste"
+    );
+    expect(fila.payload.antes).to.equal(120);
+    expect(fila.payload.despues).to.equal(112);
+    expect(fila.payload.motivo).to.contain("conteo físico");
+  });
+}

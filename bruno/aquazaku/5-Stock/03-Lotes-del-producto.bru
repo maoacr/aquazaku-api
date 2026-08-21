@@ -1,0 +1,31 @@
+meta {
+  name: Lotes del producto
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/stock/{{productoConStock}}/lotes
+}
+
+docs {
+  Los lotes con saldo, ordenados del más próximo a vencer. Ese orden ES el FIFO:
+  no es una preferencia de presentación, es la regla RN-STK-08 hecha consulta.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("aparece el lote que acaba de crearse", function() {
+    const codigos = res.getBody().map(l => l.codigo);
+    expect(codigos).to.include(bru.getVar("loteCodigo"));
+  });
+
+  test("vienen ordenados por vencimiento", function() {
+    const fechas = res.getBody().map(l => l.fechaVencimiento);
+    const ordenadas = [...fechas].sort();
+    expect(fechas).to.eql(ordenadas);
+  });
+}

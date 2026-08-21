@@ -1,0 +1,27 @@
+meta {
+  name: Un contador SI ve el stock
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/stock
+}
+
+docs {
+  El complemento del anterior, y tan importante como él.
+
+  Restringir la escritura sin dejar la lectura rompería la razón de ser del rol:
+  el contador necesita ver el inventario para cerrar los números. Los cuatro
+  roles leen el stock; solo admin y pos lo mueven.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("ve las cifras que necesita para cuadrar", function() {
+    expect(res.getBody()[0]).to.have.property("total");
+  });
+}

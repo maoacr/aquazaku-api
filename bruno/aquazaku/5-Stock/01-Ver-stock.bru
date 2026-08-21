@@ -1,0 +1,47 @@
+meta {
+  name: Ver el stock
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/stock
+}
+
+docs {
+  Resumen por producto: cuánto hay en total, cuánto se puede vender y cuánto
+  está vencido.
+
+  Las tres cifras salen de la MISMA consulta. Pedirlas por separado deja una
+  ventana en la que un descarte se cuela entre las dos, y la pantalla muestra
+  números que no suman — el peor tipo de error, porque quien lo ve pierde
+  confianza en todo lo demás.
+
+  Un producto sin lotes aparece en cero, no desaparece: "no existe" y "no hay"
+  son cosas muy distintas para quien está por pedir insumos.
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    const botellon = res.getBody().find(p => p.codigo === "BOT_20L");
+    if (botellon) bru.setVar("productoConStock", botellon.productoId);
+  }
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("los productos del catálogo aparecen aunque no tengan lotes", function() {
+    const codigos = res.getBody().map(p => p.codigo);
+    expect(codigos).to.include("BOT_20L");
+  });
+
+  test("total, vendible y vencido vienen juntos", function() {
+    const fila = res.getBody()[0];
+    expect(fila).to.have.property("total");
+    expect(fila).to.have.property("vendible");
+    expect(fila).to.have.property("vencido");
+  });
+}

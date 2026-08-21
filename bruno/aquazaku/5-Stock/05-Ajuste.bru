@@ -1,0 +1,37 @@
+meta {
+  name: Ajuste con motivo
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/stock/ajustes
+  body: json
+}
+
+body:json {
+  {
+    "loteId": "{{loteId}}",
+    "cantidad": -8,
+    "motivo": "conteo físico: faltaban 8 unidades"
+  }
+}
+
+docs {
+  El ajuste existe porque el inventario físico siempre difiere del sistema. Es
+  el escape válido, pero con nombre y motivo.
+
+  Un ajuste negativo se registra con tipo `ajuste`, NUNCA `venta`: un conteo que
+  da de menos no vendió nada, y registrarlo como venta inflaría el reporte de
+  ventas con unidades que nadie compró.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el saldo bajó exactamente lo ajustado", function() {
+    expect(res.getBody().saldo).to.equal(112);
+  });
+}

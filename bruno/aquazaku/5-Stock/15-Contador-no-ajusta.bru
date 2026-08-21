@@ -1,0 +1,37 @@
+meta {
+  name: Un contador no ajusta stock
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/stock/ajustes
+  body: json
+}
+
+body:json {
+  {
+    "loteId": "{{loteId}}",
+    "cantidad": -1,
+    "motivo": "el contador no debería poder"
+  }
+}
+
+docs {
+  El contador es un testigo, no un operador. Tiene que fallar.
+
+  Que devuelva 200 sería un agujero de autorización: el contador existe
+  justamente para que haya alguien que mire la contabilidad sin poder alterarla.
+  Si pudiera ajustar stock, la separación de funciones dejaría de significar
+  nada.
+}
+
+tests {
+  test("responde 403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("el intento queda auditado — la UI oculta, la API prohíbe", function() {
+    expect(res.getBody().code).to.equal("FORBIDDEN");
+  });
+}

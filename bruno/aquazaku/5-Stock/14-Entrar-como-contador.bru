@@ -1,0 +1,32 @@
+meta {
+  name: Entrar como contador
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailContador}}",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+docs {
+  Cambia de sesión. Los dos requests siguientes verifican las dos mitades del
+  contrato: lo que el contador SÍ puede y lo que NO.
+
+  Los tests unitarios ya cubren la matriz, pero no atraviesan un socket. Los dos
+  peores bugs de M0 —el header Origin y el logout faltante— vivían justamente en
+  costuras entre capas.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

@@ -1,0 +1,42 @@
+meta {
+  name: El libro de movimientos
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/stock/movimientos?limite=50
+}
+
+docs {
+  El libro que explica el saldo. Append-only por permisos: el rol de la
+  aplicación tiene SELECT e INSERT y nada más.
+
+  Cada movimiento guarda su lote_id. Es lo que hace posible responder a un
+  recall: "esta venta salió del lote X, esos clientes son los afectados".
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("registró la entrada, el ajuste y el descarte", function() {
+    const tipos = res.getBody().filas
+      .filter(m => m.loteCodigo === bru.getVar("loteCodigo"))
+      .map(m => m.tipo);
+    expect(tipos).to.include.members(["ajuste", "descarte"]);
+  });
+
+  test("el libro explica el saldo del lote", function() {
+    const delLote = res.getBody().filas.filter(m => m.loteCodigo === bru.getVar("loteCodigo"));
+    const suma = delLote.reduce((total, m) => total + m.cantidad, 0);
+    // 120 de entrada - 8 de ajuste - 2 de descarte
+    expect(suma).to.equal(110);
+  });
+
+  test("un ajuste negativo NO figura como venta", function() {
+    const ventas = res.getBody().filas.filter(m => m.tipo === "venta");
+    expect(ventas.length).to.equal(0);
+  });
+}
