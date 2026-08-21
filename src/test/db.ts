@@ -1,4 +1,6 @@
+import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
+import * as schema from '@/db/schema'
 
 /**
  * Utilidades de base para los tests. Solo se importan desde tests.
@@ -61,6 +63,27 @@ export function appSql() {
   const url = process.env.DATABASE_URL
   if (!url) throw new Error('DATABASE_URL no está definida en el entorno de tests')
   return postgres(url, { max: 1, onnotice: () => {} })
+}
+
+/**
+ * Pool con VARIAS conexiones reales, para probar concurrencia de verdad.
+ *
+ * El pool de la aplicación corre con `max: 1` en tests, a propósito: evita
+ * sockets colgados entre suites. Pero con una sola conexión, veinte descuentos
+ * lanzados a la vez **se encolan**, corren uno detrás de otro y el test pasa sin
+ * haber probado nada.
+ *
+ * Un test de concurrencia sobre un pool de una conexión es un test de
+ * secuencialidad con nombre engañoso. Por eso este abre las suyas.
+ *
+ * Quien lo use tiene que cerrarlo: `await pool.end()`.
+ */
+export function poolConcurrente(conexiones: number) {
+  const url = process.env.DATABASE_URL
+  if (!url) throw new Error('DATABASE_URL no está definida en el entorno de tests')
+
+  const cliente = postgres(url, { max: conexiones, onnotice: () => {} })
+  return { db: drizzle(cliente, { schema }), cerrar: () => cliente.end() }
 }
 
 /** Tablas en orden seguro para truncar (las hijas primero por las FK). */
