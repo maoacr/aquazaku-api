@@ -9,6 +9,7 @@ export const PG_ERROR = {
   UNIQUE_VIOLATION: '23505',
   FOREIGN_KEY_VIOLATION: '23503',
   NOT_NULL_VIOLATION: '23502',
+  CHECK_VIOLATION: '23514',
   /** Lo devuelven tanto un GRANT faltante como nuestro trigger de audit_log. */
   INSUFFICIENT_PRIVILEGE: '42501',
 } as const
@@ -64,6 +65,7 @@ export function appSql() {
 
 /** Tablas en orden seguro para truncar (las hijas primero por las FK). */
 const TABLAS = [
+  'productos',
   'user_roles',
   'sessions',
   'accounts',

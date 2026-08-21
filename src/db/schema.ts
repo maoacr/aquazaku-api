@@ -1,9 +1,13 @@
+import { sql } from 'drizzle-orm'
 import {
   bigserial,
   boolean,
+  check,
   customType,
   index,
+  integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -34,6 +38,7 @@ const tstz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date
 
 export const userStatusEnum = pgEnum('user_status', ['active', 'inactive'])
 export const auditResultEnum = pgEnum('audit_result', ['ok', 'denied'])
+export const presentacionEnum = pgEnum('presentacion', ['paca', 'botellon'])
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tablas que administra Better-Auth
@@ -232,6 +237,106 @@ export const auditLog = pgTable(
   ],
 )
 
+/**
+ * Catálogo de productos — RN-CAT-01 a 11.
+ *
+ * Es la única fuente de qué se puede vender. Lo que NO vive acá:
+ *
+ *   - `stock`  → M2. Mezclar catálogo con inventario los ata para siempre.
+ *   - `costo`  → M9. El margen no es un atributo del catálogo.
+ *   - el envase retornable → M7 (RN-CAT-05). El botellón se vende como agua,
+ *     no como recipiente: un flag acá invitaría a confundir los dos ciclos
+ *     de vida, que es justo el error que desangra el parque de envases.
+ *
+ * Los invariantes viven en la base, no en el servicio. El servicio igual valida
+ * —para poder explicar el error en castellano— pero la garantía es el CHECK: un
+ * UPDATE directo también tiene que fallar, o RN-CAT-04 sería una promesa vacía.
+ */
+export const productos = pgTable(
+  'productos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /**
+     * Legible y estable, pero NO es la identidad — RN-CAT-11. Esa es el `id`,
+     * igual que el documento no identifica al cliente (RN-CLI-01). Así, un
+     * código renombrado no arrastra ventas históricas ni movimientos de stock.
+     */
+    codigo: text('codigo').notNull(),
+    nombre: text('nombre').notNull(),
+    presentacion: presentacionEnum('presentacion').notNull(),
+
+    /**
+     * Equivalencia en litros — RN-PRD-01: es configuración, no código. El día
+     * que salga una bolsa de 500 ml o una paca de 24, se edita un dato.
+     *
+     * El botellón lleva `unidades = 1` en vez de null para que la fórmula de
+     * `litros` sea la misma para los tres productos, sin COALESCE. Que la paca
+     * TENGA 20 unidades no la hace divisible: RN-CAT-10 sigue valiendo.
+     */
+    contenidoMl: integer('contenido_ml').notNull(),
+    unidades: integer('unidades').notNull().default(1),
+
+    /**
+     * Derivado, calculado por Postgres. Un derivado que se escribe a mano se
+     * desincroniza de sus entradas; este no puede.
+     */
+    litros: numeric('litros', { precision: 10, scale: 3 })
+      .notNull()
+      .generatedAlwaysAs(sql`(contenido_ml::numeric * unidades) / 1000`),
+
+    /**
+     * Los precios viven acá y no en M10 — RN-CAT-03. No es preferencia de
+     * diseño: M6 (Ventas) depende de M1 y no de M10, así que con los precios
+     * en M10 no se podría vender hasta construirlo.
+     *
+     * `numeric` y nunca `float`: un peso perdido por redondeo binario es un
+     * peso que no cuadra en el cierre.
+     */
+    precioResidencial: numeric('precio_residencial', { precision: 12, scale: 2 }).notNull(),
+    precioComercial: numeric('precio_comercial', { precision: 12, scale: 2 }).notNull(),
+    precioMinimo: numeric('precio_minimo', { precision: 12, scale: 2 }).notNull(),
+
+    /**
+     * Semántica tributaria — RN-CAT-09. Hoy Aquazaku no retiene IVA ni declara
+     * nada, así que estos valores son `true` y `0`.
+     *
+     * Existen igual porque el día que se conecte la facturación electrónica hay
+     * que poder decir qué representaban los precios viejos, y eso no se
+     * reconstruye: es información que solo existía al momento de la venta.
+     */
+    precioIncluyeImpuestos: boolean('precio_incluye_impuestos').notNull().default(true),
+    tarifaIvaPorcentaje: numeric('tarifa_iva_porcentaje', { precision: 5, scale: 2 })
+      .notNull()
+      .default('0'),
+
+    /** RN-CAT-02: un producto no se borra, se desactiva. */
+    activo: boolean('activo').notNull().default(true),
+
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex('productos_codigo_key').on(t.codigo),
+    index('productos_activo_idx').on(t.activo),
+
+    /**
+     * RN-CAT-04 — el piso es piso. Acá y no en el servicio: el servicio se
+     * puede saltear con un UPDATE directo, el CHECK no.
+     */
+    check(
+      'productos_precio_minimo_es_piso',
+      sql`${t.precioMinimo} <= ${t.precioResidencial} AND ${t.precioMinimo} <= ${t.precioComercial}`,
+    ),
+    check('productos_precios_no_negativos', sql`${t.precioMinimo} >= 0`),
+    check('productos_unidades_positivas', sql`${t.unidades} >= 1`),
+    check('productos_contenido_positivo', sql`${t.contenidoMl} >= 1`),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Session = typeof sessions.$inferSelect
@@ -240,3 +345,5 @@ export type Role = typeof roles.$inferSelect
 export type UserRole = typeof userRoles.$inferSelect
 export type AuditLogEntry = typeof auditLog.$inferSelect
 export type NewAuditLogEntry = typeof auditLog.$inferInsert
+export type Producto = typeof productos.$inferSelect
+export type NuevoProducto = typeof productos.$inferInsert
