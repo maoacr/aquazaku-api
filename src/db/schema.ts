@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   index,
   integer,
   jsonb,
@@ -39,6 +40,28 @@ const tstz = (name: string) => timestamp(name, { withTimezone: true, mode: 'date
 export const userStatusEnum = pgEnum('user_status', ['active', 'inactive'])
 export const auditResultEnum = pgEnum('audit_result', ['ok', 'denied'])
 export const presentacionEnum = pgEnum('presentacion', ['paca', 'botellon'])
+
+/**
+ * Qué documento originó un movimiento de stock — RN-STK-02.
+ *
+ * El stock nunca se edita: se mueve mediante documentos con nombre. Este enum
+ * es la lista cerrada de esos documentos, y el módulo que lo produce.
+ */
+export const tipoMovimientoEnum = pgEnum('tipo_movimiento', [
+  'produccion', // M4 — el cierre diario genera lote y entra producto
+  'ajuste', // M2 — inventario físico, carga inicial
+  'descarte', // M2 — sale y no vuelve
+  'venta', // M6 — sale
+  'devolucion', // M6 — vuelve al MISMO lote (RN-STK-05)
+])
+
+/** Causas de descarte — RN-STK-06. Sin clasificar, no se descarta. */
+export const causaDescarteEnum = pgEnum('causa_descarte', [
+  'falla_produccion', // Aquazaku repone al cliente
+  'mal_manejo_cliente', // el cliente asume; entra a su historial
+  'vencido', // objetivo, no hace falta clasificar más
+  'otro', // queda marcado para revisión del admin
+])
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Tablas que administra Better-Auth
@@ -337,6 +360,128 @@ export const productos = pgTable(
   ],
 )
 
+/**
+ * Lotes de producto terminado — RN-STK-08.
+ *
+ * Un lote es "este producto, empacado este día". Lleva su propio saldo encima
+ * en vez de vivir en una tabla aparte: un lote ya es producto + fecha, y una
+ * tabla de saldos solo repetiría esa clave para agregar un número.
+ *
+ * ── El saldo no se edita ────────────────────────────────────────────────────
+ *
+ * `cantidad_disponible` se mueve insertando un movimiento, nunca con un UPDATE
+ * suelto (RN-STK-02). La operación correcta decide y descuenta a la vez:
+ *
+ *     UPDATE lotes SET cantidad_disponible = cantidad_disponible - $n
+ *      WHERE id = $lote AND cantidad_disponible >= $n
+ *
+ * Leer el saldo, comparar en TypeScript y después restar deja una ventana entre
+ * la decisión y el efecto — y por esa ventana se vende producto que no existe.
+ * El mostrador y la preparación de pedidos descuentan del mismo saldo al mismo
+ * tiempo (RN-STK-01): la concurrencia acá es un caso real, no teórico.
+ */
+export const lotes = pgTable(
+  'lotes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id),
+
+    /** `YYYY-MM-DD-L1`. Se imprime en la bolsa física — RN-STK-08. */
+    codigo: text('codigo').notNull(),
+
+    fechaEmpaque: date('fecha_empaque').notNull(),
+
+    /**
+     * GUARDADA, no generada. Es la diferencia con `litros` en `productos`, y es
+     * fácil equivocarse porque las dos las calcula el sistema.
+     *
+     * `litros` es una DEFINICIÓN: 12 L es lo que una paca *es*, y si cambian
+     * sus entradas debe recalcularse. Esto es un HECHO DE UN MOMENTO: este lote
+     * vence este día.
+     *
+     * Con una columna generada, cambiar la regla a 45 días recalcularía el
+     * vencimiento de todos los lotes del pasado —incluidos los ya vendidos— y
+     * eso es exactamente lo que RN-CAT-07 prohíbe para los precios: una regla
+     * nueva no puede reescribir lo que ya pasó.
+     */
+    fechaVencimiento: date('fecha_vencimiento').notNull(),
+
+    cantidadInicial: integer('cantidad_inicial').notNull(),
+    cantidadDisponible: integer('cantidad_disponible').notNull(),
+
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('lotes_codigo_key').on(t.codigo),
+    // FIFO consulta por producto ordenando por vencimiento: el índice ES el orden.
+    index('lotes_fifo_idx').on(t.productoId, t.fechaVencimiento),
+
+    // RN-STK-03: no hay venta con stock negativo. Acá y no en el servicio,
+    // porque el servicio se puede saltear con un UPDATE directo (ADR-0006).
+    check('lotes_saldo_no_negativo', sql`${t.cantidadDisponible} >= 0`),
+    check('lotes_cantidad_inicial_positiva', sql`${t.cantidadInicial} > 0`),
+    check('lotes_vence_despues_de_empacar', sql`${t.fechaVencimiento} > ${t.fechaEmpaque}`),
+  ],
+)
+
+/**
+ * Libro de movimientos de stock — RN-STK-02.
+ *
+ * Append-only, igual que `audit_log` (ADR-0004): el rol de la aplicación tiene
+ * SELECT e INSERT y nada más. Un libro que se puede editar no es un libro — es
+ * una tabla que alguna vez coincidió con la realidad.
+ *
+ * Cada movimiento y el saldo que produce se escriben en la MISMA transacción.
+ * Si el saldo baja y el movimiento no queda, el libro deja de explicar el saldo:
+ * es la primera forma de descuadre y la más difícil de rastrear después.
+ */
+export const movimientosStock = pgTable(
+  'movimientos_stock',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    loteId: uuid('lote_id')
+      .notNull()
+      .references(() => lotes.id),
+
+    /** Positivo entra, negativo sale. Nunca cero. */
+    cantidad: integer('cantidad').notNull(),
+    tipo: tipoMovimientoEnum('tipo').notNull(),
+
+    /** Obligatorio en ajuste — RN-STK-02. Lo exige un CHECK, no el servicio. */
+    motivo: text('motivo'),
+    /** Obligatoria en descarte — RN-STK-06. */
+    causa: causaDescarteEnum('causa'),
+
+    /** La venta o el cierre de producción que lo originó. Null en ajuste manual. */
+    documentoId: uuid('documento_id'),
+
+    // Se conserva el movimiento aunque el usuario se borre: un libro que pierde
+    // filas cuando se va alguien no sirve para cuadrar nada.
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('movimientos_lote_idx').on(t.loteId),
+    index('movimientos_fecha_idx').on(t.createdAt),
+    index('movimientos_tipo_idx').on(t.tipo),
+
+    check('movimientos_cantidad_no_cero', sql`${t.cantidad} <> 0`),
+
+    /**
+     * Los dos CHECK condicionales exigen el dato SOLO donde corresponde, sin
+     * obligar a un motivo en una venta.
+     *
+     * Van en la base y no en el servicio porque un ajuste sin motivo que entre
+     * por un script deja el inventario descuadrado sin nadie a quién
+     * preguntarle.
+     */
+    check('movimientos_ajuste_con_motivo', sql`${t.tipo} <> 'ajuste' OR ${t.motivo} IS NOT NULL`),
+    check('movimientos_descarte_con_causa', sql`${t.tipo} <> 'descarte' OR ${t.causa} IS NOT NULL`),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Session = typeof sessions.$inferSelect
@@ -347,3 +492,7 @@ export type AuditLogEntry = typeof auditLog.$inferSelect
 export type NewAuditLogEntry = typeof auditLog.$inferInsert
 export type Producto = typeof productos.$inferSelect
 export type NuevoProducto = typeof productos.$inferInsert
+export type Lote = typeof lotes.$inferSelect
+export type NuevoLote = typeof lotes.$inferInsert
+export type MovimientoStock = typeof movimientosStock.$inferSelect
+export type NuevoMovimientoStock = typeof movimientosStock.$inferInsert

@@ -65,6 +65,8 @@ export function appSql() {
 
 /** Tablas en orden seguro para truncar (las hijas primero por las FK). */
 const TABLAS = [
+  'movimientos_stock',
+  'lotes',
   'productos',
   'user_roles',
   'sessions',
