@@ -1,0 +1,24 @@
+meta {
+  name: No existe forma de borrar un producto
+  type: http
+  seq: 9
+}
+
+delete {
+  url: {{baseUrl}}/productos/{{productoCreadoId}}
+}
+
+docs {
+  Que esta ruta NO exista es parte del contrato, no una omisión.
+
+  RN-CAT-02: un producto no se borra, se desactiva. Si algún día alguien agrega
+  un DELETE "por comodidad", este test se pone en rojo y obliga a discutirlo en
+  vez de descubrirlo cuando un comprobante viejo apunte a un producto que ya no
+  está.
+}
+
+tests {
+  test("responde 404: la ruta no existe", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

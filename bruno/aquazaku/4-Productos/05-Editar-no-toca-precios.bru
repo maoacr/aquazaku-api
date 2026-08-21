@@ -1,0 +1,40 @@
+meta {
+  name: El PATCH general no cambia precios
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/productos/{{productoCreadoId}}
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Renombrada por Bruno",
+    "precioResidencial": "1.00"
+  }
+}
+
+docs {
+  Manda un precio en el body del PATCH general, que solo debería cambiar el
+  nombre.
+
+  Es la verificación de que la separación de permisos no tiene puerta lateral:
+  si el precio cambiara acá, alguien con productos:editar podría bajar precios
+  sin tener productos:editar_precios.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el nombre cambió", function() {
+    expect(res.getBody().nombre).to.equal("Renombrada por Bruno");
+  });
+
+  test("el precio NO cambió: la puerta lateral está cerrada", function() {
+    expect(res.getBody().precioResidencial).to.equal("9500.00");
+  });
+}

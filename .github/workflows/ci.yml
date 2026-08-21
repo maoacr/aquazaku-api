@@ -161,5 +161,10 @@ jobs:
 
       - run: npm install -g @usebruno/cli
 
+      # `bru` 4.x exige correr DESDE la raíz de la colección y sacó el flag
+      # `--recursive` en favor de `-r`. Con la forma vieja el comando imprime la
+      # ayuda y sale con código 1: el job se pone rojo sin haber corrido ni un
+      # request, que es fácil de confundir con un test que falla.
       - name: Correr la colección
-        run: bru run bruno/aquazaku --env ci --recursive
+        working-directory: bruno/aquazaku
+        run: bru run . -r --env ci

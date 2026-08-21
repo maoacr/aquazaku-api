@@ -1,0 +1,41 @@
+meta {
+  name: Listar catalogo
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/productos?estado=todos
+}
+
+docs {
+  El catálogo completo, incluidos los desactivados.
+
+  Por defecto el endpoint devuelve solo los activos —es lo que una pantalla de
+  venta necesita— y ver los inactivos es la excepción, que se pide explícita.
+
+  Los litros no los manda nadie: los calcula Postgres desde contenido ×
+  unidades (columna generada). Si acá vinieran mal, el problema está en la
+  migración, no en el código.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("trae los tres productos que siembra el seed", function() {
+    const codigos = res.getBody().map(p => p.codigo).sort();
+    expect(codigos).to.include.members(["BOT_20L", "P20U_600ML", "P50U_300ML"]);
+  });
+
+  test("los litros los calculó la base", function() {
+    const botellon = res.getBody().find(p => p.codigo === "BOT_20L");
+    expect(Number(botellon.litros)).to.equal(20);
+  });
+
+  test("los montos viajan como string, no como float", function() {
+    const botellon = res.getBody().find(p => p.codigo === "BOT_20L");
+    expect(typeof botellon.precioResidencial).to.equal("string");
+  });
+}

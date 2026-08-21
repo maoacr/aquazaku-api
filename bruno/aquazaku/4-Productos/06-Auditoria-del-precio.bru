@@ -1,0 +1,39 @@
+meta {
+  name: El cambio de precio dejó rastro
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/audit?action=productos:editar_precios&limite=10
+}
+
+docs {
+  RN-ACC-04 nombra los cambios de precio entre las acciones sensibles.
+
+  Lo que se verifica acá no es que exista la fila, sino que sirva: sin el
+  antes y el después, la bitácora diría que alguien cambió un precio pero no de
+  cuánto a cuánto — justo lo que se va a querer saber cuando aparezca una venta
+  con un número raro.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("encontró el cambio que acaba de hacerse", function() {
+    const fila = res.getBody().filas.find(
+      f => f.resourceId === bru.getVar("productoCreadoId")
+    );
+    expect(fila, "no apareció el cambio de precio en la bitácora").to.not.equal(undefined);
+  });
+
+  test("guarda el antes y el después, no solo que hubo un cambio", function() {
+    const fila = res.getBody().filas.find(
+      f => f.resourceId === bru.getVar("productoCreadoId")
+    );
+    expect(fila.payload.antes.residencial).to.equal("8000.00");
+    expect(fila.payload.despues.residencial).to.equal("9500.00");
+  });
+}

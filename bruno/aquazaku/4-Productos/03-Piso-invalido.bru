@@ -1,0 +1,49 @@
+meta {
+  name: Piso por encima del precio de lista
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/productos
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Producto imposible",
+    "presentacion": "paca",
+    "contenidoMl": 400,
+    "unidades": 10,
+    "precioResidencial": "5000.00",
+    "precioComercial": "5000.00",
+    "precioMinimo": "9000.00"
+  }
+}
+
+docs {
+  Intenta crear un producto cuyo piso supera los dos precios de lista. Tiene
+  que fallar.
+
+  Que este request devuelva 201 sería un fallo grave, no un éxito: un piso por
+  encima del precio de lista deja el sistema de descuentos sin red, y RN-CAT-04
+  existe justamente para que eso no pueda pasar.
+
+  La garantía real es un CHECK en la base, que rechaza incluso un UPDATE hecho
+  con el rol dueño. Esta validación del servicio existe para que el mensaje sea
+  legible en vez de un error de Postgres.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("el código dice cuál es el problema", function() {
+    expect(res.getBody().code).to.equal("PRECIO_MINIMO_INVALIDO");
+  });
+
+  test("el mensaje explica qué está mal, no solo que falló", function() {
+    expect(res.getBody().mensaje).to.contain("precio mínimo");
+  });
+}

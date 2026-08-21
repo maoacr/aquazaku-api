@@ -1,0 +1,31 @@
+meta {
+  name: Un pos SI lee el catalogo
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/productos
+}
+
+docs {
+  El complemento del request anterior, y tan importante como él.
+
+  Los cuatro roles leen el catálogo: un pos que no ve precios no puede vender.
+  Restringir la escritura sin dejar la lectura sería romper la operación para
+  proteger un dato que igual necesita.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("ve los productos activos", function() {
+    expect(res.getBody().length).to.be.above(0);
+  });
+
+  test("ve los precios: sin ellos no puede cobrar", function() {
+    expect(res.getBody()[0].precioResidencial).to.not.equal(undefined);
+  });
+}

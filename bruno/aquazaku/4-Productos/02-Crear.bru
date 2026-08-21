@@ -1,0 +1,68 @@
+meta {
+  name: Crear producto
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/productos
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Paca de Bruno",
+    "presentacion": "paca",
+    "contenidoMl": {{contenidoDePrueba}},
+    "unidades": 12,
+    "precioResidencial": "8000.00",
+    "precioComercial": "7500.00",
+    "precioMinimo": "6000.00"
+  }
+}
+
+docs {
+  Alta de producto. NO se manda código: lo genera api/ a partir de la
+  presentación, el contenido y las unidades (RN-CAT-11).
+
+  El contenido se aleatoriza en cada corrida para que la colección se pueda
+  correr muchas veces sin chocar con un código ya tomado — un producto
+  desactivado sigue ocupando el suyo, a propósito.
+}
+
+script:pre-request {
+  // Entre 101 y 999 ml: fuera del rango de los productos reales, así no
+  // colisiona con lo que sembró el seed.
+  bru.setVar("contenidoDePrueba", 101 + Math.floor(Math.random() * 899));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    bru.setVar("productoCreadoId", res.getBody().id);
+    bru.setVar("productoCreadoCodigo", res.getBody().codigo);
+  }
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el código lo generó el sistema con el formato del dominio", function() {
+    expect(res.getBody().codigo).to.match(/^P12U_\d+ML$/);
+  });
+
+  test("los litros salen del contenido por las unidades", function() {
+    const esperado = (bru.getVar("contenidoDePrueba") * 12) / 1000;
+    expect(Number(res.getBody().litros)).to.equal(esperado);
+  });
+
+  test("nace activo", function() {
+    expect(res.getBody().activo).to.equal(true);
+  });
+
+  test("el precio declara qué incluye, para el día que haya IVA", function() {
+    expect(res.getBody().precioIncluyeImpuestos).to.equal(true);
+    expect(Number(res.getBody().tarifaIvaPorcentaje)).to.equal(0);
+  });
+}

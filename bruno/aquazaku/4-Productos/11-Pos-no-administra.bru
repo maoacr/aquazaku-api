@@ -1,0 +1,43 @@
+meta {
+  name: Un pos no puede crear productos
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/productos
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Producto que el pos no debería poder crear",
+    "presentacion": "paca",
+    "contenidoMl": 750,
+    "unidades": 6,
+    "precioResidencial": "5000.00",
+    "precioComercial": "5000.00",
+    "precioMinimo": "4000.00"
+  }
+}
+
+docs {
+  El catálogo lo administra solo admin (RN-CAT-06). Este request tiene que
+  fallar.
+
+  El precio es la variable más sensible del negocio: un pos que pudiera
+  editarlo volvería inútil todo el sistema de descuentos con piso, porque
+  bajaría el precio en vez de pedir un código.
+
+  Que devuelva 201 sería un agujero de autorización, no un éxito.
+}
+
+tests {
+  test("responde 403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("el intento queda auditado — la UI oculta, la API prohíbe", function() {
+    expect(res.getBody().code).to.equal("FORBIDDEN");
+  });
+}

@@ -1,0 +1,41 @@
+meta {
+  name: Editar precios
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/productos/{{productoCreadoId}}/precios
+  body: json
+}
+
+body:json {
+  {
+    "precioResidencial": "9500.00",
+    "precioComercial": "9000.00",
+    "precioMinimo": "6500.00"
+  }
+}
+
+docs {
+  Los precios tienen su propia ruta y su propio permiso.
+
+  Si vivieran dentro del PATCH general, productos:editar daría acceso a lo que
+  productos:editar_precios protege, y la matriz dejaría de significar lo que
+  dice.
+
+  Los tres van juntos y ninguno es opcional: permitir cambiar uno solo
+  obligaría a leer los otros dos para verificar el piso, abriendo una ventana
+  entre esa lectura y la escritura.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("los tres precios quedaron guardados", function() {
+    expect(res.getBody().precioResidencial).to.equal("9500.00");
+    expect(res.getBody().precioMinimo).to.equal("6500.00");
+  });
+}

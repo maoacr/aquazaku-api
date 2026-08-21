@@ -1,0 +1,32 @@
+meta {
+  name: Desactivar producto
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/productos/{{productoCreadoId}}/desactivar
+}
+
+docs {
+  Desactivar es POST a su propia ruta, no DELETE.
+
+  Un DELETE diría que el producto desaparece, y eso es justo lo que RN-CAT-02
+  prohíbe: una venta de marzo apunta a ese producto. El verbo tiene que contar
+  la verdad de lo que pasa.
+
+  Que la ruta DELETE no exista está garantizado en tres capas: la base le
+  revocó el privilegio al rol de la aplicación, el servicio no expone el método
+  y la ruta no está declarada.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el producto quedó inactivo pero sigue existiendo", function() {
+    expect(res.getBody().activo).to.equal(false);
+    expect(res.getBody().codigo).to.equal(bru.getVar("productoCreadoCodigo"));
+  });
+}

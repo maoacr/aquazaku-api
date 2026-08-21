@@ -1,0 +1,26 @@
+meta {
+  name: Desactivar dos veces avisa
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/productos/{{productoCreadoId}}/desactivar
+}
+
+docs {
+  Desactivar uno que ya estaba desactivado devuelve 409, no 200.
+
+  La idempotencia silenciosa le escondería al admin que su modelo mental estaba
+  mal: si creía que el producto estaba activo, merece enterarse de que no.
+}
+
+tests {
+  test("responde 409", function() {
+    expect(res.getStatus()).to.equal(409);
+  });
+
+  test("el código dice qué pasó", function() {
+    expect(res.getBody().code).to.equal("PRODUCTO_YA_INACTIVO");
+  });
+}

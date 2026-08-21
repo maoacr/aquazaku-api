@@ -1,0 +1,35 @@
+meta {
+  name: Entrar como pos
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailNuevo}}",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+docs {
+  Cambia de sesión al usuario `pos` que creó 2-Usuarios/02-Crear.
+
+  Los tests unitarios ya verifican que la matriz le niegue el permiso, pero
+  esos no atraviesan un socket. Los dos peores bugs de M0 —el header Origin y
+  el logout faltante— vivían justamente en costuras entre capas, donde ninguna
+  suite unitaria mira por diseño.
+
+  Esta es la única verificación del proyecto donde un rol distinto de admin
+  pega contra api/ por HTTP real.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
