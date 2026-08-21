@@ -2,19 +2,8 @@ import { and, eq, inArray, ne } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { sessions, userRoles, users } from '@/db/schema'
 import { auth } from '@/modules/auth/better-auth'
+import { ErrorDeNegocio } from '@/lib/errors'
 import type { Role } from '@/modules/authz/matrix'
-
-/** Falla una regla de negocio. La ruta la traduce a un status HTTP. */
-export class ErrorDeNegocio extends Error {
-  constructor(
-    readonly code: string,
-    readonly status: number,
-    mensaje: string,
-  ) {
-    super(mensaje)
-    this.name = 'ErrorDeNegocio'
-  }
-}
 
 export interface UsuarioListado {
   id: string

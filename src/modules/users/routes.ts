@@ -1,11 +1,11 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { ZodType } from 'zod'
 import { auditarSinBloquear } from '@/modules/auth/routes'
+import { ErrorDeNegocio } from '@/lib/errors'
 import { emit } from '@/modules/authz/audit'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import type { Role } from '@/modules/authz/matrix'
 import {
-  ErrorDeNegocio,
   asignarRoles,
   buscarUsuario,
   crearUsuario,
