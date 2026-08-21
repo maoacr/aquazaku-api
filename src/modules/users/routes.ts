@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
-import type { ZodType } from 'zod'
+import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { emit } from '@/modules/authz/audit'
@@ -115,24 +115,6 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   )
-}
-
-/** Valida el body y responde 400 con el detalle si no pasa. */
-function validar<T>(esquema: ZodType<T>, body: unknown, reply: FastifyReply): T | null {
-  const resultado = esquema.safeParse(body)
-
-  if (!resultado.success) {
-    reply.code(400).send({
-      code: 'VALIDATION_ERROR',
-      detalle: resultado.error.issues.map((i) => ({
-        campo: i.path.join('.') || '(cuerpo)',
-        mensaje: i.message,
-      })),
-    })
-    return null
-  }
-
-  return resultado.data
 }
 
 /**

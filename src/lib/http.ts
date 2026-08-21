@@ -1,4 +1,5 @@
-import type { FastifyRequest } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { ZodType } from 'zod'
 
 /**
  * Convierte los headers de Fastify a los `Headers` del estándar web.
@@ -21,4 +22,28 @@ export function headersDesdeFastify(req: FastifyRequest): Headers {
   }
 
   return headers
+}
+
+/**
+ * Valida el body contra un esquema y responde 400 con el detalle si no pasa.
+ *
+ * Devuelve `null` cuando falló, para que el handler corte con un `if`. El
+ * detalle lista campo por campo: un 400 que solo dice "inválido" obliga a
+ * adivinar cuál de los ocho campos está mal.
+ */
+export function validar<T>(esquema: ZodType<T>, body: unknown, reply: FastifyReply): T | null {
+  const resultado = esquema.safeParse(body)
+
+  if (!resultado.success) {
+    reply.code(400).send({
+      code: 'VALIDATION_ERROR',
+      detalle: resultado.error.issues.map((i) => ({
+        campo: i.path.join('.') || '(cuerpo)',
+        mensaje: i.message,
+      })),
+    })
+    return null
+  }
+
+  return resultado.data
 }
