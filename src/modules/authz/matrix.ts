@@ -53,6 +53,7 @@ export type Action =
   | 'entregar'
   | 'recibir_retorno'
   | 'descartar'
+  | 'desactivar'
   | 'prestar'
   | 'retirar'
   | 'registrar_cierre'
@@ -164,7 +165,10 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'rutas', action: 'cerrar_con_faltante', scope: 'todo' },
 
     { resource: 'productos', action: 'ver', scope: 'todo' },
+    { resource: 'productos', action: 'crear', scope: 'todo' },
+    { resource: 'productos', action: 'editar', scope: 'todo' },
     { resource: 'productos', action: 'editar_precios', scope: 'todo' },
+    { resource: 'productos', action: 'desactivar', scope: 'todo' },
     { resource: 'usuarios', action: 'ver', scope: 'todo' },
     { resource: 'usuarios', action: 'crear', scope: 'todo' },
     { resource: 'usuarios', action: 'editar', scope: 'todo' },

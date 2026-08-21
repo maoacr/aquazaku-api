@@ -65,7 +65,10 @@ const ESPERADO: Record<Role, string[]> = {
     'rutas:rendir:todo',
     'rutas:cerrar_con_faltante:todo',
     'productos:ver:todo',
+    'productos:crear:todo',
+    'productos:editar:todo',
     'productos:editar_precios:todo',
+    'productos:desactivar:todo',
     'usuarios:ver:todo',
     'usuarios:crear:todo',
     'usuarios:editar:todo',
@@ -241,6 +244,26 @@ describe('PERMISSION_MATRIX — reglas de negocio que no se pueden romper', () =
     for (const role of ROLES) {
       const tiene = PERMISSION_MATRIX[role].some((r) => r.action === 'anular_verificada')
       expect(tiene).toBe(role === 'admin')
+    }
+  })
+
+  it('solo admin administra el catálogo — RN-CAT-06', () => {
+    for (const accion of ['crear', 'editar', 'editar_precios', 'desactivar'] as const) {
+      for (const role of ROLES) {
+        const puede = PERMISSION_MATRIX[role].some(
+          (r) => r.resource === 'productos' && r.action === accion,
+        )
+        expect(puede, `${role} no debería poder productos:${accion}`).toBe(role === 'admin')
+      }
+    }
+  })
+
+  it('los cuatro roles leen el catálogo — un pos que no ve precios no puede vender', () => {
+    for (const role of ROLES) {
+      const ve = PERMISSION_MATRIX[role].some(
+        (r) => r.resource === 'productos' && r.action === 'ver',
+      )
+      expect(ve, `${role} debería poder ver el catálogo`).toBe(true)
     }
   })
 
