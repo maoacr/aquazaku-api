@@ -270,7 +270,7 @@ describe('servicio de productos (M1)', () => {
   it('el error dice qué hacer, no solo que no se puede', async () => {
     const producto = await crearProducto(PACA_600)
     await registrarEntrada(
-      { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'x' },
+      { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'carga inicial de inventario' },
       CONTEXTO,
     )
 
@@ -282,7 +282,7 @@ describe('servicio de productos (M1)', () => {
   it('el producto sigue activo tras el intento fallido', async () => {
     const producto = await crearProducto(PACA_600)
     await registrarEntrada(
-      { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'x' },
+      { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'carga inicial de inventario' },
       CONTEXTO,
     )
 
@@ -294,7 +294,7 @@ describe('servicio de productos (M1)', () => {
   it('descartado el stock, ya se puede desactivar', async () => {
     const producto = await crearProducto(PACA_600)
     const lote = await registrarEntrada(
-      { productoId: producto.id, cantidad: 12, fechaEmpaque: '2026-08-22', motivo: 'x' },
+      { productoId: producto.id, cantidad: 12, fechaEmpaque: '2026-08-22', motivo: 'carga inicial de inventario' },
       CONTEXTO,
     )
     await descartar({ loteId: lote.id, cantidad: 12, causa: 'vencido' }, CONTEXTO)
@@ -308,7 +308,7 @@ describe('servicio de productos (M1)', () => {
     const producto = await crearProducto(PACA_600)
     // Vencido hace rato, pero las unidades existen y ocupan lugar.
     await registrarEntrada(
-      { productoId: producto.id, cantidad: 9, fechaEmpaque: '2020-01-01', motivo: 'viejo' },
+      { productoId: producto.id, cantidad: 9, fechaEmpaque: '2020-01-01', motivo: 'lote heredado del inventario anterior' },
       CONTEXTO,
     )
 

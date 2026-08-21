@@ -2,6 +2,7 @@ import { and, eq, like } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { type Lote, type MovimientoStock, lotes, productos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { emit } from '@/modules/authz/audit'
 import { codigoDeLote, vencimientoDe } from './codigo-lote'
 import { type Ejecutor, descontar, ingresar } from './saldo'
@@ -51,11 +52,27 @@ async function exigirLote(loteId: string, ejecutor: Ejecutor = db): Promise<Lote
 }
 
 function exigirMotivo(motivo: string): void {
-  if (!motivo.trim()) {
+  if (!motivoEsSuficiente(motivo)) {
     throw new ErrorDeNegocio(
       'MOTIVO_REQUERIDO',
       422,
-      'un ajuste sin motivo es un cambio que nadie va a poder explicar después',
+      `el motivo necesita al menos ${LARGO_MINIMO_MOTIVO} caracteres: un ajuste que nadie pueda explicar dentro de tres meses no sirve como registro`,
+    )
+  }
+}
+
+/**
+ * Con causa `otro` hay que explicar qué pasó — R20.
+ *
+ * Las otras tres causas ya dicen algo. `otro` sin texto deja un registro que
+ * dice "se descartaron 12 unidades por otro": un número sin significado.
+ */
+function exigirObservacionesSiLaCausaEsOtro(descarte: Descarte): void {
+  if (descarte.causa === 'otro' && !motivoEsSuficiente(descarte.observaciones)) {
+    throw new ErrorDeNegocio(
+      'CAUSA_REQUERIDA',
+      422,
+      `con causa "otro" hay que explicar qué pasó, en al menos ${LARGO_MINIMO_MOTIVO} caracteres`,
     )
   }
 }
@@ -214,6 +231,8 @@ export async function descartar(
   if (!Number.isInteger(descarte.cantidad) || descarte.cantidad <= 0) {
     throw new ErrorDeNegocio('CANTIDAD_INVALIDA', 422, 'la cantidad tiene que ser mayor que cero')
   }
+
+  exigirObservacionesSiLaCausaEsOtro(descarte)
 
   const antes = await exigirLote(descarte.loteId)
 

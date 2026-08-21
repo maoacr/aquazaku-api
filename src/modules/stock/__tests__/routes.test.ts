@@ -124,7 +124,7 @@ describe('quién puede tocar el stock', () => {
     await comoRol('seller', {
       method: 'POST',
       url: '/stock/ajustes',
-      payload: { loteId: '00000000-0000-0000-0000-000000000000', cantidad: 1, motivo: 'x' },
+      payload: { loteId: '00000000-0000-0000-0000-000000000000', cantidad: 1, motivo: 'carga inicial de inventario' },
     })
 
     const [entrada] = await db
@@ -168,7 +168,7 @@ describe('entrada de inventario', () => {
     const res = await comoAdmin({
       method: 'POST',
       url: '/stock/entradas',
-      payload: { productoId, cantidad: 10, fechaEmpaque: '22/08/2026', motivo: 'x' },
+      payload: { productoId, cantidad: 10, fechaEmpaque: '22/08/2026', motivo: 'carga inicial de inventario' },
     })
 
     expect(res.statusCode).toBe(400)
@@ -182,7 +182,7 @@ describe('ajuste y descarte', () => {
     const res = await comoAdmin({
       method: 'POST',
       url: '/stock/ajustes',
-      payload: { loteId: lote.id, cantidad: -50, motivo: 'imposible' },
+      payload: { loteId: lote.id, cantidad: -50, motivo: 'intento de descontar mas de lo que hay' },
     })
 
     expect(res.statusCode).toBe(409)
@@ -196,7 +196,7 @@ describe('ajuste y descarte', () => {
     const res = await comoAdmin({
       method: 'POST',
       url: '/stock/ajustes',
-      payload: { loteId: lote.id, cantidad: 0, motivo: 'nada' },
+      payload: { loteId: lote.id, cantidad: 0, motivo: 'ajuste de prueba del schema' },
     })
 
     expect(res.statusCode).toBe(400)
@@ -221,7 +221,7 @@ describe('ajuste y descarte', () => {
       payload: {
         loteId: '00000000-0000-0000-0000-000000000000',
         cantidad: -1,
-        motivo: 'x',
+        motivo: 'carga inicial de inventario',
       },
     })
 
@@ -260,12 +260,12 @@ describe('consultas', () => {
     await comoAdmin({
       method: 'POST',
       url: '/stock/entradas',
-      payload: { productoId, cantidad: 10, fechaEmpaque: '2026-09-01', motivo: 'x' },
+      payload: { productoId, cantidad: 10, fechaEmpaque: '2026-09-01', motivo: 'carga inicial de inventario' },
     })
     await comoAdmin({
       method: 'POST',
       url: '/stock/entradas',
-      payload: { productoId, cantidad: 10, fechaEmpaque: '2026-08-01', motivo: 'x' },
+      payload: { productoId, cantidad: 10, fechaEmpaque: '2026-08-01', motivo: 'carga inicial de inventario' },
     })
 
     const lotesDelProducto = (

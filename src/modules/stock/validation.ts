@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { LARGO_MINIMO_MOTIVO } from '@/lib/motivos'
 
 /**
  * Esquemas del stock — M2.
@@ -17,11 +18,22 @@ const fecha = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'la fecha va como AAAA-MM-
 
 const entero = z.number().int('tiene que ser un número entero de unidades')
 
+/**
+ * Un motivo que sirva para entender el registro dentro de tres meses.
+ *
+ * Diez caracteres es la convención del proyecto para toda acción irreversible.
+ * No garantiza una buena explicación, pero descarta el `x` reflejo.
+ */
+const motivo = z
+  .string()
+  .trim()
+  .min(LARGO_MINIMO_MOTIVO, `el motivo necesita al menos ${LARGO_MINIMO_MOTIVO} caracteres: tiene que servir para entender el registro dentro de tres meses`)
+
 export const esquemaDeEntrada = z.object({
   productoId: z.uuid('el producto no es un identificador válido'),
   cantidad: entero.positive('la cantidad tiene que ser mayor que cero'),
   fechaEmpaque: fecha,
-  motivo: z.string().trim().min(1, 'el motivo es obligatorio'),
+  motivo,
 })
 
 export const esquemaDeAjuste = z.object({
@@ -32,15 +44,27 @@ export const esquemaDeAjuste = z.object({
    * operación que no hace nada.
    */
   cantidad: entero.refine((n) => n !== 0, 'un ajuste de cero no corrige nada'),
-  motivo: z.string().trim().min(1, 'el motivo es obligatorio'),
+  motivo,
 })
 
-export const esquemaDeDescarte = z.object({
-  loteId: z.uuid('el lote no es un identificador válido'),
-  cantidad: entero.positive('la cantidad tiene que ser mayor que cero'),
-  causa: z.enum(['falla_produccion', 'mal_manejo_cliente', 'vencido', 'otro']),
-  observaciones: z.string().trim().optional(),
-})
+/**
+ * Con causa `otro`, las observaciones dejan de ser opcionales.
+ *
+ * Las otras tres causas ya dicen qué pasó. `otro` no dice nada: sin el texto,
+ * el registro queda como "se descartaron 12 unidades por otro" — un número sin
+ * significado, que es exactamente lo que RN-STK-06 quiere evitar.
+ */
+export const esquemaDeDescarte = z
+  .object({
+    loteId: z.uuid('el lote no es un identificador válido'),
+    cantidad: entero.positive('la cantidad tiene que ser mayor que cero'),
+    causa: z.enum(['falla_produccion', 'mal_manejo_cliente', 'vencido', 'otro']),
+    observaciones: z.string().trim().optional(),
+  })
+  .refine((d) => d.causa !== 'otro' || (d.observaciones?.length ?? 0) >= LARGO_MINIMO_MOTIVO, {
+    path: ['observaciones'],
+    message: `con causa "otro" hay que explicar qué pasó, en al menos ${LARGO_MINIMO_MOTIVO} caracteres`,
+  })
 
 export const esquemaDeFiltroDeMovimientos = z.object({
   loteId: z.uuid().optional(),

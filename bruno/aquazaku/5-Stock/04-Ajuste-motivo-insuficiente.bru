@@ -1,0 +1,46 @@
+meta {
+  name: Ajuste con motivo insuficiente
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/stock/ajustes
+  body: json
+}
+
+body:json {
+  {
+    "loteId": "{{loteId}}",
+    "cantidad": -5,
+    "motivo": "no cuadró"
+  }
+}
+
+docs {
+  Un ajuste con motivo de nueve caracteres. Tiene que fallar.
+
+  El mínimo son diez, y no es un capricho: con "no vacío" alcanzan `.`, `x` u
+  `ok`. Tres meses después, quien investiga un descuadre encuentra "x" y el
+  registro no sirve para nada — pero el sistema hizo lo que le pidieron.
+
+  Diez caracteres no garantizan una buena explicación. Descartan el gesto
+  reflejo de llenar el campo para que la pantalla deje pasar.
+
+  Convención transversal del proyecto: aplica a anulaciones, devoluciones,
+  daños, ajustes y diferencias de cierre.
+}
+
+tests {
+  test("responde 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("dice qué campo está mal", function() {
+    expect(res.getBody().detalle[0].campo).to.equal("motivo");
+  });
+
+  test("el mensaje explica el porqué, no solo el mínimo", function() {
+    expect(res.getBody().detalle[0].mensaje).to.contain("tres meses");
+  });
+}

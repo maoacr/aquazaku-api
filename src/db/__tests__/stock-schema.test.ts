@@ -180,7 +180,7 @@ describe('schema de stock (M2)', () => {
 
     it('un movimiento en cero no dice nada, así que no existe', async () => {
       const error = await pgErrorOf(
-        db.insert(movimientosStock).values({ loteId, cantidad: 0, tipo: 'ajuste', motivo: 'nada' }),
+        db.insert(movimientosStock).values({ loteId, cantidad: 0, tipo: 'ajuste', motivo: 'ajuste de prueba del schema' }),
       )
 
       expect(error.code).toBe(PG_ERROR.CHECK_VIOLATION)

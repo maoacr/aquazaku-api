@@ -1,0 +1,39 @@
+meta {
+  name: Causa otro sin explicar
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/stock/descartes
+  body: json
+}
+
+body:json {
+  {
+    "loteId": "{{loteId}}",
+    "cantidad": 3,
+    "causa": "otro"
+  }
+}
+
+docs {
+  Con causa `otro` hay que explicar qué pasó. Tiene que fallar.
+
+  Las otras tres causas ya dicen algo por sí solas. `otro` no dice nada: sin el
+  texto, el registro queda como "se descartaron 3 unidades por otro" — un número
+  sin significado, que es exactamente lo que la causa obligatoria quiere evitar.
+
+  Es la regla R20 del sistema de diseño, y la única causa que arrastra un campo
+  obligatorio detrás.
+}
+
+tests {
+  test("responde 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("señala las observaciones, no la causa", function() {
+    expect(res.getBody().detalle[0].campo).to.equal("observaciones");
+  });
+}

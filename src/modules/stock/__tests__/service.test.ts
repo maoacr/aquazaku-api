@@ -110,22 +110,35 @@ describe('entrada de inventario', () => {
   })
 
   it('dos entradas el mismo día generan L1 y L2', async () => {
-    await registrarEntrada({ productoId, cantidad: 50, fechaEmpaque: EMPAQUE, motivo: 'x' }, CONTEXTO)
+    await registrarEntrada({ productoId, cantidad: 50, fechaEmpaque: EMPAQUE, motivo: 'carga inicial de inventario' }, CONTEXTO)
     const segundo = await registrarEntrada(
-      { productoId, cantidad: 50, fechaEmpaque: EMPAQUE, motivo: 'x' },
+      { productoId, cantidad: 50, fechaEmpaque: EMPAQUE, motivo: 'carga inicial de inventario' },
       CONTEXTO,
     )
 
     expect(segundo.codigo).toBe('2026-08-22-L2')
   })
 
-  it('sin motivo no entra: RN-STK-02', async () => {
+  it.each([
+    ['vacío', '   '],
+    ['de relleno', 'x'],
+    ['de nueve caracteres', 'no cuadró'],
+  ])('un motivo %s no alcanza: RN-STK-02', async (_caso, motivo) => {
     const error = await errorDeNegocioDe(
-      registrarEntrada({ productoId, cantidad: 10, fechaEmpaque: EMPAQUE, motivo: '   ' }, CONTEXTO),
+      registrarEntrada({ productoId, cantidad: 10, fechaEmpaque: EMPAQUE, motivo }, CONTEXTO),
     )
 
     expect(error.code).toBe('MOTIVO_REQUERIDO')
     expect(error.status).toBe(422)
+  })
+
+  it('diez caracteres alcanzan: el mínimo es el mínimo, no una sugerencia', async () => {
+    const lote = await registrarEntrada(
+      { productoId, cantidad: 10, fechaEmpaque: EMPAQUE, motivo: 'sobrantes' + 'X' },
+      CONTEXTO,
+    )
+
+    expect(lote.cantidadDisponible).toBe(10)
   })
 
   it('un producto inexistente da 404, no un lote huérfano', async () => {
@@ -135,7 +148,7 @@ describe('entrada de inventario', () => {
           productoId: '00000000-0000-0000-0000-000000000000',
           cantidad: 10,
           fechaEmpaque: EMPAQUE,
-          motivo: 'x',
+          motivo: 'carga inicial de inventario',
         },
         CONTEXTO,
       ),
@@ -179,7 +192,7 @@ describe('ajuste de un lote', () => {
 
   it('no se puede ajustar por debajo de cero', async () => {
     const error = await errorDeNegocioDe(
-      ajustarLote({ loteId, cantidad: -500, motivo: 'imposible' }, CONTEXTO),
+      ajustarLote({ loteId, cantidad: -500, motivo: 'intento de descontar mas de lo que hay' }, CONTEXTO),
     )
 
     expect(error.code).toBe('STOCK_INSUFICIENTE')
@@ -187,7 +200,7 @@ describe('ajuste de un lote', () => {
   })
 
   it('un ajuste de cero no corrige nada', async () => {
-    const error = await errorDeNegocioDe(ajustarLote({ loteId, cantidad: 0, motivo: 'x' }, CONTEXTO))
+    const error = await errorDeNegocioDe(ajustarLote({ loteId, cantidad: 0, motivo: 'carga inicial de inventario' }, CONTEXTO))
 
     expect(error.code).toBe('CANTIDAD_INVALIDA')
   })
@@ -226,6 +239,46 @@ describe('descarte — RN-STK-06', () => {
     expect(ultimo?.causa).toBe('mal_manejo_cliente')
     expect(ultimo?.tipo).toBe('descarte')
   })
+
+  /**
+   * R20 del sistema de diseño: las otras tres causas ya dicen qué pasó.
+   * `otro` no dice nada — sin texto, el registro queda como "se descartaron 12
+   * unidades por otro", un número sin significado.
+   */
+  it('con causa "otro" hay que explicar qué pasó', async () => {
+    const error = await errorDeNegocioDe(
+      descartar({ loteId, cantidad: 2, causa: 'otro' }, CONTEXTO),
+    )
+
+    expect(error.code).toBe('CAUSA_REQUERIDA')
+    expect(error.status).toBe(422)
+  })
+
+  it('con causa "otro" y una explicación corta, tampoco', async () => {
+    const error = await errorDeNegocioDe(
+      descartar({ loteId, cantidad: 2, causa: 'otro', observaciones: 'se mojó' }, CONTEXTO),
+    )
+
+    expect(error.code).toBe('CAUSA_REQUERIDA')
+  })
+
+  it('con causa "otro" y explicación suficiente, sí', async () => {
+    const { saldo } = await descartar(
+      { loteId, cantidad: 2, causa: 'otro', observaciones: 'se cayeron del estante al mover' },
+      CONTEXTO,
+    )
+
+    expect(saldo).toBe(98)
+  })
+
+  it.each(['falla_produccion', 'mal_manejo_cliente', 'vencido'] as const)(
+    'la causa %s no necesita explicación: ya dice qué pasó',
+    async (causa) => {
+      const { saldo } = await descartar({ loteId, cantidad: 1, causa }, CONTEXTO)
+
+      expect(saldo).toBe(99)
+    },
+  )
 
   it('no se puede descartar más de lo que hay', async () => {
     const error = await errorDeNegocioDe(
@@ -278,7 +331,7 @@ describe('la bitácora explica el descuadre — ADR-0007 y RN-ACC-04', () => {
   })
 
   it('una operación rechazada no escribe en la bitácora', async () => {
-    await errorDeNegocioDe(ajustarLote({ loteId, cantidad: -500, motivo: 'imposible' }, CONTEXTO))
+    await errorDeNegocioDe(ajustarLote({ loteId, cantidad: -500, motivo: 'intento de descontar mas de lo que hay' }, CONTEXTO))
 
     const entradas = await db.select().from(auditLog).where(eq(auditLog.action, 'stock:ajustar'))
 

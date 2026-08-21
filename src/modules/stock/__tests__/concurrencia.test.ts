@@ -182,7 +182,7 @@ describe('una cantidad no positiva es un error de programación', () => {
 
   it('rechaza ingresar una cantidad negativa: sería una salida disfrazada', async () => {
     await expect(
-      ingresar({ loteId, cantidad: -10, tipo: 'ajuste', motivo: 'x', registradoPor: null }),
+      ingresar({ loteId, cantidad: -10, tipo: 'ajuste', motivo: 'carga inicial de inventario', registradoPor: null }),
     ).rejects.toThrow(/entero positivo/)
   })
 })
