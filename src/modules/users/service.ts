@@ -1,8 +1,9 @@
 import { and, eq, inArray, ne } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { sessions, userRoles, users } from '@/db/schema'
-import { auth } from '@/modules/auth/better-auth'
+import { accounts, sessions, userRoles, users } from '@/db/schema'
+import { auth, hashearPassword } from '@/modules/auth/better-auth'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { randomInt } from 'node:crypto'
 import type { Role } from '@/modules/authz/matrix'
 
 export interface UsuarioListado {
@@ -270,4 +271,110 @@ export async function asignarRoles(
   if (!usuario) throw new ErrorDeNegocio('USUARIO_NO_ENCONTRADO', 404, 'no existe ese usuario')
 
   return usuario
+}
+
+/**
+ * El alfabeto de la contraseña temporal.
+ *
+ * Sin `I`, `l`, `1`, `O` ni `0`. Esta contraseña se dicta EN VOZ ALTA o se lee
+ * de una pantalla y se copia a mano, así que el costo de confundir una `l` con
+ * un `1` no es estético: es una persona que no puede entrar y vuelve a pedirle
+ * al administrador, que es exactamente el trámite que esto vino a eliminar.
+ *
+ * Sin símbolos por la misma razón: se dictan mal y se escriben peor en el
+ * teclado de un teléfono.
+ */
+const ALFABETO_DICTABLE = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+
+/** Largo de la temporal. No es la contraseña definitiva: dura un solo ingreso. */
+const LARGO_TEMPORAL = 10
+
+/**
+ * Genera la contraseña temporal.
+ *
+ * `randomInt` de `node:crypto` y NO `Math.random()`. `Math.random()` no es
+ * criptográficamente seguro —su salida es predecible conociendo el estado del
+ * generador— y esto es una credencial. Que dure un solo ingreso no la hace
+ * menos credencial: durante ese rato abre la sesión de otra persona.
+ *
+ * `randomInt(n)` además reparte parejo, sin el sesgo que introduce el `% n`
+ * sobre un byte al azar cuando 256 no es múltiplo del alfabeto.
+ */
+function generarTemporal(): string {
+  let salida = ''
+  for (let i = 0; i < LARGO_TEMPORAL; i += 1) {
+    salida += ALFABETO_DICTABLE[randomInt(ALFABETO_DICTABLE.length)]
+  }
+  return salida
+}
+
+/**
+ * Restablece la contraseña de un usuario y devuelve la temporal UNA sola vez.
+ *
+ * ── Por qué existe, y por qué no muestra la contraseña real ─────────────────
+ *
+ * El pedido original era que el administrador pudiera VER la contraseña de cada
+ * usuario, para dictársela a quien la olvide sin pasar por el correo.
+ *
+ * El sistema no la tiene. `accounts.password` guarda un hash argon2id, que es
+ * una función de una sola vía: sirve para verificar un intento, no para
+ * reconstruir el original. Mostrarla exigiría dejar de hashear.
+ *
+ * Y no habría que hacerlo aunque se pudiera, por una razón que es de Aquazaku y
+ * no genérica: `audit_log` existe para poder decir «esto lo hizo esta persona».
+ * Si el administrador conoce la contraseña de todos, ese registro deja de
+ * probarlo —cualquier acción pudo hacerla él— y el módulo de auditoría, que es
+ * la pieza más cara del sistema, se vuelve decorativo.
+ *
+ * Esto resuelve el problema real —que nadie dependa del correo— conservando
+ * eso: el administrador entrega una temporal, y `mustChangePassword` obliga a
+ * cambiarla al entrar. **El administrador nunca conoce la contraseña final.**
+ *
+ * ── Por qué se cierran las sesiones ─────────────────────────────────────────
+ *
+ * Un restablecimiento se pide por dos motivos: alguien olvidó su contraseña, o
+ * alguien más la sabe. En el segundo caso, dejar viva una sesión abierta deja
+ * abierta justamente la puerta que se está cerrando. Como no se puede saber
+ * cuál de los dos es, se asume el peor.
+ */
+export async function restablecerPassword(
+  userId: string,
+): Promise<{ usuario: UsuarioListado; temporal: string }> {
+  const usuario = await buscarUsuario(userId)
+  if (!usuario) throw new ErrorDeNegocio('USUARIO_NO_ENCONTRADO', 404, 'no existe ese usuario')
+
+  const [credencial] = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.providerId, 'credential')))
+    .limit(1)
+
+  // Una cuenta sin proveedor `credential` entra por otro medio: escribirle una
+  // contraseña no le serviría para nada y dejaría el sistema diciendo que se
+  // hizo algo que no tuvo efecto.
+  if (!credencial) {
+    throw new ErrorDeNegocio(
+      'SIN_CREDENCIAL',
+      409,
+      'este usuario no entra con contraseña, así que no hay ninguna que restablecer',
+    )
+  }
+
+  const temporal = generarTemporal()
+  const hash = await hashearPassword(temporal)
+
+  await db.transaction(async (tx) => {
+    await tx.update(accounts).set({ password: hash }).where(eq(accounts.id, credencial.id))
+
+    // Sin esto la temporal se vuelve la contraseña definitiva, y el
+    // administrador queda sabiéndola. Es la mitad del mecanismo.
+    await tx.update(users).set({ mustChangePassword: true }).where(eq(users.id, userId))
+
+    await tx.delete(sessions).where(eq(sessions.userId, userId))
+  })
+
+  const actualizado = await buscarUsuario(userId)
+  if (!actualizado) throw new ErrorDeNegocio('USUARIO_NO_ENCONTRADO', 404, 'no existe ese usuario')
+
+  return { usuario: actualizado, temporal }
 }

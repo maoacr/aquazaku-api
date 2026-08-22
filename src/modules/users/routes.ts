@@ -11,6 +11,7 @@ import {
   crearUsuario,
   editarUsuario,
   listarUsuarios,
+  restablecerPassword,
 } from './service'
 import { esquemaAltaDeUsuario, esquemaDeRoles, esquemaEdicionDeUsuario } from './validation'
 
@@ -112,6 +113,43 @@ export async function userRoutes(app: FastifyInstance): Promise<void> {
         return usuario
       } catch (err) {
         return manejarError(err, req, reply, 'usuarios:editar', id)
+      }
+    },
+  )
+
+  /**
+   * Restablece la contraseña y devuelve la temporal UNA sola vez.
+   *
+   * `POST` y no `PUT`: cada llamada genera una contraseña distinta y deja la
+   * anterior inservible, así que repetirla NO da el mismo resultado.
+   *
+   * ── La temporal viaja en la respuesta y en ningún otro lado ────────────────
+   *
+   * No se guarda en claro, no se escribe al log y **no entra en la auditoría**.
+   * `audit_log` es inmutable y lo pueden leer `admin` y `contador`: dejar ahí la
+   * contraseña la volvería permanente y legible por más gente que la que la
+   * necesita. Lo que sí queda registrado es que hubo un restablecimiento, quién
+   * lo hizo y sobre quién — que es lo que hay que poder auditar.
+   */
+  app.post(
+    '/users/:id/reset-password',
+    { preHandler: [requireAuth, requirePermission('usuarios', 'editar', { auditaLaRuta: true })] },
+    async (req, reply) => {
+      const id = (req.params as { id: string }).id
+
+      try {
+        const { usuario, temporal } = await restablecerPassword(id)
+
+        await auditar(req, 'usuarios:restablecer-password', id, 'ok', {
+          email: usuario.email,
+          // El VALOR no; el hecho sí. Sin esto, un restablecimiento hecho para
+          // entrar a la cuenta de otro no dejaría rastro de haber ocurrido.
+          sesionesCerradas: true,
+        })
+
+        return { usuario, temporal }
+      } catch (err) {
+        return manejarError(err, req, reply, 'usuarios:restablecer-password', id)
       }
     },
   )

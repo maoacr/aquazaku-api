@@ -5,6 +5,7 @@ import { buildApp } from '@/app'
 import { closeDb, db } from '@/db/client'
 import { accounts, auditLog, sessions, userRoles } from '@/db/schema'
 import type { Role } from '@/modules/authz/matrix'
+import { auth } from '@/modules/auth/better-auth'
 import { resetDb } from '@/test/db'
 import { PASSWORD_DE_PRUEBA, crearUsuario, usuarioAutenticado } from '@/test/fixtures'
 import { _reiniciarLimites } from '@/modules/auth/rate-limit'
@@ -516,5 +517,141 @@ describe('qué queda en la bitácora', () => {
 
     expect(JSON.stringify(await registros())).not.toContain(NUEVO.password)
     expect(JSON.stringify(await registros())).not.toContain(PASSWORD_DE_PRUEBA)
+  })
+})
+
+/**
+ * El restablecimiento en persona.
+ *
+ * Reemplaza al correo de recuperación: el admin genera una temporal, se la
+ * dicta a la persona, y el sistema la obliga a cambiarla al entrar. Lo que hay
+ * que probar no es que "funcione" sino las tres cosas que lo hacen seguro: que
+ * la temporal SIRVA una vez, que NO quede como definitiva, y que no se filtre.
+ */
+describe('restablecer la contraseña en persona', () => {
+  const restablecer = (id: string) =>
+    comoAdmin({ method: 'POST', url: `/users/${id}/reset-password` })
+
+  it('devuelve una temporal con la que se puede entrar', async () => {
+    const usuario = await crearUsuario({ email: 'olvidadizo@aquazaku.com' })
+
+    const res = await restablecer(usuario.id)
+    expect(res.statusCode).toBe(200)
+
+    const { temporal } = res.json() as { temporal: string }
+    expect(temporal).toHaveLength(10)
+
+    // Se prueba contra `auth.api`, que es por donde entra el sistema de verdad
+    // —no hay una ruta HTTP propia de ingreso—.
+    const entrada = await auth.api.signInEmail({
+      body: { email: 'olvidadizo@aquazaku.com', password: temporal },
+      asResponse: true,
+    })
+    expect(entrada.status).toBe(200)
+  })
+
+  it('la contraseña anterior deja de servir', async () => {
+    // Si siguiera sirviendo, restablecer no cerraría nada: el caso «alguien más
+    // sabe mi contraseña» quedaría sin resolver.
+    const usuario = await crearUsuario({ email: 'previo@aquazaku.com' })
+    await restablecer(usuario.id)
+
+    const conLaVieja = await auth.api
+      .signInEmail({
+        body: { email: 'previo@aquazaku.com', password: PASSWORD_DE_PRUEBA },
+        asResponse: true,
+      })
+      .then((r) => r.status)
+      .catch(() => 401)
+    expect(conLaVieja).not.toBe(200)
+  })
+
+  it('obliga a cambiarla al entrar: el admin nunca sabe la definitiva', async () => {
+    // Es la mitad del mecanismo. Sin esto la temporal se vuelve la contraseña
+    // real y el admin queda sabiéndola — que es justo lo que no puede pasar
+    // para que `audit_log` siga probando quién hizo qué.
+    const usuario = await crearUsuario({ email: 'obligado@aquazaku.com' })
+    await restablecer(usuario.id)
+
+    const res = await comoAdmin({ method: 'GET', url: `/users/${usuario.id}` })
+    expect((res.json() as { mustChangePassword: boolean }).mustChangePassword).toBe(true)
+  })
+
+  it('cierra las sesiones abiertas', async () => {
+    const otro = await usuarioAutenticado('pos')
+
+    // Antes: la sesión sirve.
+    const antes = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: { cookie: otro.cookie },
+    })
+    expect(antes.statusCode).toBe(200)
+
+    await restablecer(otro.usuario.id)
+
+    const despues = await app.inject({
+      method: 'GET',
+      url: '/auth/me',
+      headers: { cookie: otro.cookie },
+    })
+    expect(despues.statusCode).toBe(401)
+  })
+
+  it('cada llamada genera una distinta', async () => {
+    const usuario = await crearUsuario({ email: 'dos-veces@aquazaku.com' })
+
+    const una = ((await restablecer(usuario.id)).json() as { temporal: string }).temporal
+    const otra = ((await restablecer(usuario.id)).json() as { temporal: string }).temporal
+
+    expect(una).not.toBe(otra)
+  })
+
+  it('NO deja la contraseña en la auditoría', async () => {
+    // `audit_log` es inmutable y lo leen `admin` y `contador`. Una contraseña
+    // ahí queda para siempre y a la vista de más gente de la que la necesita.
+    const usuario = await crearUsuario({ email: 'sin-rastro@aquazaku.com' })
+    const { temporal } = (await restablecer(usuario.id)).json() as { temporal: string }
+
+    const filas = await registros()
+    const todo = JSON.stringify(filas)
+
+    expect(todo).not.toContain(temporal)
+    // Pero el HECHO sí queda: sin esto, restablecer sería una puerta sin rastro.
+    expect(filas.some((f) => f.action === 'usuarios:restablecer-password')).toBe(true)
+  })
+
+  it('no guarda la contraseña en claro en la base', async () => {
+    const usuario = await crearUsuario({ email: 'hasheada@aquazaku.com' })
+    const { temporal } = (await restablecer(usuario.id)).json() as { temporal: string }
+
+    const [cuenta] = await db.select().from(accounts).where(eq(accounts.userId, usuario.id))
+
+    expect(cuenta?.password).toBeTruthy()
+    expect(cuenta?.password).not.toBe(temporal)
+    expect(cuenta?.password).not.toContain(temporal)
+  })
+
+  it('un usuario que no existe: 404', async () => {
+    const res = await restablecer('00000000-0000-0000-0000-000000000000')
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('un rol sin permiso no puede restablecerle la contraseña a nadie', async () => {
+    // Es la escalada más directa que existe: quien puede restablecer contraseñas
+    // puede entrar como cualquiera.
+    const pos = await usuarioAutenticado('pos')
+    const victima = await crearUsuario({ email: 'victima@aquazaku.com' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/users/${victima.id}/reset-password`,
+      headers: { cookie: pos.cookie },
+    })
+
+    expect(res.statusCode).toBe(403)
+
+    const filas = await registros()
+    expect(filas.some((f) => f.result === 'denied')).toBe(true)
   })
 })

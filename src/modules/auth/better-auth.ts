@@ -26,6 +26,26 @@ import { enviarEmailDeReset } from './email'
  * `session.impersonatedBy`), y su CRUD de usuarios lo construimos nosotros en
  * la Task 8, con auditoría propia.
  */
+/**
+ * Hashea una contraseña con el algoritmo del sistema.
+ *
+ * argon2id, no el scrypt que Better-Auth trae por defecto. Lo pide el spec §5 y
+ * es el estándar actual para contraseñas.
+ *
+ * Está exportada porque hay UN segundo lugar que escribe contraseñas: el
+ * restablecimiento en persona (`users/service.ts`). Ese lugar usó primero el
+ * `hashPassword` genérico de Better-Auth —que es scrypt— y el resultado fue un
+ * hash que el verificador de acá no podía decodificar: la contraseña temporal
+ * se generaba bien, se guardaba bien, y no servía para entrar.
+ *
+ * Falló en un test y no en producción por pura suerte. Con el algoritmo en un
+ * solo lugar, cambiarlo no puede dejar la mitad del sistema hablando otro
+ * idioma.
+ */
+export function hashearPassword(password: string): Promise<string> {
+  return argonHash(password)
+}
+
 export const auth = betterAuth({
   appName: 'aquazaku',
 
@@ -53,9 +73,7 @@ export const auth = betterAuth({
     // admin desde el panel, no la persona que va a usarlas.
     autoSignIn: false,
     password: {
-      // argon2id, no el scrypt que Better-Auth trae por defecto. Lo pide el
-      // spec §5 y es el estándar actual para contraseñas.
-      hash: (password) => argonHash(password),
+      hash: hashearPassword,
       verify: ({ hash, password }) => argonVerify(hash, password),
     },
 
