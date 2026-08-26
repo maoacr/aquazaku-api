@@ -1,0 +1,37 @@
+meta {
+  name: Compra en kilos — convierte
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{insumoId}}/entrada
+  body: json
+}
+
+body:json {
+  {
+    "kilos": 12.5
+  }
+}
+
+docs {
+  Con la equivalencia cargada, convierte y guarda los TRES datos: los kilos, la
+  equivalencia usada y las unidades resultantes.
+
+  Los tres, y no solo el resultado. Sin ellos un descuadre es imposible de
+  reconstruir: no se sabe si se pesó mal, si la equivalencia estaba vieja o si
+  faltaron bolsas de verdad.
+
+  12,5 kg × 100 = 1.250 unidades, que se suman a las 500 que ya había.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("suma las unidades convertidas", function() {
+    expect(res.getBody().saldo).to.equal(1750);
+  });
+}

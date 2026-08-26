@@ -1,0 +1,42 @@
+meta {
+  name: El libro del insumo
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/insumos/{{insumoId}}/movimientos
+}
+
+docs {
+  Append-only, igual que `movimientos_stock` y `audit_log`: se escribe y se lee,
+  nunca se modifica. Un libro editable no es un libro — el REVOKE de la
+  migración se lo saca a la aplicación.
+
+  La suma del libro tiene que explicar el saldo. Si los dos se separan, el saldo
+  deja de poder arbitrarse: no se sabe cuál de los dos está mal.
+
+  La compra por peso trae `kilos` y `equivalencia`, los dos o ninguno.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("la suma del libro explica el saldo", function() {
+    const movido = res.getBody().reduce((t, m) => t + m.cantidad, 0);
+    expect(movido).to.equal(1737);
+  });
+
+  test("el intento que no alcanzaba NO dejó movimiento", function() {
+    expect(res.getBody().length).to.equal(4);
+  });
+
+  test("la conversión quedó registrada entera", function() {
+    const porPeso = res.getBody().find(m => m.kilos !== null);
+    expect(Number(porPeso.kilos)).to.equal(12.5);
+    expect(Number(porPeso.equivalencia)).to.equal(100);
+    expect(porPeso.cantidad).to.equal(1250);
+  });
+}

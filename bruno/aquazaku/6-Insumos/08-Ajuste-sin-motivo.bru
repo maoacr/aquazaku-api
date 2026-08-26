@@ -1,0 +1,32 @@
+meta {
+  name: Ajuste sin motivo — se rechaza
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{insumoId}}/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "diferencia": -8,
+    "motivo": "x"
+  }
+}
+
+docs {
+  Diez caracteres es la convención del proyecto para toda acción irreversible.
+  No garantiza una buena explicación, pero descarta el «x» reflejo.
+
+  Lo atrapa Zod antes que el servicio porque el largo es FORMA. La regla de que
+  un ajuste necesita motivo la verifica el servicio y la garantiza un CHECK: una
+  regla, un código de error, un lugar.
+}
+
+tests {
+  test("responde 400 — el largo es forma, no regla de negocio", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

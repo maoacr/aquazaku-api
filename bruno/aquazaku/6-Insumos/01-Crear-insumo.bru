@@ -1,0 +1,53 @@
+meta {
+  name: Crear un insumo
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/insumos
+  body: json
+}
+
+body:json {
+  {
+    "codigo": "TAPA_20L",
+    "nombre": "Tapa para botellón de 20 L",
+    "minimo": 200
+  }
+}
+
+docs {
+  Alta de insumo. Es CONFIGURACIÓN, no operación: pasa una vez por insumo.
+
+  Nace SIN equivalencia por kilo, y eso no es un descuido. Cuántas unidades trae
+  un kilo es una medición de planta que todavía no se hizo (pregunta 37), y
+  mientras siga en null el sistema rechaza la entrada por kilos en vez de
+  inventar un número.
+
+  No existe `insumos:crear` en la matriz: se cubre con `insumos:ajustar`
+  restringido a admin, igual que se resolvió `stock:descartar`. Un permiso que
+  se usa tres veces al año no justifica una fila más que mantener y auditar.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("insumoId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el saldo arranca en cero", function() {
+    expect(res.getBody().saldo).to.equal(0);
+  });
+
+  test("nace sin equivalencia: es una medición que falta, no un valor por defecto", function() {
+    expect(res.getBody().equivalenciaPorKilo).to.equal(null);
+  });
+
+  test("el saldo se cuenta en unidades — RN-INS-02", function() {
+    expect(res.getBody().unidad).to.equal("unidad");
+  });
+}

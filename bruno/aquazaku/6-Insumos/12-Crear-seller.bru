@@ -1,0 +1,48 @@
+meta {
+  name: Crear un seller
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+}
+
+body:json {
+  {
+    "name": "Vendedor de prueba",
+    "email": "seller-insumos@aquazaku.com",
+    "password": "contrasena-de-prueba-123",
+    "roles": ["seller"]
+  }
+}
+
+docs {
+  Para verificar la mitad negativa del permiso hace falta una sesión de `seller`
+  de verdad. Comprobar la matriz en TypeScript dice que la regla está escrita;
+  esto dice que además se aplica.
+}
+
+script:pre-request {
+  // El email lleva marca de tiempo para que la colección se pueda correr dos
+  // veces seguidas: `users.email` es único, y un segundo intento chocaría con
+  // el usuario de la corrida anterior.
+  bru.setVar("emailSellerInsumos", `seller-insumos-${Date.now()}@aquazaku.com`);
+  req.setBody({
+    name: "Vendedor de prueba",
+    email: bru.getVar("emailSellerInsumos"),
+    password: "contrasena-de-prueba-123",
+    roles: ["seller"]
+  });
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("quedó solo con el rol seller", function() {
+    expect(res.getBody().roles).to.eql(["seller"]);
+  });
+}

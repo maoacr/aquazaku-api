@@ -1,0 +1,30 @@
+meta {
+  name: El seller no toca la planta
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/insumos
+}
+
+docs {
+  El `seller` contacta clientes y registra ventas: no toca la planta. Ni siquiera
+  ve el catálogo de insumos.
+
+  Ocultar el link del menú es cosmética (RN-ACC-02). La barrera real es esta, y
+  por eso se verifica del lado de la API.
+
+  Es la primera vez que `pos` y `seller` dejan de ver lo mismo: hasta M2
+  compartían todos los módulos operativos.
+}
+
+tests {
+  test("responde 403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("el intento queda auditado — la UI oculta, la API prohíbe", function() {
+    expect(res.getBody().code).to.equal("FORBIDDEN");
+  });
+}

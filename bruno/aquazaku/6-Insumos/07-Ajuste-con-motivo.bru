@@ -1,0 +1,37 @@
+meta {
+  name: Ajustar contra un conteo físico
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{insumoId}}/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "diferencia": -8,
+    "motivo": "conteo físico del lunes, faltaban 8 tapas"
+  }
+}
+
+docs {
+  La diferencia va CON SIGNO: positivo si sobran unidades, negativo si faltan.
+  Cero no es un ajuste — es no haber encontrado diferencia, y eso no se registra.
+
+  El motivo es obligatorio y lo exige un CHECK en la base además del servicio.
+  Un ajuste que nadie pueda explicar dentro de tres meses no sirve como
+  registro, y uno que entre por un script sin motivo dejaría el inventario
+  descuadrado sin nadie a quién preguntarle.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("descuenta la diferencia", function() {
+    expect(res.getBody().saldo).to.equal(1742);
+  });
+}

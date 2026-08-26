@@ -1,0 +1,38 @@
+meta {
+  name: Cargar la equivalencia medida
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/insumos/{{insumoId}}
+  body: json
+}
+
+body:json {
+  {
+    "equivalenciaPorKilo": 100
+  }
+}
+
+docs {
+  Cierra la pregunta 37 para ESTE insumo.
+
+  Cambiar la equivalencia NO reescribe la historia: cada movimiento guarda la
+  que se usó ese día. Acá solo cambia la que se va a proponer de acá en
+  adelante. Es el mismo criterio con el que M2 trata `fecha_vencimiento`.
+
+  Este PATCH toca la CONFIGURACIÓN del insumo. El saldo no se puede editar por
+  acá aunque se lo mande: se mueve mediante documentos con motivo y responsable,
+  o no se mueve.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda cargada", function() {
+    expect(Number(res.getBody().equivalenciaPorKilo)).to.equal(100);
+  });
+}

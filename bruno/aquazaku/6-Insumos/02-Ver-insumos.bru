@@ -1,0 +1,31 @@
+meta {
+  name: Ver los insumos
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/insumos
+}
+
+docs {
+  El catálogo con el saldo y el aviso de mínimo ya resuelto.
+
+  `bajoMinimo` lo calcula el servicio y no la pantalla: la regla es «AL mínimo o
+  por debajo» (RN-INS-03), y si cada consumidor la reimplementara, el día que
+  cambie habría que buscarla en varios lugares.
+
+  Avisar un paso después del mínimo es avisar cuando ya se consumió la reserva
+  que el mínimo representaba.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("un insumo en cero está bajo el mínimo", function() {
+    const tapa = res.getBody().find(i => i.codigo === "TAPA_20L");
+    expect(tapa.bajoMinimo).to.equal(true);
+  });
+}

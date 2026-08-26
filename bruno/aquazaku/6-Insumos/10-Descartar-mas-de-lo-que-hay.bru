@@ -1,0 +1,40 @@
+meta {
+  name: Descartar más de lo que hay — no alcanza
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{insumoId}}/descarte
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 99999,
+    "causa": "vencido"
+  }
+}
+
+docs {
+  Que no alcance es un ESTADO NORMAL del negocio, no una excepción.
+
+  Devuelve 200 con `ok: false` y el saldo real, para que quien esté del otro
+  lado sepa cuánto hay. Lanzar acá obligaría a cada consumidor a distinguir
+  entre «se rompió algo» y «no había suficiente», que son cosas muy distintas.
+
+  Y NO deja movimiento: el libro cuenta lo que pasó, y un intento que no
+  descontó nada no pasó. Con movimientos de más, la suma del libro dejaría de
+  explicar el saldo.
+}
+
+tests {
+  test("responde 200: no alcanzar no es un error", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("dice cuánto hay de verdad", function() {
+    expect(res.getBody().ok).to.equal(false);
+    expect(res.getBody().disponible).to.equal(1737);
+  });
+}

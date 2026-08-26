@@ -1,0 +1,36 @@
+meta {
+  name: Descartar unidades
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{insumoId}}/descarte
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 5,
+    "causa": "mal_manejo_cliente"
+  }
+}
+
+docs {
+  La causa es obligatoria: sin clasificar, no se descarta. Mismo criterio que
+  RN-STK-06.
+
+  Con causa `otro` hace falta explicar, porque `otro` no dice nada por sí solo:
+  sin explicación, esa fila de la auditoría es ruido dentro de tres meses. Las
+  demás causas se explican solas.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("descuenta del saldo", function() {
+    expect(res.getBody().saldo).to.equal(1737);
+  });
+}

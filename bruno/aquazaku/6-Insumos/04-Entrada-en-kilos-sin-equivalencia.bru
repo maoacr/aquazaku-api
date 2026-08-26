@@ -1,0 +1,45 @@
+meta {
+  name: Compra en kilos SIN equivalencia — se rechaza
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{insumoId}}/entrada
+  body: json
+}
+
+body:json {
+  {
+    "kilos": 12
+  }
+}
+
+docs {
+  El rechazo que es una DECISIÓN, no una limitación.
+
+  Cuántas unidades trae un kilo es una medición de planta que no se hizo. El
+  sistema no estima: una equivalencia inventada descuadra el inventario en
+  silencio, y el descuadre se descubre semanas después sin forma de saber cuándo
+  empezó. Un error ruidoso hoy vale más que un número plausible que miente.
+
+  Es 422 y no 400: la petición está bien formada. Lo que falta es un dato del
+  NEGOCIO. Un 400 diría «lo escribiste mal» y mandaría a revisar el formulario
+  en vez de ir a pesar un paquete.
+
+  El mensaje dice QUÉ hacer, no solo que no se pudo.
+}
+
+tests {
+  test("responde 422 — la petición está bien, falta un dato del negocio", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("el código dice qué falta", function() {
+    expect(res.getBody().code).to.equal("SIN_EQUIVALENCIA");
+  });
+
+  test("el mensaje explica cómo resolverlo", function() {
+    expect(res.getBody().mensaje).to.match(/pesar un paquete y contarlo/);
+  });
+}

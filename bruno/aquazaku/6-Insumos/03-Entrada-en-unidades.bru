@@ -1,0 +1,38 @@
+meta {
+  name: Registrar una compra en unidades
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{insumoId}}/entrada
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 500
+  }
+}
+
+docs {
+  La entrada acepta unidades O kilos, nunca las dos ni ninguna.
+
+  Con las dos, el sistema tendría que elegir cuál manda, y esa decisión no la
+  puede tomar: si no coinciden, una de las dos es un error de carga y no hay
+  forma de saber cuál.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el saldo sube", function() {
+    expect(res.getBody().saldo).to.equal(500);
+  });
+
+  test("500 sobre un mínimo de 200 ya no avisa", function() {
+    expect(res.getBody().ok).to.equal(true);
+  });
+}
