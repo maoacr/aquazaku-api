@@ -5,7 +5,7 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { emit } from '@/modules/authz/audit'
 import { codigoDeLote, vencimientoDe } from './codigo-lote'
-import { type Ejecutor, descontar, ingresar } from './saldo'
+import { type Ejecutor, descontar, enTransaccion, ingresar } from './saldo'
 
 /**
  * Documentos que mueven el stock — RN-STK-02.
@@ -78,6 +78,92 @@ function exigirObservacionesSiLaCausaEsOtro(descarte: Descarte): void {
 }
 
 /**
+ * Crea un lote y lo sube con su movimiento. **La primitiva compartida.**
+ *
+ * ── Por qué existe, y por qué NO fue «agregarle un ejecutor» a la de abajo ──
+ *
+ * El plan de M4 decía que bastaba con abrir `registrarEntrada` para que
+ * aceptara una transacción externa. Leyéndola no alcanzaba: hace CINCO cosas, y
+ * el cierre de producción solo necesita dos.
+ *
+ * `registrarEntrada` exige motivo, escribe con `tipo: 'ajuste'` y audita como
+ * `stock:ajustar`. El cierre no tiene motivo —es un documento propio—, escribe
+ * `produccion`, y su auditoría la hace el módulo de producción.
+ *
+ * Forzarla a servir a los dos habría significado tres parámetros opcionales que
+ * cambian su comportamiento, y una función que hace dos cosas según cómo se la
+ * llame es una función que hay que leer entera cada vez.
+ *
+ * Lo que sí comparten son las tres decisiones que NO pueden divergir:
+ *
+ * 1. El código de lote sale de los del día, **incluidos los agotados** — un
+ *    código no se recicla.
+ * 2. El vencimiento se deriva una sola vez (`RN-STK-08`, 30 días).
+ * 3. El lote **nace en cero** y sube por movimiento, para que el libro lo
+ *    explique desde la primera unidad y no haya un salto sin documento.
+ *
+ * Duplicar eso en M4 habría dejado dos fuentes de códigos de lote y de
+ * vencimientos, y el día que la regla de los 30 días cambie habría que
+ * acordarse de los dos lugares.
+ */
+export async function crearLoteConEntrada(
+  datos: {
+    productoId: string
+    /** `YYYY-MM-DD`. De acá salen el código y el vencimiento. */
+    fechaEmpaque: string
+    cantidad: number
+    tipo: 'ajuste' | 'produccion'
+    motivo?: string | undefined
+    documentoId?: string | undefined
+    registradoPor: string | null
+  },
+  ejecutor: Ejecutor,
+): Promise<Lote> {
+  return enTransaccion(ejecutor, async (tx) => {
+    // Todos los del día, incluidos los agotados: un código no se recicla.
+    // Se consulta por el EJECUTOR: leer fuera de la transacción vería un estado
+    // viejo, y dos lotes del mismo cierre podrían pedir el mismo código.
+    const delDia = await tx
+      .select({ codigo: lotes.codigo })
+      .from(lotes)
+      .where(like(lotes.codigo, `${datos.fechaEmpaque}-L%`))
+
+    const codigo = codigoDeLote(
+      datos.fechaEmpaque,
+      delDia.map((l) => l.codigo),
+    )
+
+    const [lote] = await tx
+      .insert(lotes)
+      .values({
+        productoId: datos.productoId,
+        codigo,
+        fechaEmpaque: datos.fechaEmpaque,
+        fechaVencimiento: vencimientoDe(datos.fechaEmpaque),
+        cantidadInicial: datos.cantidad,
+        // Nace en cero y sube por movimiento: así el libro explica el saldo
+        // desde la primera unidad, sin un salto inicial sin documento.
+        cantidadDisponible: 0,
+      })
+      .returning()
+
+    await ingresar(
+      {
+        loteId: lote!.id,
+        cantidad: datos.cantidad,
+        tipo: datos.tipo,
+        motivo: datos.motivo,
+        documentoId: datos.documentoId,
+        registradoPor: datos.registradoPor,
+      },
+      tx,
+    )
+
+    return { ...lote!, cantidadDisponible: datos.cantidad }
+  })
+}
+
+/**
  * Entra producto creando un lote nuevo.
  *
  * En M2 es la única forma de que entre stock: la carga inicial de inventario es
@@ -99,45 +185,17 @@ export async function registrarEntrada(
     throw new ErrorDeNegocio('PRODUCTO_NO_ENCONTRADO', 404, 'no existe ese producto')
   }
 
-  // Todos los lotes de ese día, incluidos los agotados: un código no se recicla.
-  const delDia = await db
-    .select({ codigo: lotes.codigo })
-    .from(lotes)
-    .where(like(lotes.codigo, `${entrada.fechaEmpaque}-L%`))
-
-  const codigo = codigoDeLote(
-    entrada.fechaEmpaque,
-    delDia.map((l) => l.codigo),
+  const creado = await crearLoteConEntrada(
+    {
+      productoId: entrada.productoId,
+      fechaEmpaque: entrada.fechaEmpaque,
+      cantidad: entrada.cantidad,
+      tipo: 'ajuste',
+      motivo: entrada.motivo,
+      registradoPor: contexto.userId,
+    },
+    db,
   )
-
-  const creado = await db.transaction(async (tx) => {
-    const [lote] = await tx
-      .insert(lotes)
-      .values({
-        productoId: entrada.productoId,
-        codigo,
-        fechaEmpaque: entrada.fechaEmpaque,
-        fechaVencimiento: vencimientoDe(entrada.fechaEmpaque),
-        cantidadInicial: entrada.cantidad,
-        // Nace en cero y sube por movimiento: así el libro explica el saldo
-        // desde la primera unidad, sin un salto inicial sin documento.
-        cantidadDisponible: 0,
-      })
-      .returning()
-
-    await ingresar(
-      {
-        loteId: lote!.id,
-        cantidad: entrada.cantidad,
-        tipo: 'ajuste',
-        motivo: entrada.motivo,
-        registradoPor: contexto.userId,
-      },
-      tx,
-    )
-
-    return { ...lote!, cantidadDisponible: entrada.cantidad }
-  })
 
   await auditar(contexto, 'stock:ajustar', creado.id, {
     documento: 'entrada_de_inventario',

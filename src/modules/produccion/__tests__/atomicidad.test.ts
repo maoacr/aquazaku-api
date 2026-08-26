@@ -318,3 +318,57 @@ describe('un día sin envasar', () => {
     expect(escrito.agua).toBe(0)
   })
 })
+
+/**
+ * ── La primitiva de M2, usada desde adentro de la transacción de M4 ─────────
+ *
+ * `crearLoteConEntrada` se extrajo en T3 para que el cierre no reimplementara
+ * el código de lote ni el vencimiento. Lo que hay que verificar es que
+ * **respete la transacción de quien la llama**: si abriera una propia, el lote
+ * commitearía aparte y sobreviviría a un cierre que revirtió.
+ *
+ * Ese lote huérfano sería stock que nadie produjo, apuntando a un cierre que no
+ * existe.
+ */
+describe('el lote respeta la transacción de quien lo crea', () => {
+  it('un cierre que revierte NO deja el lote que alcanzó a crear', async () => {
+    await resetDb()
+    // Con tapas de menos, el cierre corta en el paso 3 — después de haber
+    // escrito el documento y el agua, y antes de los lotes.
+    await sembrar({ tapas: 10 })
+
+    await expect(registrarCierre(unCierre({ botellonesLlenados: 30 }), null)).rejects.toThrow()
+
+    expect((await db.select().from(lotes)).length).toBe(0)
+    expect((await db.select().from(movimientosStock)).length).toBe(0)
+  })
+
+  /**
+   * Los tres lotes de un mismo cierre no pueden pedir el mismo código.
+   *
+   * `crearLoteConEntrada` consulta los del día POR EL EJECUTOR: leer fuera de
+   * la transacción vería un estado viejo y los tres saldrían `-L1`.
+   */
+  it('los lotes de un mismo cierre llevan códigos distintos', async () => {
+    const { lotes: generados } = await registrarCierre(unCierre(), null)
+
+    const codigos = generados.map((l) => l.codigo)
+    expect(codigos).toHaveLength(3)
+    expect(new Set(codigos).size).toBe(3)
+    // Y todos del día del cierre.
+    expect(codigos.every((c) => c.startsWith('2026-08-26-L'))).toBe(true)
+  })
+
+  /** El lote nace en cero y sube por movimiento — el libro lo explica entero. */
+  it('el saldo del lote lo explica su movimiento', async () => {
+    await registrarCierre(unCierre({ pacas600: 10, pacas300: 0, botellonesLlenados: 0 }), null)
+
+    const [lote] = await db.select().from(lotes)
+    const movimientos = await db.select().from(movimientosStock)
+
+    expect(lote?.cantidadDisponible).toBe(10)
+    expect(movimientos).toHaveLength(1)
+    expect(movimientos[0]?.cantidad).toBe(10)
+    expect(movimientos[0]?.tipo).toBe('produccion')
+  })
+})

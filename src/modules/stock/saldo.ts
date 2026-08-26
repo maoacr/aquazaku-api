@@ -172,7 +172,15 @@ function exigirCantidadPositiva(cantidad: number): void {
   }
 }
 
-/** Abre transacción solo si el ejecutor no es ya una. */
-function enTransaccion<T>(ejecutor: Ejecutor, fn: (tx: Ejecutor) => Promise<T>): Promise<T> {
+/**
+ * Abre transacción solo si el ejecutor no es ya una.
+ *
+ * Exportada porque la usan las dos primitivas que un módulo externo puede
+ * llamar dentro de su propia transacción: `descontar`/`ingresar` acá, y
+ * `crearLoteConEntrada` en el servicio. Sin esto, cada una tendría que decidir
+ * por su cuenta si abrir o no — y la que se equivoque abre una anidada que
+ * commitea aparte, que es justo lo que la atomicidad de M4 no puede permitir.
+ */
+export function enTransaccion<T>(ejecutor: Ejecutor, fn: (tx: Ejecutor) => Promise<T>): Promise<T> {
   return 'transaction' in ejecutor ? ejecutor.transaction((tx) => fn(tx)) : fn(ejecutor)
 }

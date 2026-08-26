@@ -1,17 +1,15 @@
-import { and, eq, like } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { type DB, db } from '@/db/client'
 import {
   type CierreProduccion,
   cierresProduccion,
   insumos,
-  lotes,
   movimientosAgua,
-  movimientosStock,
   productos,
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { descontar as descontarInsumo } from '@/modules/insumos/saldo'
-import { codigoDeLote, vencimientoDe } from '@/modules/stock/codigo-lote'
+import { crearLoteConEntrada } from '@/modules/stock/service'
 
 /**
  * El cierre de producción — M4, RN-PRD-04.
@@ -354,38 +352,27 @@ async function generarLotes(
       throw new ErrorDeNegocio('PRODUCTO_NO_ENCONTRADO', 422, `no existe el producto ${codigo}`)
     }
 
-    // Todos los del día, incluidos los agotados: un código no se recicla.
-    const delDia = await tx
-      .select({ codigo: lotes.codigo })
-      .from(lotes)
-      .where(like(lotes.codigo, `${datos.fecha}-L%`))
-
-    const codigoNuevo = codigoDeLote(
-      datos.fecha,
-      delDia.map((l) => l.codigo),
+    /*
+      La creación del lote NO se reimplementa acá: es la primitiva de M2.
+      
+      El código de lote, el vencimiento a 30 días y el «nace en cero y sube por
+      movimiento» son decisiones que no pueden divergir entre módulos. Con dos
+      copias, el día que la regla de los 30 días cambie habría que acordarse de
+      los dos lugares.
+    */
+    const lote = await crearLoteConEntrada(
+      {
+        productoId: producto.id,
+        fechaEmpaque: datos.fecha,
+        cantidad,
+        tipo: 'produccion',
+        documentoId: cierreId,
+        registradoPor,
+      },
+      tx,
     )
 
-    const [lote] = await tx
-      .insert(lotes)
-      .values({
-        productoId: producto.id,
-        codigo: codigoNuevo,
-        fechaEmpaque: datos.fecha,
-        fechaVencimiento: vencimientoDe(datos.fecha),
-        cantidadInicial: cantidad,
-        cantidadDisponible: cantidad,
-      })
-      .returning({ id: lotes.id })
-
-    await tx.insert(movimientosStock).values({
-      loteId: lote!.id,
-      cantidad,
-      tipo: 'produccion',
-      documentoId: cierreId,
-      registradoPor,
-    })
-
-    generados.push({ codigo: codigoNuevo, productoId: producto.id, cantidad })
+    generados.push({ codigo: lote.codigo, productoId: producto.id, cantidad })
   }
 
   return generados
