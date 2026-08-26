@@ -55,6 +55,36 @@ export const tipoMovimientoEnum = pgEnum('tipo_movimiento', [
   'devolucion', // M6 — vuelve al MISMO lote (RN-STK-05)
 ])
 
+/**
+ * Cómo se mueve un insumo de empaque — M3.
+ *
+ * NO tiene `venta`, y es la regla `RN-INS-01` hecha tipo: un insumo no se
+ * despacha a un cliente, desaparece cuando se convierte en producto. Si algún
+ * día aparece una salida de insumo que no viene de un cierre de producción, o
+ * alguien la registró mal o hay una pérdida que hay que explicar.
+ */
+/**
+ * En qué se CUENTA el saldo de un insumo — RN-INS-02.
+ *
+ * Hoy solo hay un valor, y es a propósito que exista igual. Las bolsas se
+ * COMPRAN por kilo y se GUARDAN por unidad: el kilo es la unidad de la compra,
+ * no la del inventario.
+ *
+ * La tentación era un enum con `unidad` y `kilo` para que cada insumo eligiera.
+ * Es una trampa: el saldo significaría una cosa u otra según la fila, y toda
+ * consulta que sume, compare con el mínimo o pregunte «cuánto queda» tendría
+ * que ramificar. El día que alguien olvide ramificar va a comparar 3 kilos
+ * contra un mínimo de 200 unidades y concluir que hay que pedir.
+ */
+export const unidadInsumoEnum = pgEnum('unidad_insumo', ['unidad'])
+
+export const tipoMovimientoInsumoEnum = pgEnum('tipo_movimiento_insumo', [
+  'compra', // entra por proveedor — en unidades o en kilos
+  'ajuste', // conteo físico; exige motivo
+  'descarte', // se rompió o se mojó; exige causa
+  'produccion', // M4 — el cierre lo consume (RN-INS-01)
+])
+
 /** Causas de descarte — RN-STK-06. Sin clasificar, no se descarta. */
 export const causaDescarteEnum = pgEnum('causa_descarte', [
   'falla_produccion', // Aquazaku repone al cliente
@@ -482,6 +512,167 @@ export const movimientosStock = pgTable(
   ],
 )
 
+/**
+ * ═══ Insumos de empaque — M3 ═══════════════════════════════════════════════
+ *
+ * Tapas, sellos y bolsas: lo que se consume al producir. No se venden.
+ *
+ * Mismo patrón que M2: la tabla lleva el saldo encima y `movimientos_insumo` es
+ * el libro que lo explica. Los dos se escriben en la MISMA transacción.
+ */
+export const insumos = pgTable(
+  'insumos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /** `TAPA_20L`, `BOLSA_600`. En mayúsculas, como el código de producto. */
+    codigo: text('codigo').notNull(),
+    nombre: text('nombre').notNull(),
+
+    /**
+     * Hoy solo vale `unidad`, y parece una columna inútil. Está por una razón:
+     * hace EXPLÍCITO en el esquema que el saldo se cuenta en unidades y que el
+     * kilo es de la compra (RN-INS-02).
+     *
+     * Sin ella, alguien que vea que las bolsas se compran por kilo va a asumir
+     * que el saldo también, y va a tener razón en asumirlo — no habría nada que
+     * diga lo contrario. Si algún día entra un insumo que de verdad se almacene
+     * por peso, esta columna es donde se decide, y quien la agregue va a tener
+     * que resolver la ramificación conscientemente en vez de heredarla.
+     */
+    unidad: unidadInsumoEnum('unidad').notNull().default('unidad'),
+
+    /**
+     * El umbral que dispara el aviso — RN-INS-03. Valor inicial 200 para tapas
+     * y sellos, CONFIGURABLE: el mínimo correcto es «lo que consumo mientras
+     * llega el pedido», y eso depende del ritmo de producción y del proveedor.
+     * Ninguno de los dos está medido. Pasa a parámetro en M12.
+     */
+    minimo: integer('minimo').notNull(),
+
+    /**
+     * Unidades en existencia. Lo mueve un UPDATE condicional, nunca una lectura
+     * seguida de una escritura: dos salidas simultáneas leerían el mismo saldo
+     * y las dos restarían sobre él.
+     */
+    saldo: integer('saldo').notNull().default(0),
+
+    /**
+     * Cuántas unidades trae un kilo. NULL hasta medirlo en planta.
+     *
+     * Es el valor VIGENTE, y sirve para proponer la conversión al cargar una
+     * compra. El valor que se USÓ queda copiado en el movimiento: por eso
+     * cambiar esto no reescribe la historia.
+     *
+     * NULL no es un dato faltante por descuido: es la pregunta 37, y mientras
+     * siga así el sistema RECHAZA la entrada por kilos en vez de inventar un
+     * número. Una equivalencia mal puesta descuadra el inventario en silencio.
+     */
+    equivalenciaPorKilo: numeric('equivalencia_por_kilo', { precision: 10, scale: 3 }),
+
+    activo: boolean('activo').notNull().default(true),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex('insumos_codigo_idx').on(t.codigo),
+    index('insumos_activo_idx').on(t.activo),
+
+    check('insumos_minimo_positivo', sql`${t.minimo} > 0`),
+
+    /*
+     * La red de abajo, para lo que entre por fuera del servicio. NO es lo que
+     * resuelve la carrera: un CHECK valida la fila que se escribe, no la suma
+     * de las que existen. Eso lo resuelve el UPDATE condicional del servicio, y
+     * se verifica quitándole la condición.
+     */
+    check('insumos_saldo_no_negativo', sql`${t.saldo} >= 0`),
+
+    /* Cero unidades por kilo convertiría cualquier compra en cero unidades. */
+    check(
+      'insumos_equivalencia_positiva',
+      sql`${t.equivalenciaPorKilo} IS NULL OR ${t.equivalenciaPorKilo} > 0`,
+    ),
+  ],
+)
+
+/**
+ * El libro de los insumos. Append-only, igual que `movimientos_stock`.
+ */
+export const movimientosInsumo = pgTable(
+  'movimientos_insumo',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    insumoId: uuid('insumo_id')
+      .notNull()
+      .references(() => insumos.id),
+
+    /** UNIDADES. Positivo entra, negativo sale. Nunca cero. */
+    cantidad: integer('cantidad').notNull(),
+    tipo: tipoMovimientoInsumoEnum('tipo').notNull(),
+
+    /** Obligatorio en ajuste. Lo exige un CHECK, no el servicio. */
+    motivo: text('motivo'),
+    /** Obligatoria en descarte. */
+    causa: causaDescarteEnum('causa'),
+
+    /**
+     * Los dos campos de la conversión, cuando la compra vino en kilos.
+     *
+     * Van JUNTOS o ninguno, y lo exige un CHECK. Sin eso se puede guardar
+     * «entraron 12 kilos» sin decir a cuántas unidades se convirtieron, y ese
+     * movimiento no se puede auditar después: no hay forma de saber si el
+     * descuadre vino de la balanza o de la equivalencia.
+     *
+     * `equivalencia` se copia acá y no se lee del insumo a propósito. Es el
+     * valor que se usó ESE DÍA, y va a cambiar — el grosor de la bolsa varía
+     * entre lotes. Leerla del insumo haría que actualizarla reescribiera la
+     * historia, que es el mismo error que M2 evitó con `fecha_vencimiento`.
+     */
+    kilos: numeric('kilos', { precision: 10, scale: 3 }),
+    equivalencia: numeric('equivalencia', { precision: 10, scale: 3 }),
+
+    /** La compra o el cierre que lo originó. Null en ajuste manual. */
+    documentoId: uuid('documento_id'),
+
+    // Se conserva el movimiento aunque el usuario se borre: un libro que pierde
+    // filas cuando se va alguien no sirve para cuadrar nada.
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('movimientos_insumo_insumo_idx').on(t.insumoId),
+    index('movimientos_insumo_fecha_idx').on(t.createdAt),
+    index('movimientos_insumo_tipo_idx').on(t.tipo),
+
+    check('movimientos_insumo_cantidad_no_cero', sql`${t.cantidad} <> 0`),
+
+    check(
+      'movimientos_insumo_ajuste_con_motivo',
+      sql`${t.tipo} <> 'ajuste' OR ${t.motivo} IS NOT NULL`,
+    ),
+    check(
+      'movimientos_insumo_descarte_con_causa',
+      sql`${t.tipo} <> 'descarte' OR ${t.causa} IS NOT NULL`,
+    ),
+
+    /* Los dos campos de la conversión, juntos o ninguno. */
+    check(
+      'movimientos_insumo_conversion_completa',
+      sql`(${t.kilos} IS NULL) = (${t.equivalencia} IS NULL)`,
+    ),
+
+    /* Una compra en kilos con cero kilos, o convertida con cero, no es una compra. */
+    check(
+      'movimientos_insumo_conversion_positiva',
+      sql`${t.kilos} IS NULL OR (${t.kilos} > 0 AND ${t.equivalencia} > 0)`,
+    ),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Session = typeof sessions.$inferSelect
@@ -496,3 +687,7 @@ export type Lote = typeof lotes.$inferSelect
 export type NuevoLote = typeof lotes.$inferInsert
 export type MovimientoStock = typeof movimientosStock.$inferSelect
 export type NuevoMovimientoStock = typeof movimientosStock.$inferInsert
+export type Insumo = typeof insumos.$inferSelect
+export type NuevoInsumo = typeof insumos.$inferInsert
+export type MovimientoInsumo = typeof movimientosInsumo.$inferSelect
+export type NuevoMovimientoInsumo = typeof movimientosInsumo.$inferInsert
