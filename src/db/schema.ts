@@ -56,13 +56,48 @@ export const tipoMovimientoEnum = pgEnum('tipo_movimiento', [
 ])
 
 /**
- * Cómo se mueve un insumo de empaque — M3.
+ * Los tanques del sistema — RN-PRD-02.
  *
- * NO tiene `venta`, y es la regla `RN-INS-01` hecha tipo: un insumo no se
- * despacha a un cliente, desaparece cuando se convierte en producto. Si algún
- * día aparece una salida de insumo que no viene de un cierre de producción, o
- * alguien la registró mal o hay una pérdida que hay que explicar.
+ * Son `crudo` y `procesado`, y NO `procesado_a` / `procesado_b`. Los dos tanques
+ * de 2.000 L se operan en PARALELO —se llenan juntos y se vacían juntos,
+ * RN-PRD-21—, así que modelarlos por separado duplicaría cada escritura para que
+ * las dos filas digan siempre lo mismo. La capacidad del procesado es 4.000 L.
+ *
+ * Si algún día se operan por separado, ahí se parte el enum, y quien lo haga va
+ * a tener que decidir conscientemente cómo se reparte lo que ya está guardado.
  */
+export const tanqueEnum = pgEnum('tanque', ['crudo', 'procesado'])
+
+/**
+ * Cómo se mueve el agua.
+ *
+ * `ingreso_red` NO lleva cantidad medida: no hay medidor ni regleta
+ * (RN-PRD-11). Registra el HECHO de que llegó agua, y el saldo sube hasta la
+ * banda observada. Es una recalibración con motivo, no una medición.
+ */
+export const tipoMovimientoAguaEnum = pgEnum('tipo_movimiento_agua', [
+  'ingreso_red', // llegó agua de la red — sin cantidad exacta
+  'procesamiento', // crudo → procesado, con la merma del 30% ya aplicada
+  'envasado', // sale procesada y se convierte en producto
+  'lavado', // sale procesada y NO genera producto — RN-PRD-05
+  'ajuste', // el saldo no cuadraba; exige motivo
+])
+
+/**
+ * El nivel del tanque, como se puede ver de verdad — RN-PRD-11.
+ *
+ * En cuartos y no en litros porque eso es lo que el ojo distingue. Pedir un
+ * número exacto obligaría a inventar precisión, que es justo lo que RN-PRD-15
+ * prohíbe.
+ */
+export const nivelTanqueEnum = pgEnum('nivel_tanque', [
+  'vacio',
+  'un_cuarto',
+  'medio',
+  'tres_cuartos',
+  'lleno',
+])
+
 /**
  * En qué se CUENTA el saldo de un insumo — RN-INS-02.
  *
@@ -78,6 +113,14 @@ export const tipoMovimientoEnum = pgEnum('tipo_movimiento', [
  */
 export const unidadInsumoEnum = pgEnum('unidad_insumo', ['unidad'])
 
+/**
+ * Cómo se mueve un insumo de empaque — M3.
+ *
+ * NO tiene `venta`, y es la regla `RN-INS-01` hecha tipo: un insumo no se
+ * despacha a un cliente, desaparece cuando se convierte en producto. Si algún
+ * día aparece una salida de insumo que no viene de un cierre de producción, o
+ * alguien la registró mal o hay una pérdida que hay que explicar.
+ */
 export const tipoMovimientoInsumoEnum = pgEnum('tipo_movimiento_insumo', [
   'compra', // entra por proveedor — en unidades o en kilos
   'ajuste', // conteo físico; exige motivo
@@ -673,6 +716,157 @@ export const movimientosInsumo = pgTable(
   ],
 )
 
+/**
+ * ═══ Producción — M4 ═══════════════════════════════════════════════════════
+ *
+ * El cierre diario es LA BISAGRA del sistema: el único evento que convierte
+ * litros en producto. Por eso toca tres módulos a la vez — descuenta agua,
+ * descuenta insumos e ingresa stock — y los cuatro escritos van en la MISMA
+ * transacción.
+ *
+ * Un cierre parcial no es un cierre a medias: es un documento que dice que se
+ * envasaron 200 botellones con las tapas intactas. Una mentira consistente, que
+ * es la clase de dato que nadie sospecha hasta que ya causó daño.
+ */
+export const cierresProduccion = pgTable(
+  'cierres_produccion',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /** Uno por día — RN-PRD-22. No se registra por tanda. */
+    fecha: date('fecha').notNull(),
+
+    // ── El procesamiento — RN-PRD-18 ──────────────────────────────────────
+    /** Del encendido al apagado, que registra el `pos` — RN-PRD-24. */
+    minutosProcesando: integer('minutos_procesando').notNull(),
+
+    /**
+     * El caudal que se usó ESE DÍA. Se COPIA, no se referencia.
+     *
+     * Es la tercera vez que aparece este patrón —`fecha_vencimiento` en M2,
+     * `equivalencia` en M3— así que ya no es una decisión: es la regla del
+     * proyecto. Un hecho de un momento no se recalcula.
+     *
+     * Acá pesa especialmente porque el caudal TODAVÍA NO SE MIDIÓ (preguntas 4
+     * y 5). Cuando se mida, corregirlo con una referencia viva reescribiría
+     * cuántos litros se procesaron todos los días del pasado.
+     */
+    caudalGpm: numeric('caudal_gpm', { precision: 10, scale: 3 }),
+
+    /**
+     * `caudal × minutos × 3,785 × 0,70` — RN-PRD-12, el rendimiento del 70%.
+     *
+     * GUARDADO y no generado, por lo mismo: si algún día se corrige el
+     * rendimiento, los cierres viejos tienen que seguir diciendo lo que dijeron.
+     *
+     * NULL mientras no haya caudal: el sistema no estima. Es el mismo criterio
+     * que la equivalencia de las bolsas en M3.
+     */
+    litrosProcesados: integer('litros_procesados'),
+
+    // ── El envasado — RN-PRD-04 ───────────────────────────────────────────
+    pacas600: integer('pacas_600').notNull().default(0),
+    pacas300: integer('pacas_300').notNull().default(0),
+    botellonesLlenados: integer('botellones_llenados').notNull().default(0),
+    /** Consume agua y NO genera producto — RN-PRD-05. */
+    botellonesLavados: integer('botellones_lavados').notNull().default(0),
+
+    // ── El cierre del balance ─────────────────────────────────────────────
+    /**
+     * Derivado de las cuatro cifras de arriba, con las equivalencias vigentes
+     * ese día. También guardado: `productos.litros` es una columna generada que
+     * puede cambiar si cambia la definición de una paca, y eso no debería mover
+     * lo que consumió un día de hace tres meses.
+     */
+    litrosConsumidos: integer('litros_consumidos').notNull(),
+
+    /**
+     * La lectura visual del tanque, en cuartos — RN-PRD-11.
+     *
+     * NULL si no se miró. No es obligatorio: reconcilia, no corrige, y forzarlo
+     * llevaría a que alguien ponga cualquier cosa para poder cerrar el día.
+     */
+    nivelObservado: nivelTanqueEnum('nivel_observado'),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    /* Un cierre por día — RN-PRD-22. Dos cierres serían dos verdades. */
+    uniqueIndex('cierres_fecha_idx').on(t.fecha),
+
+    check('cierres_minutos_positivos', sql`${t.minutosProcesando} > 0`),
+    check(
+      'cierres_conteos_no_negativos',
+      sql`${t.pacas600} >= 0 AND ${t.pacas300} >= 0 AND ${t.botellonesLlenados} >= 0 AND ${t.botellonesLavados} >= 0`,
+    ),
+    check('cierres_consumo_no_negativo', sql`${t.litrosConsumidos} >= 0`),
+
+    /* Los dos del procesamiento van juntos o ninguno: sin caudal no hay litros. */
+    check(
+      'cierres_procesamiento_completo',
+      sql`(${t.caudalGpm} IS NULL) = (${t.litrosProcesados} IS NULL)`,
+    ),
+    check(
+      'cierres_caudal_positivo',
+      sql`${t.caudalGpm} IS NULL OR (${t.caudalGpm} > 0 AND ${t.litrosProcesados} > 0)`,
+    ),
+  ],
+)
+
+/**
+ * El libro del agua. Append-only, igual que los otros dos libros del sistema.
+ *
+ * ── Lo que esta tabla NO tiene, y es lo importante ────────────────────────
+ *
+ * No hay ninguna columna que diga cuántos litros entraron de la red. No hay
+ * medidor ni regleta (RN-PRD-11), y un campo que invite a llenarlo a ojo
+ * **fabrica precisión que no existe** — RN-PRD-15.
+ *
+ * Un `ingreso_red` lleva `litros: 0`: registra el HECHO de que llegó agua. El
+ * saldo se recalibra después contra la banda observada, con un `ajuste` que
+ * exige motivo. Así queda claro cuál número es medido y cuál es estimado, que es
+ * justo lo que se pierde cuando alguien completa un campo «para que no quede
+ * vacío».
+ */
+export const movimientosAgua = pgTable(
+  'movimientos_agua',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    tanque: tanqueEnum('tanque').notNull(),
+
+    /** Positivo entra, negativo sale. Cero SOLO en `ingreso_red`. */
+    litros: integer('litros').notNull(),
+    tipo: tipoMovimientoAguaEnum('tipo').notNull(),
+
+    /** Obligatorio en ajuste. Lo exige un CHECK, no el servicio. */
+    motivo: text('motivo'),
+
+    /** El cierre que lo originó. NULL en ingreso de red y en ajuste manual. */
+    cierreId: uuid('cierre_id').references(() => cierresProduccion.id),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    index('movimientos_agua_tanque_idx').on(t.tanque),
+    index('movimientos_agua_fecha_idx').on(t.createdAt),
+    index('movimientos_agua_cierre_idx').on(t.cierreId),
+
+    /*
+     * Cero solo se permite en `ingreso_red`, y esa excepción ES la regla de
+     * RN-PRD-11 hecha CHECK: llegó agua, no sabemos cuánta. Cualquier otro
+     * movimiento con cero sería un registro que no movió nada.
+     */
+    check(
+      'movimientos_agua_cantidad',
+      sql`(${t.tipo} = 'ingreso_red' AND ${t.litros} = 0) OR (${t.tipo} <> 'ingreso_red' AND ${t.litros} <> 0)`,
+    ),
+
+    check('movimientos_agua_ajuste_con_motivo', sql`${t.tipo} <> 'ajuste' OR ${t.motivo} IS NOT NULL`),
+  ],
+)
+
 export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type Session = typeof sessions.$inferSelect
@@ -691,3 +885,8 @@ export type Insumo = typeof insumos.$inferSelect
 export type NuevoInsumo = typeof insumos.$inferInsert
 export type MovimientoInsumo = typeof movimientosInsumo.$inferSelect
 export type NuevoMovimientoInsumo = typeof movimientosInsumo.$inferInsert
+
+export type CierreProduccion = typeof cierresProduccion.$inferSelect
+export type NuevoCierreProduccion = typeof cierresProduccion.$inferInsert
+export type MovimientoAgua = typeof movimientosAgua.$inferSelect
+export type NuevoMovimientoAgua = typeof movimientosAgua.$inferInsert

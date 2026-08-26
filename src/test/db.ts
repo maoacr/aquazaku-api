@@ -88,6 +88,8 @@ export function poolConcurrente(conexiones: number) {
 
 /** Tablas en orden seguro para truncar (las hijas primero por las FK). */
 const TABLAS = [
+  'movimientos_agua',
+  'cierres_produccion',
   'movimientos_insumo',
   'insumos',
   'movimientos_stock',
