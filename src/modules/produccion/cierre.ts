@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { type DB, db } from '@/db/client'
 import {
   type CierreProduccion,
@@ -376,6 +376,15 @@ async function generarLotes(
   }
 
   return generados
+}
+
+/** Los cierres, del más reciente al más viejo. */
+export async function listarCierres(limite = 30): Promise<CierreProduccion[]> {
+  return db
+    .select()
+    .from(cierresProduccion)
+    .orderBy(desc(cierresProduccion.fecha))
+    .limit(limite)
 }
 
 /** El cierre de una fecha, si existe. */
