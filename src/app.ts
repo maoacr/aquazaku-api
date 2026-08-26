@@ -7,6 +7,7 @@ import { authRoutes } from '@/modules/auth/routes'
 import { auditRoutes } from '@/modules/audit/routes'
 import { productoRoutes } from '@/modules/productos/routes'
 import { insumosRoutes } from '@/modules/insumos/routes'
+import { clientesRoutes } from '@/modules/clientes/routes'
 import { produccionRoutes } from '@/modules/produccion/routes'
 import { stockRoutes } from '@/modules/stock/routes'
 import { userRoutes } from '@/modules/users/routes'
@@ -58,6 +59,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(stockRoutes)
   await app.register(insumosRoutes)
   await app.register(produccionRoutes)
+  await app.register(clientesRoutes)
 
   return app
 }

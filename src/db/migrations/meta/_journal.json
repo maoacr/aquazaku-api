@@ -43,6 +43,13 @@
       "when": 1787747397386,
       "tag": "0005_produccion",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787747397387,
+      "tag": "0006_clientes",
+      "breakpoints": true
     }
   ]
 }

@@ -890,3 +890,154 @@ export type CierreProduccion = typeof cierresProduccion.$inferSelect
 export type NuevoCierreProduccion = typeof cierresProduccion.$inferInsert
 export type MovimientoAgua = typeof movimientosAgua.$inferSelect
 export type NuevoMovimientoAgua = typeof movimientosAgua.$inferInsert
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Clientes — M5
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Define qué lista de precios se le aplica — RN-CLI-16. */
+export const tipoClienteEnum = pgEnum('tipo_cliente', ['residencial', 'comercial'])
+
+/**
+ * Los dos identificadores que conviven en Colombia — RN-CLI-09.
+ *
+ * El NIT de una persona natural se basa en su cédula, así que el mismo número
+ * puede existir como `CC` y como `NIT` y ser la misma persona. Por eso la
+ * unicidad va sobre el PAR y no sobre el número.
+ */
+export const tipoDocumentoEnum = pgEnum('tipo_documento', ['CC', 'NIT'])
+
+/** Registrar el número y comprobarlo son dos cosas distintas — RN-CLI-10. */
+export const verificacionEstadoEnum = pgEnum('verificacion_estado', ['pendiente', 'verificado'])
+
+/**
+ * Cómo se comprobó — RN-CLI-14.
+ *
+ * Se DERIVA del rol de quien verifica, no se recibe por parámetro: dejarlo
+ * elegir permitiría que un `seller` marque `admin_oficial`, que es la
+ * ratificación formal y vale distinto.
+ */
+export const verificacionMetodoEnum = pgEnum('verificacion_metodo', [
+  'seller_manual',
+  'pos_manual',
+  'admin_oficial',
+])
+
+export const clientes = pgTable(
+  'clientes',
+  {
+    /** La identidad es este UUID, no el documento — RN-CLI-01. */
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    nombre: text('nombre').notNull(),
+    tipo: tipoClienteEnum('tipo').notNull().default('residencial'),
+
+    tipoDocumento: tipoDocumentoEnum('tipo_documento').notNull(),
+    /** El número BASE, normalizado: sin puntos, sin guion y sin el DV. */
+    numeroDocumento: text('numero_documento').notNull(),
+
+    verificacionEstado: verificacionEstadoEnum('verificacion_estado')
+      .notNull()
+      .default('pendiente'),
+    verificadoPor: uuid('verificado_por').references(() => users.id, { onDelete: 'set null' }),
+    verificadoEn: tstz('verificado_en'),
+    verificacionMetodo: verificacionMetodoEnum('verificacion_metodo'),
+
+    creditoHabilitado: boolean('credito_habilitado').notNull().default(false),
+    /** `null` es SIN TOPE, y es el default — RN-CLI-12. */
+    creditoLimite: numeric('credito_limite', { precision: 12, scale: 2 }),
+
+    /** Un cliente no se borra, se desactiva — RN-CLI-02. */
+    activo: boolean('activo').notNull().default(true),
+
+    createdAt: tstz('created_at').notNull().defaultNow(),
+    updatedAt: tstz('updated_at').notNull().defaultNow(),
+  },
+  (t) => [
+    /*
+     * ── La unicidad va sobre el PAR, no sobre el número ──────────────────────
+     *
+     * RN-CLI-08 dice que un número pertenece a una sola persona. Pero el NIT de
+     * una persona natural se basa en su cédula: `CC 79123456` y `NIT 79123456`
+     * son la misma persona escrita de dos formas, y registrar el NIT de alguien
+     * que ya está como CC es un caso legítimo.
+     *
+     * Con el par, el duplicado REAL —mismo tipo y mismo número— sigue siendo
+     * imposible. El cruce entre tipos lo atiende el servicio con un aviso: la
+     * base no puede saber si son la misma persona, y adivinarlo sería peor que
+     * preguntar.
+     */
+    uniqueIndex('clientes_documento_idx').on(t.tipoDocumento, t.numeroDocumento),
+
+    /*
+     * ── El invariante de M5 — RN-CLI-15 ─────────────────────────────────────
+     *
+     * Crédito exige verificación. Va en la base y no solo en el servicio porque
+     * cubre los DOS caminos: habilitar crédito sin verificar, y *des*verificar a
+     * alguien que ya tiene crédito puesto. Un guard en el servicio de habilitar
+     * solo atrapa el primero, y nadie se acuerda del segundo hasta que pasa.
+     *
+     * «El que más necesita crédito es el que más urgente tiene saltarse la
+     * verificación» — por eso es un invariante y no una validación.
+     */
+    check(
+      'clientes_credito_exige_verificacion',
+      sql`NOT ${t.creditoHabilitado} OR ${t.verificacionEstado} = 'verificado'`,
+    ),
+
+    /*
+     * Los cuatro campos de la verificación van juntos o van los cuatro nulos.
+     * Misma forma que `cierres_procesamiento_completo` en M4: media verificación
+     * —estado sin responsable, o responsable sin fecha— no significa nada, y
+     * quien la lea después no va a saber si fue un bug o un dato real.
+     */
+    check(
+      'clientes_verificacion_completa',
+      sql`(${t.verificacionEstado} = 'pendiente'
+             AND ${t.verificadoPor} IS NULL
+             AND ${t.verificadoEn} IS NULL
+             AND ${t.verificacionMetodo} IS NULL)
+          OR (${t.verificacionEstado} = 'verificado'
+             AND ${t.verificadoEn} IS NOT NULL
+             AND ${t.verificacionMetodo} IS NOT NULL)`,
+    ),
+
+    check('clientes_limite_positivo', sql`${t.creditoLimite} IS NULL OR ${t.creditoLimite} > 0`),
+
+    index('clientes_activo_idx').on(t.activo),
+  ],
+)
+
+/**
+ * La dirección es una entidad, no un campo de texto — RN-CLI-07.
+ *
+ * Sin `ruta_id`: las rutas son M8. Agregar hoy una columna que apunta a una
+ * tabla que no existe es andamio — y no cuesta más ponerla entonces, porque esta
+ * tabla ya va a estar. Lo caro sería lo contrario: partir clientes que ya tienen
+ * deuda y botellones para poder separarles las direcciones.
+ */
+export const direcciones = pgTable(
+  'direcciones',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    clienteId: uuid('cliente_id')
+      .notNull()
+      .references(() => clientes.id, { onDelete: 'restrict' }),
+
+    /** Cómo la llaman: «Sucursal Norte», «la casa», «el depósito». */
+    etiqueta: text('etiqueta').notNull(),
+    direccion: text('direccion').notNull(),
+    /** Referencias para llegar: «al lado de la panadería». */
+    indicaciones: text('indicaciones'),
+
+    activa: boolean('activa').notNull().default(true),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('direcciones_cliente_idx').on(t.clienteId)],
+)
+
+export type Cliente = typeof clientes.$inferSelect
+export type NuevoCliente = typeof clientes.$inferInsert
+export type Direccion = typeof direcciones.$inferSelect
+export type NuevaDireccion = typeof direcciones.$inferInsert
