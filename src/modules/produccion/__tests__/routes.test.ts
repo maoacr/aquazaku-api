@@ -1,10 +1,15 @@
-import { desc } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import type { FastifyInstance, InjectOptions } from 'fastify'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildApp } from '@/app'
 import { closeDb, db } from '@/db/client'
-import { auditLog, insumos, productos } from '@/db/schema'
+import { auditLog, insumos, movimientosAgua, productos } from '@/db/schema'
 import type { Role } from '@/modules/authz/matrix'
+import {
+  INSUMOS_POR_BOTELLON,
+  LITROS_POR_GALON,
+  RENDIMIENTO,
+} from '@/modules/produccion/cierre'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
@@ -310,5 +315,88 @@ describe('la reconciliación es una consulta', () => {
 
     // Pero sí ve la producción, que es lo que necesita para cerrar los números.
     expect((await como('contador', { method: 'GET', url: '/produccion' })).statusCode).toBe(200)
+  })
+})
+
+/**
+ * ── Los parámetros existen para que la pantalla no copie los números ────────
+ *
+ * Si este endpoint devolviera constantes propias en vez de las del cierre,
+ * volvería a haber dos fuentes — que es exactamente lo que vino a evitar.
+ */
+describe('GET /produccion/parametros', () => {
+  it('devuelve los mismos números con los que calcula el cierre', async () => {
+    const res = await comoAdmin({ method: 'GET', url: '/produccion/parametros' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      litrosPorGalon: LITROS_POR_GALON,
+      rendimiento: RENDIMIENTO,
+      insumosPorBotellon: [...INSUMOS_POR_BOTELLON],
+    })
+  })
+
+  it('el `seller` tampoco los ve: no toca la planta', async () => {
+    expect(
+      (await como('seller', { method: 'GET', url: '/produccion/parametros' })).statusCode,
+    ).toBe(403)
+  })
+})
+
+/**
+ * ── El caso espejo de la vista previa ───────────────────────────────────────
+ *
+ * Estos números están repetidos, con los mismos literales, en
+ * `web/src/__tests__/produccion-vista-previa.test.ts`. Están en dos repos, así
+ * que ningún import los puede atar; lo que los ata es que los dos tests usan
+ * los mismos valores.
+ *
+ * Si alguien cambia la aritmética de un lado, ese lado falla y el otro no. La
+ * diferencia aparece como un test rojo en vez de como un número equivocado en
+ * la pantalla del cierre — que es donde alguien confirmaría una operación
+ * irreversible creyendo otra cosa.
+ *
+ * Si tocás uno, tocá el otro.
+ */
+describe('el cierre escribe lo que la pantalla prometió', () => {
+  it('los tres números coinciden con la vista previa', async () => {
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/produccion/cierres',
+      payload: {
+        fecha: '2026-08-26',
+        minutosProcesando: 120,
+        pacas600: 10,
+        pacas300: 5,
+        botellonesLlenados: 30,
+        botellonesLavados: 0,
+        caudalGpm: 2,
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    // 10×12 + 5×15 + 30×20 = 795 · 2 × 120 × 3,785 × 0,7 = 635,88 → 636
+    expect(res.json().cierre).toMatchObject({ litrosConsumidos: 795, litrosProcesados: 636 })
+
+    // Y el crudo que ese procesamiento consumió: 636 / 0,7 = 908,57 → 909.
+    const crudo = await db
+      .select()
+      .from(movimientosAgua)
+      .where(eq(movimientosAgua.tanque, 'crudo'))
+
+    expect(crudo.find((m) => m.tipo === 'procesamiento')?.litros).toBe(-909)
+  })
+
+  it('una tapa y un sello por botellón envasado', async () => {
+    await comoAdmin({
+      method: 'POST',
+      url: '/produccion/cierres',
+      payload: { fecha: '2026-08-26', minutosProcesando: 60, botellonesLlenados: 30 },
+    })
+
+    const [tapa] = await db.select().from(insumos).where(eq(insumos.codigo, 'TAPA_20L'))
+
+    // Arrancó en 500.
+    expect(tapa?.saldo).toBe(470)
   })
 })

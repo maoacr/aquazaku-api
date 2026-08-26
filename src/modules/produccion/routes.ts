@@ -12,7 +12,7 @@ import {
   registrarIngreso,
   saldosDeAgua,
 } from './agua'
-import { cierreDe, listarCierres, registrarCierre } from './cierre'
+import { cierreDe, listarCierres, parametrosDeProduccion, registrarCierre } from './cierre'
 import {
   esquemaDeAjusteDeAgua,
   esquemaDeCierre,
@@ -47,6 +47,23 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
     '/produccion',
     { preHandler: [requireAuth, requirePermission('produccion', 'ver')] },
     async () => listarCierres(),
+  )
+
+  /**
+   * Los números con los que el cierre calcula.
+   *
+   * Va ANTES de `/produccion/:fecha` porque Fastify no confunde una ruta
+   * estática con una paramétrica, pero el orden acá deja claro que
+   * `parametros` no es una fecha.
+   *
+   * Existe para que la vista previa de la pantalla no copie `3.785` ni `0.7`:
+   * los dos están marcados para cambiar, y una pantalla que promete el número
+   * viejo hace que se confirme creyendo otra cosa.
+   */
+  app.get(
+    '/produccion/parametros',
+    { preHandler: [requireAuth, requirePermission('produccion', 'ver')] },
+    async () => parametrosDeProduccion(),
   )
 
   app.get(

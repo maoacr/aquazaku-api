@@ -37,7 +37,7 @@ import { crearLoteConEntrada } from '@/modules/stock/service'
  */
 
 /** Los dos insumos que consume cada botellón llenado — RN-PRD-09. */
-const INSUMOS_POR_BOTELLON = ['TAPA_20L', 'SELLO_BOTELLON'] as const
+export const INSUMOS_POR_BOTELLON = ['TAPA_20L', 'SELLO_BOTELLON'] as const
 
 /** El producto que se genera por cada conteo del cierre. */
 const PRODUCTO_DE = {
@@ -75,10 +75,10 @@ export interface ResultadoDelCierre {
 }
 
 /** Un galón americano. La placa puede decir imperial: es parte de la pregunta 4. */
-const LITROS_POR_GALON = 3.785
+export const LITROS_POR_GALON = 3.785
 
 /** De cada 100 litros crudos, 70 quedan utilizables — RN-PRD-12. */
-const RENDIMIENTO = 0.7
+export const RENDIMIENTO = 0.7
 
 /**
  * Registra el cierre del día y mueve los tres saldos, o no mueve ninguno.
@@ -395,4 +395,43 @@ export async function cierreDe(fecha: string): Promise<CierreProduccion | undefi
     .where(and(eq(cierresProduccion.fecha, fecha)))
 
   return cierre
+}
+
+/**
+ * Los números con los que el cierre calcula — para que la pantalla no los copie.
+ *
+ * ── Por qué esto existe ─────────────────────────────────────────────────────
+ *
+ * La pantalla del cierre muestra qué va a pasar **antes** de confirmar: cuántos
+ * litros se van a descontar, cuántas tapas, qué lote se va a generar. Para eso
+ * necesita `LITROS_POR_GALON` y `RENDIMIENTO`.
+ *
+ * La salida fácil era escribir `3.785` y `0.7` en el componente. Y sería un
+ * error de la misma familia que los que ya costaron caro acá: los DOS números
+ * están marcados para cambiar —el galón puede ser imperial (pregunta 4) y el
+ * rendimiento es RN-PRD-12, que se revisa cuando se mida de verdad—. El día que
+ * cambien, la pantalla seguiría prometiendo el número viejo y quien confirma
+ * lo haría creyendo otra cosa.
+ *
+ * Con esto, hay UN lugar donde viven. La pantalla hace la aritmética; los
+ * números son del servidor.
+ *
+ * No incluye los litros por producto: esos ya viajan en `GET /productos`
+ * (`productos.litros`, columna generada), y repetirlos acá sería el mismo error
+ * al revés.
+ */
+export interface ParametrosDeProduccion {
+  litrosPorGalon: number
+  /** Fracción utilizable del agua cruda. `0.7` = 70 %. */
+  rendimiento: number
+  /** Qué se consume por cada botellón envasado, uno de cada uno. */
+  insumosPorBotellon: readonly string[]
+}
+
+export function parametrosDeProduccion(): ParametrosDeProduccion {
+  return {
+    litrosPorGalon: LITROS_POR_GALON,
+    rendimiento: RENDIMIENTO,
+    insumosPorBotellon: INSUMOS_POR_BOTELLON,
+  }
 }
