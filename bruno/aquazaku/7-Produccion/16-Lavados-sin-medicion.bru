@@ -1,0 +1,42 @@
+meta {
+  name: Lavados sin la medición — 422 que dice qué medir
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/produccion/cierres
+  body: json
+}
+
+body:json {
+  {
+    "fecha": "2026-08-27",
+    "minutosProcesando": 90,
+    "botellonesLavados": 20
+  }
+}
+
+docs {
+  422 y no 400: la petición está bien formada. Lo que falta es un dato del
+  NEGOCIO que nadie midió — cuántos litros lleva enjuagar un botellón
+  (pregunta 6).
+
+  Un 400 diría «lo escribiste mal» y mandaría a revisar el formulario. Un 422
+  con este mensaje manda a medirlo una vez con un balde, que es lo que
+  corresponde.
+
+  Aceptarlo con cero sería peor que rechazarlo: un término del balance quedaría
+  en cero para siempre y el agua no cuadraría nunca, sin nadie sabiendo por qué.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("dice qué medir", function() {
+    expect(res.getBody().code).to.equal("SIN_LITROS_DE_LAVADO");
+    expect(res.getBody().mensaje).to.match(/medirlo una vez/);
+  });
+}

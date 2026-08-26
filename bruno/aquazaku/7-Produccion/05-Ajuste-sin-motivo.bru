@@ -1,0 +1,34 @@
+meta {
+  name: Ajuste sin motivo — se rechaza
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/tanques/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "crudo",
+    "litros": 6500,
+    "motivo": "x"
+  }
+}
+
+docs {
+  El ajuste es el ÚNICO camino por el que el saldo del agua se mueve fuera de un
+  cierre, y por eso exige explicación.
+
+  Diez caracteres no garantizan una buena explicación, pero descartan el «x»
+  reflejo. Un ajuste que nadie pueda entender dentro de tres meses no sirve como
+  registro — y con el agua importa más que con nada, porque el ingreso de la red
+  ya viene sin medir.
+}
+
+tests {
+  test("lo atrapa Zod: el largo es forma", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

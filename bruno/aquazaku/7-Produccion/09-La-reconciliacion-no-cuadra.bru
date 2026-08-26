@@ -1,0 +1,32 @@
+meta {
+  name: La reconciliación NO cuadra — sugiere, no corrige
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/tanques/reconciliacion?tanque=crudo&nivel=lleno
+}
+
+params:query {
+  tanque: crudo
+  nivel: lleno
+}
+
+docs {
+  El libro dice 6.500 y el ojo dice lleno. La discrepancia se marca y se ofrece
+  un ajuste — que sigue exigiendo motivo, y que quien ajusta puede cambiar.
+
+  Sugerir no es corregir. La diferencia importa: una corrección automática
+  dejaría el saldo cuadrado y la causa sin averiguar.
+}
+
+tests {
+  test("marca la discrepancia", function() {
+    expect(res.getBody().cuadra).to.equal(false);
+  });
+
+  test("sugiere hasta el centro de la banda observada", function() {
+    expect(res.getBody().ajusteSugerido).to.be.above(0);
+  });
+}

@@ -1,0 +1,30 @@
+meta {
+  name: Cargar el tanque procesado
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/tanques/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "procesado",
+    "litros": 3000,
+    "motivo": "carga inicial contada contra la regleta del tanque procesado"
+  }
+}
+
+docs {
+  El cierre de abajo consume 795 litros del procesado. Sin esto el saldo
+  quedaría negativo — que es información válida (significa que el libro perdió
+  el rastro de una entrada) pero no es lo que este flujo quiere mostrar.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

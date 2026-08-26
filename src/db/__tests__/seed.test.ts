@@ -1,9 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { leerEntorno, sembrar, sembrarProductos, sembrarRoles } from '../../../drizzle/seed'
+import { leerEntorno, sembrar, sembrarInsumos, sembrarProductos, sembrarRoles } from '../../../drizzle/seed'
 import { closeDb, db } from '@/db/client'
-import { accounts, productos, roles, userRoles, users } from '@/db/schema'
+import { accounts, insumos, productos, roles, userRoles, users } from '@/db/schema'
 import { ROLES } from '@/modules/authz/matrix'
+import { INSUMOS_POR_BOTELLON } from '@/modules/produccion/cierre'
 import { resetDb } from '@/test/db'
 
 const ADMIN = {
@@ -281,5 +282,65 @@ describe('validación del entorno', () => {
         SEED_ADMIN_NAME: 'Mao',
       }),
     ).toMatchObject({ email: 'mao@aquazaku.com', nombre: 'Mao' })
+  })
+})
+
+/**
+ * ── Los insumos son parte de la definición, no datos de cada instalación ────
+ *
+ * `INSUMOS_POR_BOTELLON` los nombra por código en el servicio del cierre: se
+ * buscan por código exacto y el cierre LANZA si no están. Sembrar los tres
+ * productos y no estos dos dejaba una base recién migrada sin poder hacer la
+ * operación central del negocio, y el error aparecía recién en la planta con
+ * los botellones ya envasados.
+ */
+describe('los insumos que el cierre consume', () => {
+  beforeEach(async () => {
+    await resetDb()
+  })
+
+  it('siembra exactamente los que el cierre busca por código', async () => {
+    await sembrarInsumos()
+
+    const filas = await db.select().from(insumos).orderBy(insumos.codigo)
+
+    expect(filas.map((i) => i.codigo).sort()).toEqual([...INSUMOS_POR_BOTELLON].sort())
+  })
+
+  /**
+   * El saldo es cuántas unidades hay, y eso nadie lo sabe hasta contarlas. Un
+   * número inventado acá descuadraría el inventario desde el primer día.
+   */
+  it('nacen en cero y sin equivalencia: son mediciones que faltan', async () => {
+    await sembrarInsumos()
+
+    const filas = await db.select().from(insumos)
+
+    expect(filas.every((i) => i.saldo === 0)).toBe(true)
+    expect(filas.every((i) => i.equivalenciaPorKilo === null)).toBe(true)
+  })
+
+  /**
+   * Lo que este test protege es que `sembrar()` los LLAME.
+   *
+   * Los de arriba llaman a `sembrarInsumos()` directo, así que pasarían igual
+   * si alguien la sacara del seed completo — que es justamente la forma en que
+   * esto se rompería: nadie borra la función, se olvida de invocarla.
+   */
+  it('el seed completo los deja cargados', async () => {
+    await sembrar({ email: 'admin@aquazaku.com', nombre: 'Admin', password: 'unaClaveLarga1' })
+
+    expect(await db.select().from(insumos)).toHaveLength(INSUMOS_POR_BOTELLON.length)
+  })
+
+  it('es idempotente: correr el seed dos veces no duplica ni pisa saldos', async () => {
+    await sembrarInsumos()
+    await db.update(insumos).set({ saldo: 500 })
+
+    expect(await sembrarInsumos()).toBe(0)
+
+    const filas = await db.select().from(insumos)
+    expect(filas).toHaveLength(INSUMOS_POR_BOTELLON.length)
+    expect(filas.every((i) => i.saldo === 500)).toBe(true)
   })
 })

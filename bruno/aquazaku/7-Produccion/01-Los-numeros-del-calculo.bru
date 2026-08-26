@@ -1,0 +1,36 @@
+meta {
+  name: Los números con los que calcula el cierre
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/produccion/parametros
+}
+
+docs {
+  Existe para que la pantalla del cierre NO copie 3.785 ni 0.7.
+
+  Los dos están marcados para cambiar: el galón puede ser imperial (pregunta 4)
+  y el rendimiento es RN-PRD-12, que se revisa cuando se mida de verdad. Con los
+  números copiados en el componente, el día que cambien la pantalla seguiría
+  prometiendo los viejos — y quien confirma una operación irreversible lo haría
+  creyendo otra cosa.
+
+  No incluye los litros por producto: esos ya viajan en GET /productos, y
+  repetirlos acá sería el mismo error al revés.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el rendimiento es el de RN-PRD-12", function() {
+    expect(res.getBody().rendimiento).to.equal(0.7);
+  });
+
+  test("nombra los insumos que el cierre consume por código", function() {
+    expect(res.getBody().insumosPorBotellon).to.eql(["TAPA_20L", "SELLO_BOTELLON"]);
+  });
+}

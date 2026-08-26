@@ -1,0 +1,40 @@
+meta {
+  name: Ajustar el crudo contra el nivel que se ve
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/tanques/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "crudo",
+    "litros": 6500,
+    "motivo": "llegó agua de la red y el tanque quedó a medio llenar"
+  }
+}
+
+docs {
+  Así sube el saldo del crudo: no con el ingreso, que no tiene cantidad, sino
+  con un ajuste que dice de dónde salió el número.
+
+  Queda claro cuál dato es medido y cuál es estimado — que es toda la diferencia
+  cuando el balance no cuadre dentro de dos meses.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el saldo queda en lo ajustado", function() {
+    expect(res.getBody().litros).to.equal(6500);
+  });
+
+  test("6.500 de 13.000 es medio tanque", function() {
+    expect(res.getBody().nivelCalculado).to.equal("medio");
+  });
+}

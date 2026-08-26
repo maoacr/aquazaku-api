@@ -1,0 +1,40 @@
+meta {
+  name: La reconciliación cuadra — y no escribe
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/tanques/reconciliacion?tanque=crudo&nivel=medio
+}
+
+params:query {
+  tanque: crudo
+  nivel: medio
+}
+
+docs {
+  Es un GET porque NO escribe. Compara el saldo calculado contra lo que se vio y
+  dice si cuadra; si no cuadra, quien mira decide si ajusta.
+
+  Sobrescribir el saldo con la lectura sería el error obvio y es el peor:
+  «medio tanque» de 13.000 L es un rango de 3.250 litros. Reemplazar un número
+  calculado por el centro de ese rango PIERDE información y encima parece más
+  preciso — justo lo que RN-PRD-15 prohíbe.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("6.500 cae dentro de la banda de MEDIO", function() {
+    expect(res.getBody().cuadra).to.equal(true);
+    expect(res.getBody().ajusteSugerido).to.equal(0);
+  });
+
+  test("la banda es 4.875–8.125, como dice RN-PRD-15", function() {
+    expect(res.getBody().banda.desde).to.equal(4875);
+    expect(res.getBody().banda.hasta).to.equal(8125);
+  });
+}

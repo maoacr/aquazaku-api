@@ -1,0 +1,33 @@
+meta {
+  name: Un segundo cierre del mismo día — se rechaza
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/produccion/cierres
+  body: json
+}
+
+body:json {
+  {
+    "fecha": "2026-08-26",
+    "minutosProcesando": 60,
+    "botellonesLlenados": 5
+  }
+}
+
+docs {
+  Un cierre por día — RN-PRD-22. Dos cierres serían dos verdades sobre el mismo
+  día, y ninguna forma de saber cuál cuenta.
+
+  Lo frena un UNIQUE en la base, no el servicio. Es la línea de ADR-0006: el
+  invariante vive en la base porque tiene que sostenerse también cuando el dato
+  entra por un script o por una consola.
+}
+
+tests {
+  test("no entra", function() {
+    expect(res.getStatus()).to.be.at.least(400);
+  });
+}

@@ -1,0 +1,35 @@
+meta {
+  name: Mandar litros igual no los registra
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/tanques/reposicion
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "crudo",
+    "litros": 9999
+  }
+}
+
+docs {
+  Alguien que conozca la forma del endpoint podría mandar litros de todos modos.
+  El esquema los descarta: la reposición no tiene ese campo.
+
+  Es la diferencia entre no ofrecer un campo y no aceptarlo. Lo primero es
+  interfaz; lo segundo es contrato.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("los litros mandados se ignoran", function() {
+    expect(res.getBody().litros).to.equal(0);
+  });
+}

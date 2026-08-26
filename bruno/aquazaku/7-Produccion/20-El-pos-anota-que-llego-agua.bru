@@ -1,0 +1,28 @@
+meta {
+  name: El pos SÍ anota que llegó agua
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/tanques/reposicion
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "crudo"
+  }
+}
+
+docs {
+  «Llegó agua y se llenó el tanque» es un HECHO que observa quien está parado en
+  la planta. Pedirle que espere a un admin para anotarlo garantiza que no se
+  anote.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

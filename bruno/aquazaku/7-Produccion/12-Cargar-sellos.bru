@@ -1,0 +1,28 @@
+meta {
+  name: Cargar sellos
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{selloId}}/entrada
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 500
+  }
+}
+
+docs {
+  El cierre consume UNO de cada insumo por botellón. Cargar solo las tapas
+  dejaría el cierre rechazado por los sellos — con el faltante en el mensaje,
+  no con un error genérico.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

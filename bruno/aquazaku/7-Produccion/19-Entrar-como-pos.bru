@@ -1,0 +1,28 @@
+meta {
+  name: Entrar como pos
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailPosProduccion}}",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+docs {
+  Cambia de sesión. Los dos requests siguientes son las dos mitades de la misma
+  decisión.
+}
+
+tests {
+  test("entra", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

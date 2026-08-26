@@ -1,0 +1,38 @@
+meta {
+  name: Ajustar por encima de la capacidad — se rechaza
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/tanques/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "crudo",
+    "litros": 9000,
+    "motivo": "el tanque se ve más lleno de lo que dice el sistema"
+  }
+}
+
+docs {
+  6.500 + 9.000 pasa los 13.000 del tanque. No es un capricho de validación: un
+  saldo por encima de la capacidad significa que el libro PERDIÓ el rastro de
+  una salida.
+
+  Taparlo con un ajuste al alza esconde el problema en vez de resolverlo, y el
+  mensaje dice exactamente eso — que falta registrar una salida antes.
+}
+
+tests {
+  test("responde 422: la forma está bien, el negocio no", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("dice qué falta hacer", function() {
+    expect(res.getBody().code).to.equal("SOBRE_CAPACIDAD");
+    expect(res.getBody().mensaje).to.match(/falta registrar una salida/);
+  });
+}

@@ -1,0 +1,34 @@
+meta {
+  name: Pero el pos NO ajusta un saldo que no cuadra
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/tanques/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "crudo",
+    "litros": 2000,
+    "motivo": "el tanque se ve más lleno de lo que dice el sistema"
+  }
+}
+
+docs {
+  Esta es la otra mitad, y es la que justifica que `tanques:registrar_reposicion`
+  y `tanques:ajustar` sean dos permisos y no uno.
+
+  Corregir un saldo que no cuadra no es contar un hecho: es decidir cuál de dos
+  números es el bueno. Quien opera la planta no debería poder tapar su propia
+  discrepancia — no porque se desconfíe de nadie, sino porque un registro que
+  cualquiera puede cuadrar solo deja de servir como registro.
+}
+
+tests {
+  test("403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+}

@@ -11,14 +11,20 @@ post {
 
 body:json {
   {
-    "codigo": "TAPA_20L",
-    "nombre": "Tapa para botellón de 20 L",
+    "codigo": "BOLSA_600ML",
+    "nombre": "Bolsa de 600 ml",
     "minimo": 200
   }
 }
 
 docs {
   Alta de insumo. Es CONFIGURACIÓN, no operación: pasa una vez por insumo.
+
+  Se usa la bolsa y no la tapa a propósito: `TAPA_20L` y `SELLO_BOTELLON` los
+  siembra el sistema porque el cierre de producción los busca POR CÓDIGO y
+  lanza si no están (M4). Crearlos acá chocaría contra el UNIQUE. La bolsa es
+  un insumo común y corriente, que es justo lo que este flujo tiene que
+  ejercitar.
 
   Nace SIN equivalencia por kilo, y eso no es un descuido. Cuántas unidades trae
   un kilo es una medición de planta que todavía no se hizo (pregunta 37), y

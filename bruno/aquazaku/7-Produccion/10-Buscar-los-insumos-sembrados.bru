@@ -1,0 +1,42 @@
+meta {
+  name: Los insumos que el cierre consume
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/insumos
+}
+
+docs {
+  `TAPA_20L` y `SELLO_BOTELLON` los siembra el sistema, no una instalación.
+
+  El servicio del cierre los busca POR CÓDIGO y lanza si no están, así que son
+  parte de la definición del sistema igual que los tres productos. Sembrar el
+  catálogo y no estos dos dejaba una base recién migrada sin poder hacer la
+  operación central del negocio — y el error aparecía recién en la planta, con
+  los botellones ya envasados.
+
+  Nacen en CERO: cuántas unidades hay nadie lo sabe hasta contarlas, y un
+  número sembrado descuadraría el inventario desde el primer día.
+}
+
+script:post-response {
+  const insumos = res.getBody();
+  const busca = (codigo) => insumos.find((i) => i.codigo === codigo);
+
+  bru.setVar("tapaId", busca("TAPA_20L")?.id);
+  bru.setVar("selloId", busca("SELLO_BOTELLON")?.id);
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("los dos están sembrados", function() {
+    const codigos = res.getBody().map(i => i.codigo);
+    expect(codigos).to.include("TAPA_20L");
+    expect(codigos).to.include("SELLO_BOTELLON");
+  });
+}

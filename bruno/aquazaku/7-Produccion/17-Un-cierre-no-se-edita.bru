@@ -1,0 +1,33 @@
+meta {
+  name: Un cierre no se edita — la ruta no existe
+  type: http
+  seq: 17
+}
+
+patch {
+  url: {{baseUrl}}/produccion/2026-08-26
+  body: json
+}
+
+body:json {
+  {
+    "pacas600": 999
+  }
+}
+
+docs {
+  No hay PATCH ni DELETE sobre un cierre — RN-PRD-08.
+
+  Que estas rutas NO existan es parte del contrato, no un endpoint que faltó.
+  Un cierre mueve el agua, el stock y los insumos de una vez: editarlo cambiaría
+  los tres saldos sin dejar rastro de qué decía antes.
+
+  Una corrección es un ajuste posterior, con motivo y responsable. Cuesta más
+  escribirla y por eso queda explicada.
+}
+
+tests {
+  test("404: la ruta no está", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

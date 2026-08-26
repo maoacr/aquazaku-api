@@ -1,0 +1,60 @@
+meta {
+  name: El cierre del día — los cuatro escritos
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/produccion/cierres
+  body: json
+}
+
+body:json {
+  {
+    "fecha": "2026-08-26",
+    "minutosProcesando": 120,
+    "caudalGpm": 2,
+    "pacas600": 10,
+    "pacas300": 5,
+    "botellonesLlenados": 30,
+    "nivelObservado": "medio"
+  }
+}
+
+docs {
+  El único evento que convierte litros en producto. Escribe CUATRO cosas en una
+  transacción: el cierre, los movimientos de agua, los lotes de stock y el
+  consumo de insumos. O quedan las cuatro, o no queda ninguna.
+
+  Los números:
+
+    10 × 12 L + 5 × 15 L + 30 × 20 L      = 795 litros consumidos
+    2 GPM × 120 min × 3,785 L/gal × 0,70  = 636 litros procesados
+    636 / 0,70                            = 909 litros de crudo
+                                            30 tapas y 30 sellos
+
+  Son los mismos que la pantalla muestra ANTES de confirmar. Un test en cada
+  repo verifica esos literales: si la aritmética cambia de un lado, ese lado
+  falla y la diferencia aparece como un test rojo, en vez de como un número
+  equivocado en la pantalla donde alguien confirma algo que no se deshace.
+
+  Si la fecha ya tiene cierre, cambiála: un día tiene un solo cierre.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("consumió 795 litros del procesado", function() {
+    expect(res.getBody().cierre.litrosConsumidos).to.equal(795);
+  });
+
+  test("procesó 636 litros", function() {
+    expect(res.getBody().cierre.litrosProcesados).to.equal(636);
+  });
+
+  test("un lote por producto envasado — RN-PRD-23", function() {
+    expect(res.getBody().lotes).to.have.lengthOf(3);
+  });
+}

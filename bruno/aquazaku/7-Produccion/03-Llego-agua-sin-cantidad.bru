@@ -1,0 +1,39 @@
+meta {
+  name: Llegó agua — sin cantidad
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/tanques/reposicion
+  body: json
+}
+
+body:json {
+  {
+    "tanque": "crudo"
+  }
+}
+
+docs {
+  El cuerpo NO acepta litros, y eso es RN-PRD-11 hecha contrato.
+
+  No hay medidor ni regleta. Si el endpoint aceptara una cantidad, alguien la
+  mandaría a ojo y el sistema convertiría un hueco CONOCIDO en un número que
+  parece medido: el día que el saldo no cuadre, nadie sabría si el problema fue
+  el consumo, la merma o esa estimación.
+
+  El movimiento va en cero litros y lo único que afirma es el hecho. El saldo
+  sube después, con un ajuste explícito y con motivo.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("registra el HECHO, no una cantidad", function() {
+    expect(res.getBody().litros).to.equal(0);
+    expect(res.getBody().tipo).to.equal("ingreso_red");
+  });
+}

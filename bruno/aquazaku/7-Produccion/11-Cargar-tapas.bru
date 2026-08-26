@@ -1,0 +1,31 @@
+meta {
+  name: Cargar tapas
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/insumos/{{tapaId}}/entrada
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 500
+  }
+}
+
+docs {
+  Una compra que llegó. Es lo que hace que el cierre de más abajo tenga con qué
+  envasar: sin tapas no se envasa, por más agua que haya.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el saldo sube", function() {
+    expect(res.getBody().saldo).to.be.at.least(500);
+  });
+}

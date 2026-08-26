@@ -1,0 +1,30 @@
+meta {
+  name: Los dos tanques
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/tanques
+}
+
+docs {
+  `procesado` es UN saldo de 4.000 L, no dos de 2.000. Los dos tanques se operan
+  en PARALELO (RN-PRD-21): no hay un primero y un segundo, así que partirlos en
+  la base obligaría a inventar en cuál está cada litro.
+
+  `nivelCalculado` traduce el saldo a lo que se vería mirando el tanque. Sirve
+  para una sola cosa: poder compararlo con el ojo. El que manda es `litros`.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("son dos, con sus capacidades", function() {
+    const saldos = res.getBody();
+    expect(saldos.map(s => s.tanque)).to.eql(["crudo", "procesado"]);
+    expect(saldos.map(s => s.capacidad)).to.eql([13000, 4000]);
+  });
+}

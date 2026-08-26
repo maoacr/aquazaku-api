@@ -25,7 +25,7 @@ tests {
   });
 
   test("un insumo en cero está bajo el mínimo", function() {
-    const tapa = res.getBody().find(i => i.codigo === "TAPA_20L");
-    expect(tapa.bajoMinimo).to.equal(true);
+    const bolsa = res.getBody().find(i => i.codigo === "BOLSA_600ML");
+    expect(bolsa.bajoMinimo).to.equal(true);
   });
 }

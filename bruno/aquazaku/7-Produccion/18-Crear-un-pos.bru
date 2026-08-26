@@ -1,0 +1,43 @@
+meta {
+  name: Crear un pos
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+}
+
+body:json {
+  {
+    "name": "Operario de planta",
+    "email": "pos-produccion@aquazaku.com",
+    "password": "contrasena-de-prueba-123",
+    "roles": ["pos"]
+  }
+}
+
+docs {
+  Los dos requests que siguen verifican LA decisión que da sentido a que
+  `tanques` tenga dos permisos separados. Comprobarla en la matriz en TypeScript
+  dice que la regla está escrita; esto dice que además se aplica.
+}
+
+script:pre-request {
+  // El email lleva marca de tiempo para que la colección se pueda correr dos
+  // veces seguidas: `users.email` es único.
+  bru.setVar("emailPosProduccion", `pos-produccion-${Date.now()}@aquazaku.com`);
+  req.setBody({
+    name: "Operario de planta",
+    email: bru.getVar("emailPosProduccion"),
+    password: "contrasena-de-prueba-123",
+    roles: ["pos"]
+  });
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

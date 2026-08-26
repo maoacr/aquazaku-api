@@ -1,9 +1,10 @@
 import { and, eq } from 'drizzle-orm'
 import { closeDb, db } from '@/db/client'
-import { type NuevoProducto, productos, roles, userRoles, users } from '@/db/schema'
+import { type NuevoProducto, insumos, productos, roles, userRoles, users } from '@/db/schema'
 import { auth } from '@/modules/auth/better-auth'
 import { ROLES } from '@/modules/authz/matrix'
 import { codigoBase } from '@/modules/productos/codigo'
+import { INSUMOS_POR_BOTELLON } from '@/modules/produccion/cierre'
 
 /**
  * Deja el sistema utilizable por primera vez: el catálogo de roles y un admin
@@ -113,6 +114,58 @@ const CATALOGO_INICIAL: readonly SemillaDeProducto[] = [
   },
 ]
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Insumos de empaque — M4
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Los dos insumos que el cierre de producción consume POR CÓDIGO.
+ *
+ * ── Por qué van en el seed y no los carga alguien a mano ────────────────────
+ *
+ * `INSUMOS_POR_BOTELLON` los nombra en el código del servicio: el cierre busca
+ * `TAPA_20L` y `SELLO_BOTELLON` por código exacto y **lanza** si no están. Eso
+ * los vuelve parte de la definición del sistema, no datos que cada instalación
+ * elige — igual que los tres productos.
+ *
+ * Sin esto, una base recién migrada tiene el catálogo completo y aun así no
+ * puede hacer la operación central del negocio: cerrar el día. El error sería
+ * ruidoso y claro (`INSUMO_NO_CARGADO`), pero aparecería recién cuando alguien
+ * intentara cerrar, en la planta, con los botellones ya envasados.
+ *
+ * ── Nacen en CERO y sin equivalencia, a propósito ───────────────────────────
+ *
+ * El saldo es cuántas unidades hay, y eso nadie lo sabe hasta contarlas: un
+ * número inventado acá descuadraría el inventario desde el primer día. La
+ * equivalencia por kilo es la medición de planta de la pregunta 37, y mientras
+ * siga en `null` la entrada por kilos se rechaza en vez de estimar.
+ *
+ * El mínimo sí tiene valor: 200 es el acordado para tapas y sellos.
+ */
+const MINIMO_ACORDADO = 200
+
+const NOMBRE_DE_INSUMO: Record<(typeof INSUMOS_POR_BOTELLON)[number], string> = {
+  TAPA_20L: 'Tapa para botellón de 20 L',
+  SELLO_BOTELLON: 'Sello termoencogible para botellón',
+}
+
+/** Inserta los insumos que el cierre necesita. Idempotente. */
+export async function sembrarInsumos(): Promise<number> {
+  const insertados = await db
+    .insert(insumos)
+    .values(
+      INSUMOS_POR_BOTELLON.map((codigo) => ({
+        codigo,
+        nombre: NOMBRE_DE_INSUMO[codigo],
+        minimo: MINIMO_ACORDADO,
+      })),
+    )
+    .onConflictDoNothing({ target: insumos.codigo })
+    .returning({ codigo: insumos.codigo })
+
+  return insertados.length
+}
+
 /**
  * Inserta el catálogo inicial. Idempotente.
  *
@@ -153,6 +206,8 @@ async function hayAdminActivo(): Promise<boolean> {
 export async function sembrar(opciones: OpcionesDeSeed): Promise<ResultadoDeSeed> {
   await sembrarRoles()
   await sembrarProductos()
+  await sembrarInsumos()
+
 
   if (await hayAdminActivo()) {
     return { creado: false, motivo: 'ya-hay-admin' }
