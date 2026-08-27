@@ -1041,3 +1041,240 @@ export type Cliente = typeof clientes.$inferSelect
 export type NuevoCliente = typeof clientes.$inferInsert
 export type Direccion = typeof direcciones.$inferSelect
 export type NuevaDireccion = typeof direcciones.$inferInsert
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ventas — M6
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Cómo se pagó — RN-VEN-01.
+ *
+ * `credito` es el único que genera deuda, y el único que exige cliente: no hay
+ * a quién cobrarle una deuda sin dueño.
+ */
+export const medioDePagoEnum = pgEnum('medio_de_pago', [
+  'efectivo',
+  'transferencia',
+  'credito',
+])
+
+/** Una venta confirmada no se edita: se anula — RN-VEN-02. */
+export const estadoDeVentaEnum = pgEnum('estado_de_venta', ['confirmada', 'anulada'])
+
+/** Por dónde entró. Registrarlo no automatiza nada; leer WhatsApp es otro proyecto. */
+export const canalDeVentaEnum = pgEnum('canal_de_venta', ['mostrador', 'whatsapp', 'ruta'])
+
+export const tipoDeDescuentoEnum = pgEnum('tipo_de_descuento', ['porcentaje', 'monto_fijo'])
+
+export const codigosDeDescuento = pgTable(
+  'codigos_de_descuento',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    codigo: text('codigo').notNull(),
+    tipo: tipoDeDescuentoEnum('tipo').notNull(),
+    /** `'15'` para 15 %, o `'2000.00'` para un monto fijo. */
+    valor: numeric('valor', { precision: 12, scale: 2 }).notNull(),
+
+    vigenciaDesde: date('vigencia_desde').notNull(),
+    vigenciaHasta: date('vigencia_hasta').notNull(),
+    /** `null` es ilimitado. */
+    usosMaximos: integer('usos_maximos'),
+    usosRealizados: integer('usos_realizados').notNull().default(0),
+
+    activo: boolean('activo').notNull().default(true),
+    creadoPor: uuid('creado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('codigos_descuento_codigo_idx').on(t.codigo),
+    check('codigos_vigencia_ordenada', sql`${t.vigenciaHasta} >= ${t.vigenciaDesde}`),
+    check('codigos_valor_positivo', sql`${t.valor} > 0`),
+    /* Un tope de cero usos es un código que no sirve: es no crearlo. */
+    check('codigos_usos_maximos', sql`${t.usosMaximos} IS NULL OR ${t.usosMaximos} > 0`),
+  ],
+)
+
+export const ventas = pgTable(
+  'ventas',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    /**
+     * NULLABLE, y es el caso normal.
+     *
+     * La mayoría de las ventas de mostrador son a alguien que compra un
+     * botellón y se va. Exigir cliente obligaría a inventar uno —o a cargar el
+     * del anterior—, que es peor que no tenerlo: ensucia la cartera de alguien
+     * que no compró.
+     */
+    clienteId: uuid('cliente_id').references(() => clientes.id, { onDelete: 'restrict' }),
+
+    /**
+     * El tipo del cliente AL MOMENTO — RN-VEN-12.
+     *
+     * Un cliente pasa de residencial a comercial cuando abre un negocio
+     * (RN-CLI-16). Sin este congelado, una venta de hace seis meses se
+     * reinterpretaría con la lista de precios de hoy.
+     */
+    tipoClienteAlMomento: tipoClienteEnum('tipo_cliente_al_momento'),
+
+    medioDePago: medioDePagoEnum('medio_de_pago').notNull(),
+    canal: canalDeVentaEnum('canal').notNull().default('mostrador'),
+    estado: estadoDeVentaEnum('estado').notNull().default('confirmada'),
+
+    /** La suma de sus líneas. Guardado para no recalcular un comprobante. */
+    total: numeric('total', { precision: 12, scale: 2 }).notNull(),
+
+    codigoDescuentoId: uuid('codigo_descuento_id').references(() => codigosDeDescuento.id, {
+      onDelete: 'restrict',
+    }),
+
+    /**
+     * Solo la INTENCIÓN — RN-VEN-11. No hay integración con DIAN en el MVP, y
+     * capturarla desde el día uno evita tener que preguntar hacia atrás.
+     */
+    requiereFacturaElectronica: boolean('requiere_factura_electronica')
+      .notNull()
+      .default(false),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+
+    anuladaPor: uuid('anulada_por').references(() => users.id, { onDelete: 'set null' }),
+    anuladaEn: tstz('anulada_en'),
+    motivoAnulacion: text('motivo_anulacion'),
+  },
+  (t) => [
+    /*
+     * ── Crédito exige cliente ────────────────────────────────────────────────
+     *
+     * Una venta a crédito sin cliente es una deuda sin dueño: nadie a quién
+     * cobrarle y nada que sumar en la cartera. Es el equivalente de
+     * RN-CLI-15 para el otro lado de la operación.
+     */
+    check(
+      'ventas_credito_exige_cliente',
+      sql`${t.medioDePago} <> 'credito' OR ${t.clienteId} IS NOT NULL`,
+    ),
+
+    /*
+     * Los tres campos de la anulación van juntos o los tres nulos, y solo
+     * existen si el estado es `anulada`. Media anulación —motivo sin
+     * responsable— no explica nada dentro de tres meses.
+     */
+    check(
+      'ventas_anulacion_completa',
+      sql`(${t.estado} = 'confirmada'
+             AND ${t.anuladaEn} IS NULL
+             AND ${t.motivoAnulacion} IS NULL)
+          OR (${t.estado} = 'anulada'
+             AND ${t.anuladaEn} IS NOT NULL
+             AND ${t.motivoAnulacion} IS NOT NULL)`,
+    ),
+
+    check('ventas_total_no_negativo', sql`${t.total} >= 0`),
+
+    index('ventas_cliente_idx').on(t.clienteId),
+    index('ventas_fecha_idx').on(t.createdAt),
+    index('ventas_autor_idx').on(t.registradoPor),
+  ],
+)
+
+export const lineasDeVenta = pgTable(
+  'lineas_de_venta',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ventaId: uuid('venta_id')
+      .notNull()
+      .references(() => ventas.id, { onDelete: 'restrict' }),
+    productoId: uuid('producto_id')
+      .notNull()
+      .references(() => productos.id, { onDelete: 'restrict' }),
+    /** De qué lote salió. Anular devuelve AL MISMO lote — tiene su vencimiento. */
+    loteId: uuid('lote_id')
+      .notNull()
+      .references(() => lotes.id, { onDelete: 'restrict' }),
+
+    cantidad: integer('cantidad').notNull(),
+
+    /*
+     * Los cuatro números congelados — RN-VEN-04 y RN-VEN-12.
+     *
+     * Congelar solo el precio final dejaría el comprobante sin poder explicarse
+     * a sí mismo: no se sabría si hubo descuento, ni con qué lista se cobró, ni
+     * por qué no bajó más.
+     */
+    precioListaAplicado: numeric('precio_lista_aplicado', { precision: 12, scale: 2 }).notNull(),
+    descuentoMonto: numeric('descuento_monto', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0.00'),
+    precioMinimoAplicado: numeric('precio_minimo_aplicado', { precision: 12, scale: 2 }).notNull(),
+    precioFinal: numeric('precio_final', { precision: 12, scale: 2 }).notNull(),
+  },
+  (t) => [
+    /*
+     * ── El piso absoluto, sostenido por la base — RN-VEN-13 ─────────────────
+     *
+     * Con el mínimo congelado en la línea, el invariante queda entre dos
+     * columnas de la MISMA fila y no hace falta ir a buscar el producto.
+     *
+     * Que esté acá y no solo en el servicio cubre el script de migración, la
+     * corrección por consola y el endpoint que alguien agregue el año que viene
+     * sin acordarse de la regla.
+     */
+    check('lineas_respetan_el_piso', sql`${t.precioFinal} >= ${t.precioMinimoAplicado}`),
+
+    /*
+     * La identidad que hace verificable el comprobante. Sin esto, un descuento
+     * mal escrito deja una línea que no cuadra consigo misma.
+     */
+    check(
+      'lineas_precio_cuadra',
+      sql`${t.precioFinal} = ${t.precioListaAplicado} - ${t.descuentoMonto}`,
+    ),
+
+    check('lineas_cantidad_positiva', sql`${t.cantidad} > 0`),
+    check('lineas_descuento_no_negativo', sql`${t.descuentoMonto} >= 0`),
+
+    index('lineas_venta_idx').on(t.ventaId),
+    index('lineas_lote_idx').on(t.loteId),
+  ],
+)
+
+/**
+ * El cobro es un documento aparte — RN-VEN-07.
+ *
+ * Modelarlo como un campo de la venta haría imposible un pago parcial, y un
+ * pago que cubre tres ventas. Por eso cuelga del CLIENTE y no de la venta.
+ */
+export const cobros = pgTable(
+  'cobros',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    clienteId: uuid('cliente_id')
+      .notNull()
+      .references(() => clientes.id, { onDelete: 'restrict' }),
+
+    monto: numeric('monto', { precision: 12, scale: 2 }).notNull(),
+    medioDePago: medioDePagoEnum('medio_de_pago').notNull(),
+    observaciones: text('observaciones'),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    /* Un cobro de cero no es un cobro. Y `credito` no es un medio de PAGO. */
+    check('cobros_monto_positivo', sql`${t.monto} > 0`),
+    check('cobros_no_se_pagan_a_credito', sql`${t.medioDePago} <> 'credito'`),
+    index('cobros_cliente_idx').on(t.clienteId),
+  ],
+)
+
+export type Venta = typeof ventas.$inferSelect
+export type NuevaVenta = typeof ventas.$inferInsert
+export type LineaDeVenta = typeof lineasDeVenta.$inferSelect
+export type NuevaLineaDeVenta = typeof lineasDeVenta.$inferInsert
+export type Cobro = typeof cobros.$inferSelect
+export type NuevoCobro = typeof cobros.$inferInsert
+export type CodigoDeDescuento = typeof codigosDeDescuento.$inferSelect

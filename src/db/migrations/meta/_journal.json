@@ -50,6 +50,13 @@
       "when": 1787747397387,
       "tag": "0006_clientes",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787747397388,
+      "tag": "0007_ventas",
+      "breakpoints": true
     }
   ]
 }
