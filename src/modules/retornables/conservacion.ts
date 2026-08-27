@@ -7,8 +7,21 @@ import type { Ejecutor } from '@/modules/stock/saldo'
  * La ley de conservación del parque de botellones — RN-ENV-02.
  *
  * ```
- * Σ(saldos de todos los tenedores)  =  Σ compras − Σ descartes
+ * Σ(saldos de todos los tenedores)  =  Σ compras + Σ ajustes − Σ descartes
  * ```
+ *
+ * ── Por qué el ajuste está del lado derecho ────────────────────────────────
+ *
+ * La primera versión de esta función no lo contaba, y era un error: un ajuste
+ * escribe UNA sola fila —es la operación que reconoce que el parque tenía otra
+ * cantidad de la que el libro decía— así que dejarlo afuera habría roto la
+ * igualdad **para siempre** después del primer ajuste.
+ *
+ * Una alarma que suena siempre deja de ser una alarma. Y peor: la próxima
+ * transferencia a medias se escondería detrás del ruido.
+ *
+ * Contándolo, la igualdad detecta **exactamente una cosa**: transferencias
+ * desbalanceadas. Que es lo único que no debería poder pasar.
  *
  * ── Por qué esta igualdad es el invariante del módulo ───────────────────────
  *
@@ -39,7 +52,7 @@ import type { Ejecutor } from '@/modules/stock/saldo'
 export interface Conservacion {
   /** Lo que suman todos los tenedores: la bodega más cada cliente. */
   enPoderDeAlguien: number
-  /** Lo que entró al parque menos lo que se descartó. */
+  /** Compras más ajustes, menos descartes: el total que el parque declara tener. */
   registrados: number
   cuadra: boolean
   /** Cuántos faltan (negativo) o sobran (positivo). Cero cuando cuadra. */
@@ -58,7 +71,7 @@ export async function verificarConservacion(ejecutor: Ejecutor = db): Promise<Co
     .select({
       total: sql<string>`coalesce(sum(${movimientosBotellon.cantidad}), 0)`,
       entradas: sql<string>`coalesce(sum(${movimientosBotellon.cantidad}) filter (
-        where ${movimientosBotellon.tipo} in ('compra', 'descarte')
+        where ${movimientosBotellon.tipo} in ('compra', 'descarte', 'ajuste')
       ), 0)`,
     })
     .from(movimientosBotellon)
