@@ -1,0 +1,42 @@
+meta {
+  name: El mismo número como NIT — advierte, no bloquea
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Yeimy Rodríguez SAS",
+    "tipoDocumento": "NIT",
+    "numeroDocumento": "79123456"
+  }
+}
+
+docs {
+  El NIT de una persona natural **se basa en su cédula**, así que `CC 79123456` y
+  `NIT 79123456` pueden ser la misma persona escrita de dos formas. También
+  pueden ser un duplicado entrando por la puerta de atrás.
+
+  La base no puede distinguir los dos casos, y adivinarlo sería peor que
+  preguntar. Bloquearlo haría imposible un caso legítimo.
+
+  Por eso la unicidad va sobre el PAR (tipo, número) y el cruce entre tipos se
+  atiende con un **aviso**: el cliente se crea, y quien registra tiene el dato de
+  qué cliente ya existe con ese número para decidir.
+}
+
+tests {
+  test("el cliente SE CREA", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("pero viene con el aviso y a quién apunta", function() {
+    expect(res.getBody().aviso.clienteExistente.nombre).to.equal("Yeimy Rodríguez");
+    expect(res.getBody().aviso.mensaje).to.match(/parten su deuda/);
+  });
+}

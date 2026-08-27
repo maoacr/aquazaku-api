@@ -1,0 +1,31 @@
+meta {
+  name: El mismo tipo y número — no entra
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Otra persona con la misma cédula",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "79123456"
+  }
+}
+
+docs {
+  RN-CLI-08, y lo frena un UNIQUE en la base.
+
+  Es la defensa contra el duplicado: el mismo cliente cargado dos veces parte su
+  deuda y su saldo de botellones en dos, y ninguno de los dos es real.
+}
+
+tests {
+  test("no entra", function() {
+    expect(res.getStatus()).to.be.at.least(400);
+  });
+}

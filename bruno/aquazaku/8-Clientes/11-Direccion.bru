@@ -1,0 +1,41 @@
+meta {
+  name: Una dirección es una entidad
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteId}}/direcciones
+  body: json
+}
+
+body:json {
+  {
+    "etiqueta": "La casa",
+    "direccion": "Calle 5 #3-20",
+    "indicaciones": "Al lado de la panadería, portón verde"
+  }
+}
+
+docs {
+  RN-CLI-07: `Cliente 1—N Dirección`.
+
+  Si la dirección fuera un campo de texto en la ficha, no se podría contestar
+  «¿a cuál de sus tres locales voy a buscar la base #A-0913?» — y el préstamo
+  deja de ser reclamable.
+
+  **Sin `ruta_id`**: las rutas son M8. Agregar hoy una columna que apunta a una
+  tabla inexistente es andamio, y no cuesta más ponerla entonces porque esta
+  tabla ya va a estar. Lo caro sería lo contrario: partir clientes que ya tienen
+  deuda y botellones.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda colgada del cliente", function() {
+    expect(res.getBody().clienteId).to.equal(bru.getVar("clienteId"));
+  });
+}

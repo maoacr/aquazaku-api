@@ -1,0 +1,43 @@
+meta {
+  name: Crear un contador
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+}
+
+body:json {
+  {
+    "name": "Contador de prueba",
+    "email": "contador-clientes@aquazaku.com",
+    "password": "contrasena-de-prueba-123",
+    "roles": ["contador"]
+  }
+}
+
+docs {
+  Para verificar la mitad negativa del permiso hace falta una sesión de
+  `contador` de verdad. Comprobar la matriz en TypeScript dice que la regla está
+  escrita; esto dice que además se aplica.
+}
+
+script:pre-request {
+  // El email lleva marca de tiempo para que la colección se pueda correr dos
+  // veces seguidas: `users.email` es único.
+  bru.setVar("emailContadorClientes", `contador-clientes-${Date.now()}@aquazaku.com`);
+  req.setBody({
+    name: "Contador de prueba",
+    email: bru.getVar("emailContadorClientes"),
+    password: "contrasena-de-prueba-123",
+    roles: ["contador"]
+  });
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

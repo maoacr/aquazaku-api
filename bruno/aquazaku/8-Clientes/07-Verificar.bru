@@ -1,0 +1,41 @@
+meta {
+  name: Verificar el documento
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteId}}/verificacion
+}
+
+docs {
+  RN-CLI-14. No es un checkbox de trámite: al marcarlo, alguien queda registrado
+  afirmando que tuvo el documento en la mano. Si después aparece uno equivocado,
+  se sabe quién lo dio por bueno — y esa trazabilidad es lo único que hace que el
+  flag signifique algo.
+
+  **El cuerpo va vacío a propósito.** El método se DERIVA del rol de quien
+  verifica: `seller_manual`, `pos_manual` o `admin_oficial`. Si viniera en el
+  pedido, un `seller` podría marcar `admin_oficial` y darle a su cotejo en la
+  calle el peso de una ratificación contra documento oficial.
+
+  Los cuatro campos se escriben juntos, y un CHECK de la base lo obliga: media
+  verificación —estado sin responsable, o responsable sin fecha— no significa
+  nada.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el método sale del rol, no del pedido", function() {
+    expect(res.getBody().verificacionMetodo).to.equal("admin_oficial");
+  });
+
+  test("y quedan los cuatro campos", function() {
+    expect(res.getBody().verificacionEstado).to.equal("verificado");
+    expect(res.getBody().verificadoPor).to.not.equal(null);
+    expect(res.getBody().verificadoEn).to.not.equal(null);
+  });
+}

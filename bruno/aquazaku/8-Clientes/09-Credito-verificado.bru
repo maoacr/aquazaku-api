@@ -1,0 +1,39 @@
+meta {
+  name: Ahora sí, crédito sin tope
+  type: http
+  seq: 9
+}
+
+put {
+  url: {{baseUrl}}/clientes/{{clienteId}}/credito
+  body: json
+}
+
+body:json {
+  {
+    "habilitado": true
+  }
+}
+
+docs {
+  Sin tope es el DEFAULT — RN-CLI-12.
+
+  En la operación actual de Aquazaku pocos clientes tienen crédito y los que lo
+  tienen son confiables. Forzar un número hoy implica inventarlo, y un límite
+  inventado es peor que ninguno: bloquea ventas legítimas y nadie sabe de dónde
+  salió el número.
+
+  Los tres plazos —30, 60 y 90 días— están disponibles siempre; no se eligen por
+  cliente.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("habilitado y sin tope", function() {
+    expect(res.getBody().creditoHabilitado).to.equal(true);
+    expect(res.getBody().creditoLimite).to.equal(null);
+  });
+}

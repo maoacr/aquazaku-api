@@ -1,0 +1,20 @@
+meta {
+  name: El contador SÍ ve la cartera
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/clientes
+}
+
+docs {
+  El `contador` necesita los clientes para la cartera: cuánto debe cada uno y
+  desde cuándo. Es el testigo externo — mira todo, no modifica nada.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

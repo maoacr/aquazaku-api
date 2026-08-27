@@ -1,0 +1,54 @@
+meta {
+  name: Registrar con cédula
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Yeimy Rodríguez",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "79.123.456",
+    "tipo": "residencial"
+  }
+}
+
+docs {
+  El documento se exige desde el primer momento — RN-CLI-13. Lo que puede
+  esperar es la VERIFICACIÓN, no el dato: confundir «dato presente» con «dato
+  comprobado» lleva a clientes registrados sin documento que después nadie sabe
+  a qué número apuntar.
+
+  El número llega como lo dicten. `79.123.456`, `79 123 456` y `79123456` son el
+  mismo documento, y normalizar es del servidor — que tiene una sola definición
+  de qué es el número base.
+
+  Nace `pendiente` y sin crédito. Las dos cosas son deliberadas.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("clienteId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("guarda el número base, sin puntos", function() {
+    expect(res.getBody().numeroDocumento).to.equal("79123456");
+  });
+
+  test("nace pendiente de verificar — RN-CLI-10", function() {
+    expect(res.getBody().verificacionEstado).to.equal("pendiente");
+  });
+
+  test("y sin crédito", function() {
+    expect(res.getBody().creditoHabilitado).to.equal(false);
+  });
+}

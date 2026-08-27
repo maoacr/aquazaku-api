@@ -1,0 +1,27 @@
+meta {
+  name: Un cliente no se borra — la ruta no existe
+  type: http
+  seq: 13
+}
+
+delete {
+  url: {{baseUrl}}/clientes/{{clienteId}}
+}
+
+docs {
+  RN-CLI-02, y que esta ruta NO exista es parte del contrato.
+
+  Un cliente con historial que desaparece deja ventas y botellones apuntando a
+  nadie, y la deuda sin dueño. Se desactiva con `PATCH /:id/estado`, y el
+  historial queda.
+
+  La base también lo impide: `DELETE` está revocado sobre `clientes` y sobre
+  `direcciones`. Tres capas diciendo lo mismo, y la única que importa es la
+  última.
+}
+
+tests {
+  test("404: la ruta no está", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

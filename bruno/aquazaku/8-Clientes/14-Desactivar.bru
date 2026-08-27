@@ -1,0 +1,31 @@
+meta {
+  name: Se desactiva, y sale del listado
+  type: http
+  seq: 14
+}
+
+patch {
+  url: {{baseUrl}}/clientes/{{nitId}}/estado
+  body: json
+}
+
+body:json {
+  {
+    "activo": false
+  }
+}
+
+docs {
+  Deja de aparecer en operaciones nuevas. Sigue estando para el historial, y se
+  puede volver a ver con `GET /clientes?estado=todos`.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda inactivo", function() {
+    expect(res.getBody().activo).to.equal(false);
+  });
+}

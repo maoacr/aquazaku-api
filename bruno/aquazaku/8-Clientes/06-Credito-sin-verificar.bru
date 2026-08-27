@@ -1,0 +1,47 @@
+meta {
+  name: Crédito sin verificar — se rechaza
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/clientes/{{clienteId}}/credito
+  body: json
+}
+
+body:json {
+  {
+    "habilitado": true
+  }
+}
+
+docs {
+  RN-CLI-15, y es el invariante que define M5.
+
+  «El que más necesita crédito es el que más urgente tiene saltarse la
+  verificación.» Por eso no es una validación: es un invariante, y no hay
+  override de admin que valga.
+
+  El cuerpo NO acepta el estado de verificación — se lee del cliente, nunca del
+  pedido.
+
+  :::note[El servicio explica; la BASE garantiza]
+  Este 422 sale del servicio, con un mensaje que dice qué hacer. Pero el que lo
+  hace imposible es el `CHECK` `clientes_credito_exige_verificacion`: si alguien
+  entra por una consola y saltea el servicio, la fila se rechaza igual.
+
+  Es la línea de ADR-0006, y se probó quitando el CHECK de la base de test y
+  viendo la suite en rojo.
+  :::
+}
+
+tests {
+  test("responde 422: la forma está bien, el negocio no", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("y dice qué hacer", function() {
+    expect(res.getBody().code).to.equal("VERIFICACION_REQUERIDA");
+    expect(res.getBody().mensaje).to.match(/coteje su documento/);
+  });
+}

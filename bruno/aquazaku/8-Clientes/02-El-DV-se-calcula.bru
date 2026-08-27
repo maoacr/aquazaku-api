@@ -1,0 +1,57 @@
+meta {
+  name: Un NIT llega con su dígito calculado
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Panadería del Centro",
+    "tipoDocumento": "NIT",
+    "numeroDocumento": "900123456",
+    "tipo": "comercial"
+  }
+}
+
+docs {
+  El dígito de verificación NO se pide y NO se guarda — RN-CLI-09.
+
+  Es la excepción a la regla que el proyecto viene aplicando desde M2: un hecho
+  de un momento se almacena, nunca se regenera. El DV no tiene momento — es
+  aritmética sobre un número ya guardado, definida por la Orden Administrativa 4
+  de 1989. Mismo número, mismo dígito, siempre.
+
+  `900123456` → suma 586 → 586 mod 11 = 3 → DV = 11 − 3 = **8**. Es uno de los
+  tres vectores de la norma.
+
+  :::danger[La trampa que este endpoint ya esquiva]
+  La norma tabula NUEVE pesos, pero las cédulas colombianas actuales tienen
+  DIEZ. Con nueve, el primer dígito queda sin multiplicar y el DV sale mal —
+  para `1010101010` la suma da 84 en vez de 127. Y las dos formas devuelven un
+  dígito, así que el error no se nota nunca: se imprime en una factura y
+  aparece cuando la DIAN rechaza algo.
+  :::
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("nitId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el documento llega armado con su DV", function() {
+    expect(res.getBody().documento).to.equal("900123456-8");
+  });
+
+  test("pero en la base está el número pelado", function() {
+    expect(res.getBody().numeroDocumento).to.equal("900123456");
+  });
+}

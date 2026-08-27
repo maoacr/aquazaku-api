@@ -1,0 +1,37 @@
+meta {
+  name: Pero NO registra ni verifica
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Cliente que el contador no debería poder crear",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "1122334455"
+  }
+}
+
+docs {
+  La otra mitad, y la que justifica que `clientes:ver` y `clientes:crear` sean
+  permisos distintos.
+
+  El `contador` es un testigo, no un operador. Que pudiera registrar clientes
+  haría que la separación de funciones dejara de significar algo: existe
+  justamente para que haya alguien que mire la cartera sin poder alterarla.
+
+  Verificar tampoco (RN-CLI-14 nombra `seller`, `pos` y `admin`): marcar un
+  documento como cotejado es afirmar que se lo tuvo en la mano, y el contador no
+  está en el mostrador ni en la calle.
+}
+
+tests {
+  test("403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+}

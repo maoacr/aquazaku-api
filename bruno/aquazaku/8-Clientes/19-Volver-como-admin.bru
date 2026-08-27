@@ -1,0 +1,29 @@
+meta {
+  name: Volver como admin
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{adminEmail}}",
+    "password": "{{adminPassword}}"
+  }
+}
+
+docs {
+  Deja la colección como la encontró. Sin esto, cualquier request suelto que
+  alguien corra después heredaría la sesión del `contador` y fallaría con un 403
+  que no tiene nada que ver con lo que se estaba probando.
+}
+
+tests {
+  test("vuelve a ser admin", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

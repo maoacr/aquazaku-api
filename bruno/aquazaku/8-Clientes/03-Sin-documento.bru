@@ -1,0 +1,29 @@
+meta {
+  name: Sin documento — se rechaza
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Alguien que después trae la cédula",
+    "tipoDocumento": "CC"
+  }
+}
+
+docs {
+  RN-CLI-13, sin excepciones. El `seller` puede tomar el número dictado de viva
+  voz y la app lo acepta — pero el dato existe desde el primer momento, no se
+  rellena después.
+}
+
+tests {
+  test("lo atrapa Zod: el campo falta", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

@@ -1,0 +1,46 @@
+meta {
+  name: La ficha, con los cuatro saldos
+  type: http
+  seq: 12
+}
+
+get {
+  url: {{baseUrl}}/clientes/{{clienteId}}
+}
+
+docs {
+  RN-CLI-06: cuatro cuentas que **no se mezclan**. Un cliente puede estar al día
+  con la plata, deberte quince botellones, tener dos bases sin devolver y un
+  cargo pendiente por base dañada. Un solo campo «estado de cuenta» no dice nada
+  útil.
+
+  Las cuatro llegan en `null` porque dependen de módulos que todavía no existen:
+  deuda y cargos son M6, botellones y bases son M7.
+
+  :::caution[`null` y no cero]
+  Un cero diría «este cliente no debe nada». La verdad es «todavía no existe el
+  módulo que registra deudas», que es otra cosa.
+
+  Es el mismo criterio que deja el caudal sin medir en `null` (RN-PRD-18): un
+  hueco se declara como hueco.
+  :::
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("los cuatro saldos dicen que no hay de dónde calcularlos", function() {
+    expect(res.getBody().saldos).to.eql({
+      deuda: null,
+      botellones: null,
+      bases: null,
+      cargosPendientes: null
+    });
+  });
+
+  test("y trae las direcciones", function() {
+    expect(res.getBody().direcciones).to.have.lengthOf(1);
+  });
+}

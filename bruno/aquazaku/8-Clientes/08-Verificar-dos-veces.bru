@@ -1,0 +1,25 @@
+meta {
+  name: Verificar dos veces — se rechaza
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteId}}/verificacion
+}
+
+docs {
+  Volver a marcarlo reemplazaría a quien había respondido por ese documento. Si
+  la verificación anterior estaba mal, el camino es desmarcarla **con motivo** —
+  no pisarla en silencio.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("el código lo dice", function() {
+    expect(res.getBody().code).to.equal("YA_VERIFICADO");
+  });
+}

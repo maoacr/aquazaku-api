@@ -1,0 +1,38 @@
+meta {
+  name: Desverificar con crédito puesto — se rechaza
+  type: http
+  seq: 10
+}
+
+delete {
+  url: {{baseUrl}}/clientes/{{clienteId}}/verificacion
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "la cédula que trajo era de otra persona"
+  }
+}
+
+docs {
+  ── La mitad del invariante que un guard de «habilitar» nunca cubre ──────────
+
+  Habilitar crédito y DESPUÉS desverificar deja la misma fila inconsistente por
+  el otro lado. Es el camino del que nadie se acuerda al escribir la validación,
+  y es exactamente por eso que RN-CLI-15 vive en un `CHECK` y no en un `if`.
+
+  Para desverificar hay que quitarle el crédito primero. El orden importa, y el
+  sistema lo dice en vez de dejar la fila rota.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("y nombra el orden correcto", function() {
+    expect(res.getBody().code).to.equal("CREDITO_ACTIVO");
+    expect(res.getBody().mensaje).to.match(/Quítele el crédito primero/);
+  });
+}

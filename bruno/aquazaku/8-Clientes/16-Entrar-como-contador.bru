@@ -1,0 +1,23 @@
+meta {
+  name: Entrar como contador
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailContadorClientes}}",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+tests {
+  test("entra", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
