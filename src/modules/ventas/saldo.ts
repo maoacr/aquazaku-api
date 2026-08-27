@@ -29,6 +29,17 @@ import type { Ejecutor } from '@/modules/stock/saldo'
  * por la última unidad. Materializarlo agregaría una columna que puede quedar
  * desincronizada del libro sin ganar nada.
  *
+ * ── Los recargos por daño NO son deuda — RN-CLI-06 ──────────────────────────
+ *
+ * `RN-BAS-08` los registra como venta, para que hereden la auditoría del módulo:
+ * inmutables, anulables con motivo, con autor. Pero `RN-CLI-06` dice que los
+ * cargos pendientes son **distintos de la deuda**, «porque no nacen de una venta
+ * a crédito».
+ *
+ * El filtro por `tipo = 'producto'` es lo que hace que las dos reglas se cumplan
+ * a la vez. **Es un invariante, no un detalle**: una consulta de deuda que se lo
+ * olvide le cobra al cliente un daño como si fuera producto.
+ *
  * ── Las ventas anuladas no cuentan ──────────────────────────────────────────
  *
  * Anular revierte todos los efectos (RN-VEN-03), y la deuda es uno de ellos. La
@@ -39,7 +50,9 @@ export async function deudaDe(clienteId: string, ejecutor: Ejecutor = db): Promi
   const [fila] = await ejecutor
     .select({
       vendido: sql<string>`coalesce(sum(${ventas.total}) filter (
-        where ${ventas.medioDePago} = 'credito' and ${ventas.estado} = 'confirmada'
+        where ${ventas.medioDePago} = 'credito'
+          and ${ventas.estado} = 'confirmada'
+          and ${ventas.tipo} = 'producto'
       ), 0)`,
     })
     .from(ventas)
@@ -87,4 +100,35 @@ export async function ventasACreditoDe(clienteId: string, ejecutor: Ejecutor = d
       ),
     )
     .orderBy(ventas.createdAt)
+}
+
+/**
+ * El cuarto saldo — RN-CLI-06.
+ *
+ * Recargos por daño a una base que todavía no se pagaron. Se cuentan aparte de
+ * la deuda porque se reclaman distinto: la deuda nace de haber comprado, esto
+ * nace de haber roto algo prestado.
+ *
+ * Un cliente puede estar al día con la plata y tener un cargo pendiente. Un solo
+ * campo «estado de cuenta» no diría nada útil.
+ */
+export async function cargosPendientesDe(
+  clienteId: string,
+  ejecutor: Ejecutor = db,
+): Promise<string> {
+  const [fila] = await ejecutor
+    .select({
+      total: sql<string>`coalesce(sum(${ventas.total}) filter (
+        where ${ventas.medioDePago} = 'credito' and ${ventas.estado} = 'confirmada'
+      ), 0)`,
+    })
+    .from(ventas)
+    .where(and(eq(ventas.clienteId, clienteId), eq(ventas.tipo, 'dano_base')))
+
+  /*
+   * Solo los de crédito quedan pendientes: uno cobrado en efectivo se pagó en el
+   * momento. Es la misma distinción que en las ventas, y por eso el filtro es el
+   * mismo — lo único que cambia es el tipo.
+   */
+  return (Math.round(Number(fila?.total ?? 0) * 100) / 100).toFixed(2)
 }
