@@ -1,0 +1,57 @@
+meta {
+  name: Fiarle al que no tiene crédito — se rechaza
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{clienteCreditoId}}",
+    "medioDePago": "credito",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 1 }
+    ]
+  }
+}
+
+docs {
+  RN-VEN-05 es un chequeo compuesto de tres condiciones:
+
+    creditoHabilitado
+      AND verificacionEstado == 'verificado'
+      AND (limite == null OR deuda + venta <= limite)
+
+  Acá falla la primera, y el mensaje **dice cuál**. Un rechazo que solo dijera
+  «no se puede» manda a alguien a adivinar entre tres trámites distintos: uno lo
+  hace el admin desde la ficha, otro exige tener el documento en la mano, y el
+  tercero es un número que quizá ni exista.
+
+  Fijate en el orden: el crédito se verifica **con el total ya calculado y antes
+  de escribir nada**. Podría chequearse primero y ahorrarse el cálculo, pero
+  entonces el mensaje del límite no podría decir de cuánto se pasa — y ese
+  número es la mitad de lo que hace útil el rechazo.
+
+  Nada de esto se escribió: la transacción no llegó a insertar la venta, así que
+  el stock sigue igual. Un rechazo de negocio no deja rastro en el inventario,
+  solo en la auditoría.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es SIN_CREDITO — la primera de las tres condiciones", function() {
+    expect(res.getBody().code).to.equal("SIN_CREDITO");
+  });
+
+  test("y dice las dos salidas que tiene quien está atendiendo", function() {
+    expect(res.getBody().mensaje).to.match(/cobrar de contado/);
+    expect(res.getBody().mensaje).to.match(/desde su ficha/);
+  });
+}

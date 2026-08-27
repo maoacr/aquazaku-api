@@ -1,0 +1,71 @@
+meta {
+  name: El piso NO rechaza la venta — cobra el piso y avisa
+  type: http
+  seq: 21
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "codigoDescuento": "{{codigoPiso}}",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 1 }
+    ]
+  }
+}
+
+docs {
+  El caso que define el criterio de todo M6, y el que casi siempre se
+  implementa al revés.
+
+    nominal    = 9.000                   ← lo que el código prometía
+    permitido  = 12.000 − 7.000 = 5.000  ← lo que el piso deja bajar
+    aplicado   = 5.000
+    final      = 7.000                   ← el piso, exacto
+
+  **La venta SE HACE.** 201, no 422.
+
+  Rechazarla sería lo «seguro» y es lo peor que se puede hacer: el cliente ya
+  está del otro lado del mostrador con el botellón en la mano, y el código lo
+  definió mal un admin que no está ahí. Rechazar es cobrarle a él un error de
+  otro, y en la práctica termina en que alguien registra la venta sin el código
+  y el descuento desaparece del registro sin que quede rastro de que existió.
+
+  Lo que sí pasa es que se **avisa**:
+  `descuentoAplicadoParcialmente: true` sube por la respuesta hasta la pantalla,
+  y la línea guarda `descuentoMonto: 5000.00` — lo que REALMENTE se descontó, no
+  lo que el código prometía. Eso mantiene la identidad
+  `precioFinal = precioLista − descuentoMonto` intacta en la fila, que es lo que
+  hace verificable el comprobante seis meses después.
+
+  :::note[El servicio elige el piso; la BASE lo garantiza]
+  Este 7.000 lo calcula `calcularPrecio()`. Pero el que lo hace imposible de
+  esquivar es `CHECK (precio_final >= precio_minimo_aplicado)`: cubre también el
+  script de migración, la corrección por consola y el endpoint que alguien
+  agregue el año que viene sin acordarse de la regla.
+
+  Por eso el mínimo se congela EN la línea. Si el `CHECK` tuviera que ir a
+  buscar el producto, no sería un `CHECK` — sería un trigger, y dejaría de valer
+  el día que el precio del catálogo cambie.
+  :::
+}
+
+tests {
+  test("responde 201: la venta NO se rechaza — RN-VEN-13", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("cobra el piso, exacto", function() {
+    expect(res.getBody().venta.total).to.equal("7000.00");
+  });
+
+  test("y AVISA que el código se aplicó a medias", function() {
+    expect(res.getBody().descuentoAplicadoParcialmente).to.equal(true);
+    expect(res.getBody().lineas[0].aplicadoParcialmente).to.equal(true);
+  });
+}

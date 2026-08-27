@@ -1,0 +1,28 @@
+meta {
+  name: Una venta no se borra — la ruta tampoco existe
+  type: http
+  seq: 23
+}
+
+delete {
+  url: {{baseUrl}}/ventas/{{ventaContadoId}}
+}
+
+docs {
+  La otra mitad de RN-VEN-02, y la que hace legible el diseño de la anulación.
+
+  Anular es `POST /ventas/:id/anulacion` y no `DELETE /ventas/:id` porque **la
+  venta no se borra: se le agrega un hecho.** Sus líneas quedan intactas como
+  testimonio de que se vendió eso, a ese precio, ese día; lo que se revierte son
+  los efectos, cada uno con su documento.
+
+  El verbo tiene que contar la verdad de lo que pasa. Un `DELETE` diría que la
+  venta desaparece, y una venta que desaparece se lleva puesto el arqueo del día
+  sin dejar nada que explique el hueco.
+}
+
+tests {
+  test("404: la ruta no está", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

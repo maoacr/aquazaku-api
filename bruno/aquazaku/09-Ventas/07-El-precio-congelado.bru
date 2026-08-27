@@ -1,0 +1,62 @@
+meta {
+  name: El precio congelado — la lista comercial y el tipo de ese día
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{clienteComercialId}}",
+    "medioDePago": "efectivo",
+    "canal": "mostrador",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 1 }
+    ]
+  }
+}
+
+docs {
+  Dos reglas en un solo request, y las dos son de RN-VEN-12.
+
+  **La primera:** el mismo producto que hace dos requests costó 12.000 acá cuesta
+  9.000. No hay un precio del producto — hay una lista por tipo de cliente, y la
+  elige el tipo del cliente, no quién atiende ni qué se negoció.
+
+  **La segunda, y la que importa dentro de seis meses:** la venta guarda
+  `tipoClienteAlMomento`. Un cliente pasa de residencial a comercial —RN-CLI-16
+  lo permite explícitamente— y las ventas viejas **no se reinterpretan**. Sin
+  ese campo, mirar el histórico después de un cambio de tipo mostraría ventas
+  «con descuento» que nunca lo tuvieron, o al revés.
+
+  Es la misma decisión que el precio congelado, aplicada al otro lado del
+  cálculo: no alcanza con guardar cuánto se cobró si no queda registrado
+  **por qué esa era la lista correcta**.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("ventaComercialId", res.getBody().venta.id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("cobra la lista comercial, no la residencial", function() {
+    expect(res.getBody().venta.total).to.equal("9000.00");
+    expect(res.getBody().lineas[0].precioFinal).to.equal("9000.00");
+  });
+
+  test("y guarda el tipo de cliente AL MOMENTO — RN-VEN-12", function() {
+    expect(res.getBody().venta.tipoClienteAlMomento).to.equal("comercial");
+  });
+
+  test("la venta queda atada al cliente", function() {
+    expect(res.getBody().venta.clienteId).to.equal(bru.getVar("clienteComercialId"));
+  });
+}

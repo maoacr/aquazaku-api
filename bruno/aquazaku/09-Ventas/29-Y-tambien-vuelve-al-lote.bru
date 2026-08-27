@@ -1,0 +1,32 @@
+meta {
+  name: Y también vuelve al lote de origen
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{baseUrl}}/stock/{{ventasProductoId}}/lotes
+}
+
+docs {
+  Una unidad más, al mismo lote del que salió. La devolución usa la misma
+  primitiva `ingresar()` que la anulación, y por la misma razón: el lote lleva
+  el vencimiento.
+
+  De la línea de contado quedan **una** unidad devolvible. Pedir más da 422
+  `DEVUELVE_DE_MAS`, con el número exacto de lo ya devuelto — porque el
+  servicio suma lo devuelto de esa línea antes de aceptar, y no confía en que
+  quien pide sepa cuánto queda.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("subió exactamente 1", function() {
+    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    expect(lote, "el lote de esta carpeta no aparece con saldo").to.not.equal(undefined);
+    expect(lote.saldo).to.equal(bru.getVar("saldoAntesDeDevolver") + 1);
+  });
+}

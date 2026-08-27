@@ -1,0 +1,50 @@
+meta {
+  name: Un código que perfora el piso
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/descuentos
+  body: json
+}
+
+body:json {
+  {
+    "codigo": "{{codigoPiso}}",
+    "tipo": "monto_fijo",
+    "valor": "9000.00",
+    "vigenciaDesde": "{{hoyVentas}}",
+    "vigenciaHasta": "{{hoyVentas}}"
+  }
+}
+
+docs {
+  Nueve mil de descuento sobre un producto de 12.000 con piso en 7.000. El
+  código pide bajar 9.000 y el piso solo deja bajar 5.000.
+
+  **Y se crea igual, sin una sola advertencia.** No es negligencia: un código no
+  se define contra un producto. El mismo `9000.00` es perfectamente sano sobre
+  la paca cara y perfora el piso de la barata, así que preguntarle al admin «¿se
+  da cuenta de que esto perfora?» exigiría enumerar el catálogo entero en el
+  momento de crearlo, y volvería a estar mal el día que alguien baje un precio.
+
+  El chequeo que importa vive donde el descuento y el producto se encuentran, y
+  eso pasa **al vender** — una vez por línea, con los dos números en la mano.
+}
+
+script:pre-request {
+  bru.setVar("hoyVentas", new Date().toISOString().slice(0, 10));
+  bru.setVar("codigoPiso", `BRUNOPISO-${Date.now()}`);
+}
+
+tests {
+  test("responde 201: un código no se define contra un producto", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("se guarda tal cual, con su monto fijo entero", function() {
+    expect(res.getBody().tipo).to.equal("monto_fijo");
+    expect(res.getBody().valor).to.equal("9000.00");
+  });
+}

@@ -1,0 +1,69 @@
+meta {
+  name: Un código de descuento — lo crea el admin
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/descuentos
+  body: json
+}
+
+body:json {
+  {
+    "codigo": "{{codigoDiez}}",
+    "tipo": "porcentaje",
+    "valor": "10",
+    "vigenciaDesde": "{{hoyVentas}}",
+    "vigenciaHasta": "{{hoyVentas}}"
+  }
+}
+
+docs {
+  Los códigos son **configuración**, no una operación de mostrador: van bajo
+  `configuracion:editar`, que solo tiene el `admin`. Quien vende aplica un
+  código; quien decide cuánto descuenta la empresa es otra persona. Que sean dos
+  permisos distintos es lo que hace que la separación signifique algo.
+
+  Acá NO se valida que el descuento «no sea demasiado grande», y no es un
+  olvido: **no existe un número que sea demasiado grande.** Lo que existe es un
+  piso por producto que no se perfora, y lo sostiene un `CHECK` de la base. Un
+  código de 90 % es perfectamente cargable; lo que no puede es dejar una venta
+  por debajo del mínimo de un producto en particular.
+
+  Un código duplicado se rechaza en vez de reutilizarse: cambiarle el valor a
+  uno existente reinterpretaría las ventas viejas para cualquiera que fuera a
+  mirar por qué se descontó eso. Por eso el nombre lleva marca de tiempo — para
+  que la colección se pueda correr dos veces.
+
+  Vigencia de un solo día, hoy. Alcanza: el borde del vencimiento ya lo prueban
+  los tests de la suite, que pueden mover «hoy» sin esperar a mañana.
+}
+
+script:pre-request {
+  bru.setVar("hoyVentas", new Date().toISOString().slice(0, 10));
+  bru.setVar("codigoDiez", `BRUNO10-${Date.now()}`);
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("descuentoDiezId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el código se guarda en mayúsculas: se dicta en voz alta, no se tipea", function() {
+    expect(res.getBody().codigo).to.equal(bru.getVar("codigoDiez").toUpperCase());
+  });
+
+  test("nace activo y sin usos", function() {
+    expect(res.getBody().activo).to.equal(true);
+    expect(res.getBody().usosRealizados).to.equal(0);
+  });
+
+  test("sin tope de usos es el default — null, no cero", function() {
+    expect(res.getBody().usosMaximos).to.equal(null);
+  });
+}

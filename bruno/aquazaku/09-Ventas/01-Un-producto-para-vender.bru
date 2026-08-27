@@ -1,0 +1,73 @@
+meta {
+  name: Un producto con los tres precios distintos
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/productos
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Paca de ventas (Bruno)",
+    "presentacion": "paca",
+    "contenidoMl": {{contenidoDeVentas}},
+    "unidades": 24,
+    "precioResidencial": "12000.00",
+    "precioComercial": "9000.00",
+    "precioMinimo": "7000.00"
+  }
+}
+
+docs {
+  Esta carpeta se arma su propio producto en vez de vender el del catálogo, y
+  la razón no es comodidad.
+
+  `BOT_20L` nace con los tres precios iguales —`10000.00` de lista, `10000.00`
+  de piso— porque es el único precio que Aquazaku confirmó. Con lista igual al
+  piso, **ningún descuento puede aplicarse**: `max(lista − descuento, piso)`
+  devuelve siempre el mismo número. Vender ahí probaría que el cálculo no
+  explota, no que el cálculo funciona.
+
+  Con `12000 / 9000 / 7000` las tres reglas de RN-VEN-12 y RN-VEN-13 se pueden
+  distinguir de verdad: la lista comercial es OTRO número, el descuento tiene
+  margen donde entrar, y hay 5.000 pesos de distancia hasta el piso, que es lo
+  que hace visible el recorte.
+
+    12.000  lista residencial
+     9.000  lista comercial      → lo que paga un cliente `comercial`
+     7.000  piso absoluto        → hasta acá puede bajar un código, y ni un peso más
+
+  El contenido se aleatoriza entre 1001 y 1999 ml para que la colección se
+  pueda correr muchas veces: el código lleva contenido y unidades, y un
+  producto desactivado sigue ocupando el suyo (RN-CAT-11). Van 24 unidades y no
+  12 para no chocar con la paca que crea `4-Productos`.
+}
+
+script:pre-request {
+  bru.setVar("contenidoDeVentas", 1001 + Math.floor(Math.random() * 999));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    bru.setVar("ventasProductoId", res.getBody().id);
+    bru.setVar("ventasProductoNombre", res.getBody().nombre);
+  }
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el piso queda por debajo de las dos listas — RN-CAT-04", function() {
+    expect(Number(res.getBody().precioMinimo)).to.be.below(Number(res.getBody().precioResidencial));
+    expect(Number(res.getBody().precioMinimo)).to.be.below(Number(res.getBody().precioComercial));
+  });
+
+  test("nace activo: un producto apagado no se vende", function() {
+    expect(res.getBody().activo).to.equal(true);
+  });
+}

@@ -1,0 +1,58 @@
+meta {
+  name: Un cobro parcial
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/cobros
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{clienteCreditoId}}",
+    "monto": "10000.00",
+    "medioDePago": "efectivo",
+    "observaciones": "abono en el mostrador"
+  }
+}
+
+docs {
+  El cobro cuelga del **cliente**, no de la venta — RN-VEN-07. Modelarlo como un
+  campo de la venta haría imposibles las dos cosas que más pasan en la calle: un
+  pago parcial, y un pago que cubre tres ventas de una. La deuda es del cliente,
+  no de cada comprobante.
+
+    36.000 − 10.000 = 26.000
+
+  `deudaRestante` y `quedaSaldada` vienen en la respuesta para que quien
+  atiende pueda decir «le quedan 26.000» sin volver a preguntar. Recalcularlo
+  del lado del cliente sería reimplementar la resta de la deuda en otro lugar, y
+  ahí es donde los dos números empiezan a diferir.
+
+  `credito` no está entre los medios de pago aceptados: pagar una deuda con
+  deuda no la reduce.
+
+  El cobro tampoco se edita. `UPDATE` y `DELETE` están revocados: uno mal
+  registrado se corrige con otro documento, igual que todo lo demás acá.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("quedan 26.000", function() {
+    expect(res.getBody().deudaRestante).to.equal("26000.00");
+  });
+
+  test("y la cuenta NO queda saldada — eso es lo que hace parcial al cobro", function() {
+    expect(res.getBody().quedaSaldada).to.equal(false);
+  });
+
+  test("el cobro quedó como documento propio, con su responsable", function() {
+    expect(res.getBody().cobro.monto).to.equal("10000.00");
+    expect(res.getBody().cobro.registradoPor).to.not.equal(null);
+  });
+}

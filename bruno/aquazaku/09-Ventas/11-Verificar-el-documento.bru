@@ -1,0 +1,34 @@
+meta {
+  name: Verificar el documento
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteCreditoId}}/verificacion
+}
+
+docs {
+  El trámite que RN-CLI-15 pone antes del crédito, y el orden no es negociable:
+  **primero se coteja la identidad, después se fía.**
+
+  «El que más necesita crédito es el que más urgente tiene saltarse la
+  verificación.» Por eso no es una validación con override de admin — es un
+  invariante, y lo sostiene un `CHECK` de la base además del servicio.
+
+  El cuerpo va vacío: el método de verificación se DERIVA del rol de quien
+  firma. Si viniera en el pedido, un `seller` podría marcar `admin_oficial` y
+  darle a su cotejo en la calle el peso de una ratificación contra documento
+  oficial.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda verificado, y con quién respondió por él", function() {
+    expect(res.getBody().verificacionEstado).to.equal("verificado");
+    expect(res.getBody().verificadoPor).to.not.equal(null);
+  });
+}

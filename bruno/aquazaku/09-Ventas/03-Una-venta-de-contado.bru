@@ -1,0 +1,76 @@
+meta {
+  name: Una venta de contado
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "canal": "mostrador",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 2 }
+    ]
+  }
+}
+
+docs {
+  La venta normal del mostrador: alguien llega, compra y se va. **No lleva
+  cliente, y eso no es un dato que falta.**
+
+  `cliente_id` es nullable a propósito. Exigir un cliente en cada venta
+  obligaría a inventar uno o —lo que pasa de verdad— a dejar cargado el del
+  anterior, que es peor que no tener ninguno: la deuda y el historial le quedan
+  colgados a alguien que no compró nada.
+
+  Sin cliente se cobra la lista **residencial**: es la de quien compra un
+  botellón y se va.
+
+    2 × 12.000 = 24.000
+
+  Y escribe TRES cosas en una transacción: la venta, sus líneas y el descuento
+  de stock con su movimiento. O quedan las tres o no queda ninguna — una venta
+  sin descontar stock genera faltantes fantasma, y un stock descontado sin venta
+  es producto que desaparece.
+
+  :::note[Tres, y no cuatro]
+  La venta **no** consume tapa ni sello. El dominio es explícito: se consumen al
+  llenar, no al entregar. El cierre de producción ya los descontó cuando el
+  botellón se envasó, y volver a hacerlo acá los contaría dos veces — un
+  inventario que miente a la baja hace comprar de más.
+  :::
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("ventaContadoId", res.getBody().venta.id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("cobra la lista residencial: 2 × 12.000", function() {
+    expect(res.getBody().venta.total).to.equal("24000.00");
+  });
+
+  test("una venta sin cliente es una venta, no un registro incompleto", function() {
+    expect(res.getBody().venta.clienteId).to.equal(null);
+    expect(res.getBody().venta.tipoClienteAlMomento).to.equal(null);
+  });
+
+  test("nace confirmada, y sin descuento que avisar", function() {
+    expect(res.getBody().venta.estado).to.equal("confirmada");
+    expect(res.getBody().descuentoAplicadoParcialmente).to.equal(false);
+  });
+
+  test("la línea dice de qué lote salió — eso es lo que hace exacta la anulación", function() {
+    expect(res.getBody().lineas).to.have.lengthOf(1);
+    expect(res.getBody().lineas[0].loteCodigo).to.equal(bru.getVar("ventasLoteCodigo"));
+  });
+}

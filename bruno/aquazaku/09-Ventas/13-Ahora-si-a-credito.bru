@@ -1,0 +1,50 @@
+meta {
+  name: Ahora sí, a crédito
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{clienteCreditoId}}",
+    "medioDePago": "credito",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 3 }
+    ]
+  }
+}
+
+docs {
+  Las tres condiciones se cumplen y la venta entra. Es residencial, así que
+  cobra la lista de arriba:
+
+    3 × 12.000 = 36.000
+
+  Y acá aparece lo que M6 le da a M5: hasta este request, la deuda de la ficha
+  del cliente decía «sin registrar todavía». Esta venta **es** la deuda — no hay
+  un campo de saldo que alguien tenga que acordarse de actualizar.
+
+  Una venta a crédito sí exige cliente, y eso lo sostiene un `CHECK`:
+  `medioDePago = 'credito'` implica `clienteId NOT NULL`. No hay a quién
+  cobrarle si no.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("3 × 12.000 de lista residencial", function() {
+    expect(res.getBody().venta.total).to.equal("36000.00");
+  });
+
+  test("queda a crédito y confirmada", function() {
+    expect(res.getBody().venta.medioDePago).to.equal("credito");
+    expect(res.getBody().venta.estado).to.equal("confirmada");
+  });
+}

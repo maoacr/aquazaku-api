@@ -202,10 +202,24 @@ describe('los códigos de descuento', () => {
     })
   })
 
-  it('una vigencia al revés tampoco', async () => {
+  /**
+   * ── Quién rechaza una vigencia al revés ───────────────────────────────────
+   *
+   * El servicio la chequeaba con su propio código de error, y esa línea era
+   * **inalcanzable por HTTP**: el esquema de Zod la atrapa antes, con un 400.
+   * Una regla con dos códigos es peor que una con uno — el día que alguien vea
+   * `VIGENCIA_INVALIDA` en un log va a buscarlo donde no se produce.
+   *
+   * Se borró del servicio. Lo que sostiene el invariante es el `CHECK` de la
+   * base, y por eso este test afirma que la fila NO ENTRA, sin pedirle un
+   * código de negocio a algo que ya no lo emite.
+   */
+  it('una vigencia al revés no entra: lo frena el CHECK de la base', async () => {
     await expect(
       crearCodigo({ ...datos, vigenciaDesde: '2026-12-31', vigenciaHasta: '2026-01-01' }, null),
-    ).rejects.toMatchObject({ code: 'VIGENCIA_INVALIDA' })
+    ).rejects.toThrow()
+
+    expect(await listarCodigos()).toHaveLength(0)
   })
 
   it('dos códigos con el mismo nombre, no', async () => {

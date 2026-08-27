@@ -1,0 +1,39 @@
+meta {
+  name: Habilitar el crédito, sin tope
+  type: http
+  seq: 12
+}
+
+put {
+  url: {{baseUrl}}/clientes/{{clienteCreditoId}}/credito
+  body: json
+}
+
+body:json {
+  {
+    "habilitado": true
+  }
+}
+
+docs {
+  Sin tope es el DEFAULT — RN-CLI-12. En la operación actual de Aquazaku pocos
+  clientes tienen crédito y los que lo tienen son confiables: forzar un número
+  hoy implica inventarlo, y un límite inventado bloquea ventas legítimas sin que
+  nadie sepa de dónde salió.
+
+  `creditoLimite: null` no es un hueco. Es una respuesta: **nadie decidió un
+  tope**, así que el sistema no tiene con qué bloquear, y la tercera condición
+  de RN-VEN-05 no aplica. Un cero disfrazado de «sin definir» habría prohibido
+  todo crédito por accidente.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("habilitado, y sin tope", function() {
+    expect(res.getBody().creditoHabilitado).to.equal(true);
+    expect(res.getBody().creditoLimite).to.equal(null);
+  });
+}

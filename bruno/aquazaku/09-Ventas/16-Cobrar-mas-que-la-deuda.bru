@@ -1,0 +1,56 @@
+meta {
+  name: Cobrar más que la deuda — se rechaza, y es una decisión
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/cobros
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{clienteCreditoId}}",
+    "monto": "50000.00",
+    "medioDePago": "efectivo"
+  }
+}
+
+docs {
+  El dominio **no dice** qué pasa si alguien paga más de lo que debe. Este 422
+  es una decisión tomada en ese silencio, no un olvido — y quedó anotada como
+  pregunta abierta en `/empezar/pendientes/`.
+
+  Aceptarlo dejaría una deuda negativa, o sea un saldo a favor, y **ningún
+  módulo del sistema sabe gastarlo**: no hay forma de aplicarlo a una venta
+  futura ni de devolverlo. Sería un número que aparece en la ficha del cliente y
+  en el panel del contador sin que nadie pueda hacer nada con él.
+
+  Rechazar es reversible: si Aquazaku dice que los adelantos existen, se abre la
+  puerta y listo. Aceptar en silencio no lo es — para cuando alguien lo note, ya
+  hay saldos negativos en la base y hay que decidir qué significaban.
+
+  El mensaje trae la deuda REAL y el monto que se intentó, por lo mismo que el
+  de stock: quien está cobrando tiene el dato que necesita sin ir a buscarlo, e
+  incluso la hipótesis alternativa —«revise si falta cargar una venta»— porque
+  esa es la otra razón por la que los números no coinciden.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es COBRO_MAYOR_QUE_LA_DEUDA", function() {
+    expect(res.getBody().code).to.equal("COBRO_MAYOR_QUE_LA_DEUDA");
+  });
+
+  test("el mensaje trae la deuda real, no un «monto inválido»", function() {
+    expect(res.getBody().mensaje).to.match(/26\.000/);
+  });
+
+  test("y ofrece la otra explicación posible", function() {
+    expect(res.getBody().mensaje).to.match(/falta cargar una venta/);
+  });
+}

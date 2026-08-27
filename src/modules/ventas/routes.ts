@@ -94,7 +94,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
         return reply.code(201).send(resultado)
       } catch (err) {
-        return manejarError(err, req, reply, 'ventas:crear')
+        return manejarError(err, req, reply, 'ventas', 'ventas:crear')
       }
     },
   )
@@ -116,7 +116,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       try {
         return await anularVenta(id, datos.motivo, req.user!)
       } catch (err) {
-        return manejarError(err, req, reply, 'ventas:anular', id)
+        return manejarError(err, req, reply, 'ventas', 'ventas:anular', id)
       }
     },
   )
@@ -139,7 +139,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       try {
         return reply.code(201).send(await registrarDevolucion(datos, req.user?.id ?? null))
       } catch (err) {
-        return manejarError(err, req, reply, 'ventas:crear', datos.lineaId)
+        return manejarError(err, req, reply, 'ventas', 'ventas:crear', datos.lineaId)
       }
     },
   )
@@ -164,7 +164,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       try {
         return reply.code(201).send(await registrarCobro(datos, req.user?.id ?? null))
       } catch (err) {
-        return manejarError(err, req, reply, 'cobros:registrar', datos.clienteId)
+        return manejarError(err, req, reply, 'cobros', 'cobros:registrar', datos.clienteId)
       }
     },
   )
@@ -212,7 +212,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       try {
         return reply.code(201).send(await crearCodigo(datos, req.user?.id ?? null))
       } catch (err) {
-        return manejarError(err, req, reply, 'configuracion:editar')
+        return manejarError(err, req, reply, 'configuracion', 'configuracion:editar')
       }
     },
   )
@@ -235,7 +235,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       try {
         return await desactivarCodigo(id)
       } catch (err) {
-        return manejarError(err, req, reply, 'configuracion:editar', id)
+        return manejarError(err, req, reply, 'configuracion', 'configuracion:editar', id)
       }
     },
   )
@@ -252,10 +252,26 @@ function hoyISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+/**
+ * Traduce un error de negocio a su status y lo deja en la bitácora.
+ *
+ * ── El `resource` se pasa, no se deduce ─────────────────────────────────────
+ *
+ * Antes salía de un ternario anidado sobre el texto de `action`
+ * (`action.startsWith('cobros') ? …`). Funcionaba, y era una bomba de tiempo: un
+ * `action` nuevo que no empezara con ninguno de esos prefijos se auditaba como
+ * `ventas` **en silencio**, y la bitácora —que existe justamente para poder
+ * confiar en ella— tendría filas apuntando al módulo equivocado.
+ *
+ * El recurso ya lo sabe quien llama, porque es el mismo que le pasó a
+ * `requirePermission`. Pedirlo cuesta un argumento y saca el acoplamiento a
+ * cómo se escribe un string.
+ */
 async function manejarError(
   err: unknown,
   req: FastifyRequest,
   reply: FastifyReply,
+  resource: 'ventas' | 'cobros' | 'configuracion',
   action: string,
   resourceId = '(nuevo)',
 ): Promise<FastifyReply> {
@@ -264,7 +280,7 @@ async function manejarError(
       userId: req.user?.id ?? null,
       rolEjercido: req.user?.roles ?? [],
       action,
-      resource: action.startsWith('cobros') ? 'cobros' : action.startsWith('configuracion') ? 'configuracion' : 'ventas',
+      resource,
       result: 'denied',
       payload: { motivo: err.code, resourceId },
     })

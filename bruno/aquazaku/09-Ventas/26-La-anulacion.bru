@@ -1,0 +1,64 @@
+meta {
+  name: La anulación — un hecho más, no un borrado
+  type: http
+  seq: 26
+}
+
+post {
+  url: {{baseUrl}}/ventas/{{ventaComercialId}}/anulacion
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "el cliente se arrepintió antes de salir del local y devolvió la paca cerrada"
+  }
+}
+
+docs {
+  Anular revierte los efectos, cada uno a su manera:
+
+  | Efecto | Cómo se revierte |
+  | --- | --- |
+  | El producto salió | Vuelve al MISMO lote, con un movimiento `devolucion` |
+  | La deuda subió | **Sola**: la consulta filtra por estado `confirmada` |
+  | El código sumó un uso | **No se revierte** — abajo |
+
+  La deuda es la ventaja concreta de que el saldo sea derivado: cambiar el
+  estado la saca de la cuenta sin tocar ninguna otra tabla, y sin poder quedar
+  desincronizada, porque no hay una segunda copia del número.
+
+  **El uso del código no se devuelve, y es a propósito.** Un código con tope
+  existe para acotar cuántas veces se OTORGA el descuento. Devolver el uso al
+  anular abriría la puerta a agotar el tope sin consumirlo: registrar y anular
+  en ciclo hasta vaciarlo. El contador cuenta cuántas veces se invocó, que es
+  justo lo que el tope quiere limitar.
+
+  Quién puede anular sale de la matriz y es más fino de lo que uno escribiría de
+  memoria: `pos` y `seller` tienen `anular` con alcance **`propio`**, `admin`
+  con alcance `todo`. El chequeo va sobre el `userId` del autor y **no sobre el
+  rol**: los roles se suman (RN-ACC-01), así que preguntar «¿es un pos?» no
+  contesta «¿es quien la hizo?». Anular la de otra persona da 403
+  `NO_ES_SU_VENTA`.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("la venta no desapareció: cambió de estado", function() {
+    expect(res.getBody().id).to.equal(bru.getVar("ventaComercialId"));
+    expect(res.getBody().estado).to.equal("anulada");
+  });
+
+  test("queda quién, cuándo y por qué", function() {
+    expect(res.getBody().anuladaPor).to.not.equal(null);
+    expect(res.getBody().anuladaEn).to.not.equal(null);
+    expect(res.getBody().motivoAnulacion).to.match(/se arrepintió/);
+  });
+
+  test("y el total sigue diciendo lo que costó ese día", function() {
+    expect(res.getBody().total).to.equal("9000.00");
+  });
+}

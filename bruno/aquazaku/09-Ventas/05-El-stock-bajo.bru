@@ -1,0 +1,34 @@
+meta {
+  name: El stock bajó, y por un documento
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/stock/{{ventasProductoId}}/lotes
+}
+
+docs {
+  Cuarenta menos dos. Nadie editó el saldo: bajó porque hay un movimiento de
+  tipo `venta` que lo explica, con el id de la venta adentro.
+
+  Es la misma primitiva que M2 dejó escrita —`UPDATE … WHERE cantidad >= n`— y
+  por eso M6 **no construye la reserva de stock** que describe RN-VEN-09. Dos
+  vendedores contra la última unidad ya están serializados por la base: uno
+  gana, el otro recibe un rechazo con el número real. La reserva no agregaría
+  corrección, solo un mensaje más temprano — y a cambio pediría una tabla con
+  vencimiento, limpieza y una respuesta para las reservas huérfanas de alguien
+  que abrió la pantalla y se fue a almorzar.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("quedan 38: la venta descontó del MISMO lote que dice la línea", function() {
+    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    expect(lote, "el lote de esta carpeta no aparece con saldo").to.not.equal(undefined);
+    expect(lote.saldo).to.equal(38);
+  });
+}

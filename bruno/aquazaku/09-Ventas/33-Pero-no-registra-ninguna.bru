@@ -1,0 +1,44 @@
+meta {
+  name: Pero NO registra ninguna
+  type: http
+  seq: 33
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 1 }
+    ]
+  }
+}
+
+docs {
+  La otra mitad, y la que justifica que `ventas:ver` y `ventas:crear` sean
+  permisos distintos en vez de un `ventas: true`.
+
+  El `contador` es un testigo externo: mira todo, no modifica nada. Que pudiera
+  registrar una venta haría que la separación de funciones dejara de significar
+  algo — existe justamente para que haya alguien que lea la cartera sin poder
+  alterarla. Y en Aquazaku importa más que en otros lados: el `admin` no tiene
+  separación de funciones, así que este rol es el único control externo que
+  queda en pie.
+
+  Lo mismo vale para `cobros:registrar`, que tampoco tiene, aunque sí vea la
+  cartera entera.
+
+  Es 403 y no 404: la ruta existe, la sesión es válida, y lo que falta es el
+  permiso. Decirle 404 escondería el endpoint y convertiría un problema de
+  autorización en una cacería.
+}
+
+tests {
+  test("403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+}

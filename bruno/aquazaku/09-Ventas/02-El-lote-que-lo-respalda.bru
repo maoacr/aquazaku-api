@@ -1,0 +1,53 @@
+meta {
+  name: El lote que lo respalda
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/stock/entradas
+  body: json
+}
+
+body:json {
+  {
+    "productoId": "{{ventasProductoId}}",
+    "cantidad": 40,
+    "fechaEmpaque": "{{fechaDeEmpaqueVentas}}",
+    "motivo": "lote de arranque para probar el módulo de ventas"
+  }
+}
+
+docs {
+  Cuarenta unidades, empacadas hoy, en un lote que solo usa esta carpeta.
+
+  Tener el lote propio es lo que permite afirmar números exactos más adelante:
+  el mensaje de `STOCK_INSUFICIENTE` trae el saldo REAL, y ese saldo solo se
+  puede predecir si nadie más está descontando del mismo lugar. Con el stock
+  compartido habría que conformarse con «alguna cantidad», que es justamente lo
+  que ese mensaje existe para no decir.
+
+  El empaque es hoy para que el lote nazca vigente: `asignarFifo` ignora los
+  lotes vencidos, y un lote fuera de fecha haría fallar todas las ventas de
+  abajo con el error correcto por la razón equivocada.
+}
+
+script:pre-request {
+  bru.setVar("fechaDeEmpaqueVentas", new Date().toISOString().slice(0, 10));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) {
+    bru.setVar("ventasLoteCodigo", res.getBody().codigo);
+  }
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("entran las 40", function() {
+    expect(res.getBody().cantidadDisponible).to.equal(40);
+  });
+}

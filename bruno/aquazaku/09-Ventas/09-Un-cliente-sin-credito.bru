@@ -1,0 +1,45 @@
+meta {
+  name: Un cliente recién registrado
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Nelson Cárdenas",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "{{documentoCredito}}",
+    "tipo": "residencial"
+  }
+}
+
+docs {
+  Nace `pendiente` y sin crédito, y las dos cosas son deliberadas — M5 lo
+  decidió así. Este cliente existe para recorrer el camino completo del crédito
+  de abajo hacia arriba, que es como se recorre en la vida real: primero se
+  intenta fiar, después se descubre que falta el trámite.
+}
+
+script:pre-request {
+  bru.setVar("documentoCredito", String(Date.now() + 7).slice(-10));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("clienteCreditoId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("nace sin crédito y sin verificar", function() {
+    expect(res.getBody().creditoHabilitado).to.equal(false);
+    expect(res.getBody().verificacionEstado).to.equal("pendiente");
+  });
+}

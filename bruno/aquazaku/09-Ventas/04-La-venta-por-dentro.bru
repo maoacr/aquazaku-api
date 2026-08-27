@@ -1,0 +1,62 @@
+meta {
+  name: La venta por dentro — los cuatro números congelados
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/ventas/{{ventaContadoId}}
+}
+
+docs {
+  Cada línea guarda **cuatro** números, no uno. Congelar solo el precio final
+  deja un comprobante que dentro de seis meses no se puede explicar a sí mismo.
+
+  | Campo | Por qué se guarda en vez de buscarse |
+  | --- | --- |
+  | `precioListaAplicado` | La lista cambia. Sin esto no se sabe si hubo descuento |
+  | `descuentoMonto` | Los códigos vencen y se desactivan |
+  | `precioMinimoAplicado` | El piso también cambia, y es contra él que se verifica |
+  | `precioFinal` | Lo que se cobró |
+
+  Los cuatro juntos sostienen una identidad verificable dentro de la misma fila:
+  `precioFinal = precioListaAplicado − descuentoMonto`. Es lo que hace que el
+  `CHECK (precio_final >= precio_minimo_aplicado)` signifique algo — el
+  invariante queda entre dos columnas de una fila, y la base lo puede sostener
+  sola, sin consultar el catálogo de hoy.
+
+  Es la cuarta vez que el proyecto aplica la misma regla —`fechaVencimiento` en
+  M2, la equivalencia en M3, el `caudalGpm` en M4—: **un hecho de un momento se
+  almacena, nunca se regenera.**
+}
+
+script:post-response {
+  if (res.getStatus() === 200 && res.getBody().lineas.length > 0) {
+    bru.setVar("lineaContadoId", res.getBody().lineas[0].id);
+  }
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("los cuatro números están en la línea, no en el catálogo", function() {
+    const linea = res.getBody().lineas[0];
+    expect(linea.precioListaAplicado).to.equal("12000.00");
+    expect(linea.descuentoMonto).to.equal("0.00");
+    expect(linea.precioMinimoAplicado).to.equal("7000.00");
+    expect(linea.precioFinal).to.equal("12000.00");
+  });
+
+  test("precioFinal = lista − descuento, siempre", function() {
+    const linea = res.getBody().lineas[0];
+    expect(Number(linea.precioFinal)).to.equal(
+      Number(linea.precioListaAplicado) - Number(linea.descuentoMonto)
+    );
+  });
+
+  test("todavía no hay nada devuelto", function() {
+    expect(res.getBody().devoluciones).to.have.lengthOf(0);
+  });
+}

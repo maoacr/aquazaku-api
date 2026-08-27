@@ -1,0 +1,70 @@
+meta {
+  name: Una devolución sana — devolver no es anular
+  type: http
+  seq: 28
+}
+
+post {
+  url: {{baseUrl}}/devoluciones
+  body: json
+}
+
+body:json {
+  {
+    "lineaId": "{{lineaContadoId}}",
+    "cantidad": 1,
+    "estadoProducto": "sano",
+    "motivo": "el cliente se llevó dos y una no le entraba en el carro; volvió cerrada"
+  }
+}
+
+docs {
+  RN-VEN-10, y lo primero es la diferencia con la anulación: **son dos flujos
+  porque responden a dos preguntas distintas.** Anular dice «esta venta no debió
+  existir». Devolver dice «la venta ocurrió, el cliente pagó, y después trajo de
+  vuelta PARTE del producto».
+
+  Por eso la devolución cuelga de la LÍNEA y no de la venta: se devuelven dos de
+  las cinco pacas, no la venta entera.
+
+  A dónde va el producto depende de cómo volvió:
+
+  | Estado | Qué pasa con el inventario |
+  | --- | --- |
+  | `sano` | Vuelve al MISMO lote y se puede volver a vender |
+  | `danado` | Vuelve al lote y sale como descarte, en DOS movimientos |
+  | `vencido` | Igual que `danado` |
+
+  Que lo dañado también entre al lote antes de descartarse parece un rodeo y no
+  lo es: **el producto existe**. Si no se registrara la entrada, el descarte
+  saldría de un lote que nunca lo recibió y el libro no podría explicar de dónde
+  vino — RN-STK-02 quedaría con un agujero. Dos movimientos dicen la verdad
+  completa: volvió, y se descartó.
+
+  `montoAcreditado` es `'0.00'` porque esta venta fue de contado: el cliente ya
+  pagó en efectivo, y bajarle una deuda que no tiene lo dejaría en negativo, que
+  es justo lo que el cobro se cuida de no producir. Devolverle la plata es un
+  **reembolso**, y ese es otro documento que el dominio todavía no definió.
+
+  Sobre una venta ya anulada esto da 422 `VENTA_ANULADA`: anular ya devolvió
+  todo el producto, y una devolución encima lo contaría dos veces.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("sano quiere decir que se puede volver a vender", function() {
+    expect(res.getBody().volvioAlStock).to.equal(true);
+  });
+
+  test("de contado no se acredita nada: eso sería un reembolso", function() {
+    expect(res.getBody().montoAcreditado).to.equal("0.00");
+  });
+
+  test("la devolución queda con su motivo, como documento propio", function() {
+    expect(res.getBody().devolucion.cantidad).to.equal(1);
+    expect(res.getBody().devolucion.motivo).to.match(/no le entraba en el carro/);
+  });
+}

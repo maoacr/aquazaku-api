@@ -125,12 +125,19 @@ export async function registrarDevolucion(
         tx,
       )
 
-      // No puede fallar: acaba de entrar en esta misma transacción.
+      /*
+       * No puede fallar: el producto acaba de entrar en esta misma transacción.
+       *
+       * Va como `Error` pelado y NO como `ErrorDeNegocio`, aunque lanzar sea lo
+       * mismo. La diferencia está en cómo lo trata la ruta: un `ErrorDeNegocio`
+       * se audita como `denied` y se devuelve con cuerpo de negocio, o sea que
+       * un bug del sistema se vería como si alguien hubiera intentado algo que
+       * no correspondía. Esto no es una regla que se incumplió — es una
+       * invariante rota, y tiene que llegar al error boundary como tal.
+       */
       if (!salida.ok) {
-        throw new ErrorDeNegocio(
-          'DESCARTE_IMPOSIBLE',
-          500,
-          'el producto devuelto no se pudo descartar',
+        throw new Error(
+          `el lote ${linea.loteId} rechazó un descarte de producto que acababa de recibir`,
         )
       }
     }

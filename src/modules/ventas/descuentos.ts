@@ -14,6 +14,19 @@ import { ErrorDeNegocio } from '@/lib/errors'
  * Por eso acá no hace falta validar que el descuento «no sea demasiado
  * grande» — no hay un número que sea demasiado grande. Lo que hay es un piso
  * que no se perfora.
+ *
+ * ── Qué se valida acá y qué NO ──────────────────────────────────────────────
+ *
+ * El nombre vacío y la vigencia al revés los atrapa Zod en el borde, con un 400.
+ * Este servicio los chequeaba otra vez, con códigos propios y status 422 — y esas
+ * dos líneas eran **inalcanzables por HTTP**: el esquema gana siempre.
+ *
+ * Una regla con dos códigos de error es peor que una con uno: el día que alguien
+ * vea `VIGENCIA_INVALIDA` en un log va a buscarlo donde no se produce. Se
+ * borraron.
+ *
+ * Lo que sí queda acá es lo que Zod no puede saber: si el porcentaje tiene
+ * sentido como descuento, y si el código ya existe.
  */
 
 export interface DatosDeCodigo {
@@ -31,9 +44,6 @@ export async function crearCodigo(
 ): Promise<CodigoDeDescuento> {
   const codigo = datos.codigo.trim().toUpperCase()
 
-  if (codigo.length === 0) {
-    throw new ErrorDeNegocio('CODIGO_REQUERIDO', 422, 'el código necesita un nombre')
-  }
 
   if (datos.tipo === 'porcentaje' && Number(datos.valor) > 100) {
     /*
@@ -49,15 +59,17 @@ export async function crearCodigo(
     )
   }
 
-  if (datos.vigenciaHasta < datos.vigenciaDesde) {
-    throw new ErrorDeNegocio(
-      'VIGENCIA_INVALIDA',
-      422,
-      'la fecha de fin es anterior a la de inicio: el código no estaría vigente ningún día',
-    )
-  }
 
-  const [existente] = await db
+  /*
+   * El chequeo y la inserción van en la MISMA transacción.
+   *
+   * Sueltos hay una ventana: dos admin creando el mismo código a la vez pasan
+   * los dos por el `select` y el segundo revienta contra el `UNIQUE` — con un
+   * 500 de Postgres en vez del 409 prolijo que este código quiso dar. El
+   * invariante nunca estuvo en riesgo; el mensaje sí.
+   */
+  return db.transaction(async (tx) => {
+  const [existente] = await tx
     .select()
     .from(codigosDeDescuento)
     .where(eq(codigosDeDescuento.codigo, codigo))
@@ -76,7 +88,7 @@ export async function crearCodigo(
     )
   }
 
-  const [creado] = await db
+  const [creado] = await tx
     .insert(codigosDeDescuento)
     .values({
       codigo,
@@ -89,7 +101,8 @@ export async function crearCodigo(
     })
     .returning()
 
-  return creado!
+    return creado!
+  })
 }
 
 /**

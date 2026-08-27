@@ -1,0 +1,43 @@
+meta {
+  name: El producto volvió — al MISMO lote
+  type: http
+  seq: 27
+}
+
+get {
+  url: {{baseUrl}}/stock/{{ventasProductoId}}/lotes
+}
+
+docs {
+  Vuelve **una** unidad, que es la que salió, y vuelve al lote de origen.
+
+  Que sea al mismo lote y no a stock genérico es la razón por la que cada línea
+  de venta guarda `loteId`. Cada lote tiene su propia fecha de vencimiento:
+  devolver a otro convertiría producto que vencía el martes en producto que
+  vence el mes que viene, y el sistema dejaría de poder avisar que hay que
+  sacarlo. El descuadre no aparecería nunca como un número mal sumado — sino
+  como producto vencido que se vendió.
+
+  Tampoco se «suma al saldo»: entra un movimiento de tipo `devolucion` con el id
+  de la venta adentro, y el saldo sube porque ese movimiento existe. El libro
+  puede explicar cada unidad de este lote.
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    if (lote) bru.setVar("saldoAntesDeDevolver", lote.saldo);
+  }
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("volvió exactamente 1: lo que la venta anulada había sacado", function() {
+    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    expect(lote, "el lote de esta carpeta no aparece con saldo").to.not.equal(undefined);
+    expect(lote.saldo).to.equal(bru.getVar("saldoAntesDeAnular") + 1);
+  });
+}

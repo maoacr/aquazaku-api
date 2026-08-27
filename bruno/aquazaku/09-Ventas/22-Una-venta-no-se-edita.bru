@@ -1,0 +1,42 @@
+meta {
+  name: Una venta no se edita — la ruta no existe
+  type: http
+  seq: 22
+}
+
+patch {
+  url: {{baseUrl}}/ventas/{{ventaContadoId}}
+  body: json
+}
+
+body:json {
+  {
+    "total": "1.00"
+  }
+}
+
+docs {
+  Que esta ruta NO exista es parte del contrato — RN-VEN-02.
+
+  Es la regla que más se pide romper por comodidad y la que más caro sale
+  romper: **si el monto de ayer puede cambiar hoy, ningún arqueo ni ninguna
+  rendición es confiable.** No hay forma de auditar una cifra que se puede
+  reescribir; lo único que quedaría es confiar en que nadie la reescribió.
+
+  Si una venta está mal, se anula y se registra una nueva. Cuesta más escribirla
+  y por eso queda explicada.
+
+  Tres capas dicen lo mismo, y la que importa es la última: la ruta no está
+  declarada, el servicio no expone el método, y el trigger
+  `ventas_solo_anulacion` rechaza cualquier `UPDATE` que no sea el de anular.
+  Ese trigger no es teórico — hizo fallar la primera versión de `registrarVenta`,
+  que insertaba la venta con total en cero y lo completaba al final. La salida
+  correcta no fue abrirle una excepción al trigger, sino no necesitar el
+  `UPDATE`.
+}
+
+tests {
+  test("404: la ruta no está", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+}

@@ -1,0 +1,56 @@
+meta {
+  name: Vender más de lo que hay — con el número real
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 9999 }
+    ]
+  }
+}
+
+docs {
+  Que no alcance **es un estado normal del negocio**, no un error del sistema.
+  Por eso 422 y no 400: la forma del pedido está perfecta, lo que no da es la
+  realidad.
+
+  Lo que define este caso no es el código sino el MENSAJE. Trae el número real:
+
+    40 del lote − 2 de la venta de contado − 1 del comercial = 37
+
+  Sin ese número, quien está en el mostrador con el cliente enfrente tiene que
+  irse a la pantalla de stock a averiguar cuánto puede vender, volver, y
+  registrar de nuevo. Un «no hay suficiente» a secas convierte un rechazo de un
+  segundo en una consulta de un minuto, y el sistema tenía el dato en la mano
+  cuando lo escribió.
+
+  Y como no se escribió nada —la transacción se cae entera antes de tocar la
+  venta— el saldo sigue siendo 37 después de esto.
+}
+
+tests {
+  test("responde 422: la forma está bien, el stock no", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es STOCK_INSUFICIENTE", function() {
+    expect(res.getBody().code).to.equal("STOCK_INSUFICIENTE");
+  });
+
+  test("el mensaje trae el saldo REAL, no un «no hay suficiente»", function() {
+    expect(res.getBody().mensaje).to.match(/quedan 37 y esta venta pide 9999/);
+  });
+
+  test("y nombra el producto, para no tener que ir a buscarlo", function() {
+    expect(res.getBody().mensaje).to.contain(bru.getVar("ventasProductoNombre"));
+  });
+}

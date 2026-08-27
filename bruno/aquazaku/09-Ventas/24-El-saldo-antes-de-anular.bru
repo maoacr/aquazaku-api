@@ -1,0 +1,38 @@
+meta {
+  name: El saldo, antes de anular
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{baseUrl}}/stock/{{ventasProductoId}}/lotes
+}
+
+docs {
+  Una foto del saldo para poder afirmar la reversión como una **diferencia** y
+  no como un número absoluto.
+
+  Es la forma honesta de probarlo: lo que la anulación promete no es «el lote
+  queda en 36», es «vuelve exactamente lo que salió». Un test contra un literal
+  también pasaría si el número coincidiera por casualidad; uno contra la
+  diferencia falla si vuelve de más, de menos, o al lote equivocado.
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    if (lote) bru.setVar("saldoAntesDeAnular", lote.saldo);
+  }
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el lote de esta carpeta sigue con saldo", function() {
+    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    expect(lote, "el lote de esta carpeta no aparece con saldo").to.not.equal(undefined);
+    expect(lote.saldo).to.be.at.least(1);
+  });
+}

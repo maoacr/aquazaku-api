@@ -1,0 +1,47 @@
+meta {
+  name: Un cliente comercial
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Tienda La Esquina",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "{{documentoComercial}}",
+    "tipo": "comercial"
+  }
+}
+
+docs {
+  El tipo de cliente no es una etiqueta de reporte: **elige qué lista de precios
+  se cobra**. Por eso hace falta uno de verdad para probar la regla que sigue.
+
+  El documento se aleatoriza porque `RN-CLI-09` rechaza el duplicado real —
+  mismo tipo y mismo número— y esta colección se tiene que poder correr dos
+  veces seguidas.
+}
+
+script:pre-request {
+  // Diez dígitos que no chocan con los documentos fijos de 8-Clientes.
+  bru.setVar("documentoComercial", String(Date.now()).slice(-10));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("clienteComercialId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda como comercial", function() {
+    expect(res.getBody().tipo).to.equal("comercial");
+  });
+}

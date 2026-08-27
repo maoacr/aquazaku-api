@@ -1,0 +1,48 @@
+meta {
+  name: Anular sin motivo — ni siquiera el admin
+  type: http
+  seq: 25
+}
+
+post {
+  url: {{baseUrl}}/ventas/{{ventaComercialId}}/anulacion
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "error"
+  }
+}
+
+docs {
+  Diez caracteres, y no «no vacío». Un mínimo de uno acepta `.`, `x`, `ok`:
+  tres meses después, quien investiga un descuadre encuentra «x» y el registro
+  no sirve para nada — pero el sistema hizo lo que le pidieron.
+
+  Diez no garantizan una buena explicación. Descartan el gesto reflejo de llenar
+  el campo para que la pantalla deje pasar, que es distinto y es lo que se puede
+  atacar desde acá.
+
+  **Y aplica igual al `admin`.** Es deliberado y es al revés de como suele
+  escribirse: quien tiene más permisos deja MÁS rastro, no menos. Un admin que
+  puede anular la venta de cualquiera sin explicar por qué es exactamente el
+  agujero en la caja que la auditoría no puede cerrar — y en Aquazaku el admin
+  no tiene separación de funciones, así que la auditoría es el único control que
+  queda en pie.
+
+  Es 400 y no 422 porque el motivo corto es un problema de **forma**: lo atrapa
+  el esquema antes de que el servicio mire nada. La misma regla también vive en
+  el servicio, para el día que alguien llame a `anularVenta` desde otro lado.
+}
+
+tests {
+  test("responde 400: es la forma la que está mal", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("y dice por qué existe el mínimo, no solo cuál es", function() {
+    expect(res.getBody().code).to.equal("VALIDATION_ERROR");
+    expect(JSON.stringify(res.getBody().detalle)).to.match(/dentro de tres meses/);
+  });
+}

@@ -1,0 +1,43 @@
+meta {
+  name: La deuda subió sola
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/clientes/{{clienteCreditoId}}/deuda
+}
+
+docs {
+  Nadie escribió este número. **La deuda es derivada**, no materializada:
+
+    deuda = ventas a crédito CONFIRMADAS − cobros − devoluciones acreditadas
+
+  El stock y los insumos SÍ tienen columna de saldo, y por una razón concreta:
+  hay que descontarlos atómicamente, y un saldo derivado no se puede decrementar
+  con un `UPDATE … WHERE saldo >= n`. Acá no hay nada que descontar — dos cobros
+  simultáneos **suman**, no compiten por la última unidad. Materializarlo
+  agregaría una columna que puede quedar desincronizada del libro sin ganar
+  nada.
+
+  Y tiene un beneficio que se cobra dos requests más abajo: cuando la venta se
+  anule, la deuda baja **sola**, porque la consulta filtra por estado
+  `confirmada`. No hay una segunda copia del número que pueda quedar mal.
+
+  La ruta vive bajo `cobros:ver` y no bajo `clientes:ver`: es información de
+  cartera, y el `seller` que ve clientes no necesariamente ve lo que deben.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("debe los 36.000 de la venta a crédito", function() {
+    expect(res.getBody().deuda).to.equal("36000.00");
+  });
+
+  test("y todavía no pagó nada", function() {
+    expect(res.getBody().cobros).to.have.lengthOf(0);
+  });
+}

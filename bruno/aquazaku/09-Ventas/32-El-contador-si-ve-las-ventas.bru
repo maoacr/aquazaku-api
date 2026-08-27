@@ -1,0 +1,32 @@
+meta {
+  name: El contador SÍ ve las ventas
+  type: http
+  seq: 32
+}
+
+get {
+  url: {{baseUrl}}/ventas
+}
+
+docs {
+  El `contador` tiene `ventas:ver` con alcance **`todo`**, y es el único rol no
+  admin que lo tiene así: `pos` y `seller` ven `propio`. No es un privilegio —
+  es la definición del puesto. Un testigo que solo ve una parte no puede
+  testimoniar sobre el conjunto.
+
+  El recorte no lo decide esta ruta. `scopedCondition` traduce el alcance del
+  usuario a una condición de la consulta, y `undefined` significa «sin filtro»
+  — que solo ocurre con alcance `todo` y nunca es el resultado de que algo salió
+  mal. La ruta no repite la regla: la usa.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("y ve las de todos, no solo las suyas", function() {
+    const propias = res.getBody().filter(v => v.registradoPor === bru.getVar("adminId"));
+    expect(propias.length, "el contador no vio ninguna venta del admin").to.be.at.least(1);
+  });
+}

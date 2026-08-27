@@ -1,0 +1,38 @@
+meta {
+  name: Los códigos vigentes hoy
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/descuentos?vigentes=si
+}
+
+params:query {
+  vigentes: si
+}
+
+docs {
+  «Vigente» no es un campo: es `activo` **y** hoy dentro de la ventana. Son tres
+  condiciones que la consulta resuelve junta.
+
+  Que se pida con un filtro explícito y no sea el default es a propósito. El
+  admin que administra códigos necesita ver también los vencidos y los apagados
+  —son los que explican por qué aquella venta de marzo costó lo que costó— y una
+  lista que los esconde por defecto haría creer que se borraron.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el código recién creado está entre los vigentes", function() {
+    const codigos = res.getBody().map(c => c.codigo);
+    expect(codigos).to.include(bru.getVar("codigoDiez").toUpperCase());
+  });
+
+  test("todos los que vuelven están activos", function() {
+    expect(res.getBody().every(c => c.activo === true)).to.equal(true);
+  });
+}
