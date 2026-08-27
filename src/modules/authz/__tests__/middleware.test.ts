@@ -29,28 +29,41 @@ async function construirApp(): Promise<FastifyInstance> {
 
   // Acción sensible: se audita al permitirse.
   instancia.post(
-    '/ventas/anular',
+    '/probar/ventas/anular',
     { preHandler: [requireAuth, requirePermission('ventas', 'anular')] },
     async () => ({ ok: true }),
   )
 
-  // Lectura pura: NO se audita al permitirse.
+  /*
+   * Lectura pura: NO se audita al permitirse.
+   *
+   * ── Por qué TODOS los fixtures llevan prefijo `/probar` ─────────────────
+   *
+   * Son rutas de mentira para ejercitar el middleware, no rutas del sistema. Se
+   * llamaban `/ventas`, `/auditoria` y `/ventas/anular` a secas, y el día que M6
+   * registró la ruta real Fastify falló con «Method GET already declared»: los
+   * 19 tests de este archivo se cayeron por una colisión de nombres que no tenía
+   * nada que ver con lo que prueban.
+   *
+   * Peor que caerse: el error apunta a este archivo y no al módulo nuevo, así
+   * que manda a buscar el problema donde no está. El prefijo lo hace imposible.
+   */
   instancia.get(
-    '/ventas',
+    '/probar/ventas',
     { preHandler: [requireAuth, requirePermission('ventas', 'ver')] },
     async () => ({ ok: true }),
   )
 
   // Lectura que SÍ se audita: quién mira la bitácora queda en la bitácora.
   instancia.get(
-    '/auditoria',
+    '/probar/auditoria',
     { preHandler: [requireAuth, requirePermission('auditoria', 'ver')] },
     async () => ({ ok: true }),
   )
 
   // Sin `requireAuth` antes: no debería poder ejecutarse nunca.
   instancia.get(
-    '/mal-configurado',
+    '/probar/mal-configurado',
     { preHandler: requirePermission('ventas', 'ver') },
     async () => ({ ok: true }),
   )
@@ -135,7 +148,7 @@ describe('requirePermission', () => {
   it('sin requireAuth previo devuelve 401 en vez de dejar pasar', async () => {
     const { cookie } = await usuarioAutenticado('admin')
 
-    const res = await app.inject({ method: 'GET', url: '/mal-configurado', headers: { cookie } })
+    const res = await app.inject({ method: 'GET', url: '/probar/mal-configurado', headers: { cookie } })
 
     expect(res.statusCode).toBe(401)
   })
@@ -143,7 +156,7 @@ describe('requirePermission', () => {
   it('permite cuando el rol concede el permiso', async () => {
     const { cookie } = await usuarioAutenticado('admin')
 
-    const res = await app.inject({ method: 'POST', url: '/ventas/anular', headers: { cookie } })
+    const res = await app.inject({ method: 'POST', url: '/probar/ventas/anular', headers: { cookie } })
 
     expect(res.statusCode).toBe(200)
   })
@@ -151,7 +164,7 @@ describe('requirePermission', () => {
   it('deniega con 403 cuando el rol no lo concede', async () => {
     const { cookie } = await usuarioAutenticado('contador')
 
-    const res = await app.inject({ method: 'POST', url: '/ventas/anular', headers: { cookie } })
+    const res = await app.inject({ method: 'POST', url: '/probar/ventas/anular', headers: { cookie } })
 
     expect(res.statusCode).toBe(403)
     expect(res.json()).toMatchObject({
@@ -169,12 +182,12 @@ describe('requirePermission', () => {
 
     const sinPermiso = await app.inject({
       method: 'POST',
-      url: '/ventas/anular',
+      url: '/probar/ventas/anular',
       headers: { cookie: soloSeller.cookie },
     })
     const conPermiso = await app.inject({
       method: 'POST',
-      url: '/ventas/anular',
+      url: '/probar/ventas/anular',
       headers: { cookie: conAdmin.cookie },
     })
 
@@ -188,7 +201,7 @@ describe('qué queda en la bitácora', () => {
   it('un acceso denegado siempre deja rastro', async () => {
     const { usuario, cookie } = await usuarioAutenticado('contador')
 
-    await app.inject({ method: 'POST', url: '/ventas/anular', headers: { cookie } })
+    await app.inject({ method: 'POST', url: '/probar/ventas/anular', headers: { cookie } })
 
     const filas = await registros()
     expect(filas).toHaveLength(1)
@@ -204,7 +217,7 @@ describe('qué queda en la bitácora', () => {
   it('la acción se guarda como `recurso:accion`, que es la nomenclatura del dominio', async () => {
     const { cookie } = await usuarioAutenticado('admin')
 
-    await app.inject({ method: 'POST', url: '/ventas/anular', headers: { cookie } })
+    await app.inject({ method: 'POST', url: '/probar/ventas/anular', headers: { cookie } })
 
     // En la columna indexada, no escondida en el payload: si no se puede
     // filtrar por acción, la UI de auditoría no sirve.
@@ -214,7 +227,7 @@ describe('qué queda en la bitácora', () => {
   it('una acción sensible permitida deja rastro', async () => {
     const { cookie } = await usuarioAutenticado('admin')
 
-    await app.inject({ method: 'POST', url: '/ventas/anular', headers: { cookie } })
+    await app.inject({ method: 'POST', url: '/probar/ventas/anular', headers: { cookie } })
 
     const filas = await registros()
     expect(filas).toHaveLength(1)
@@ -224,7 +237,7 @@ describe('qué queda en la bitácora', () => {
   it('una lectura pura permitida NO deja rastro', async () => {
     const { cookie } = await usuarioAutenticado('admin')
 
-    await app.inject({ method: 'GET', url: '/ventas', headers: { cookie } })
+    await app.inject({ method: 'GET', url: '/probar/ventas', headers: { cookie } })
 
     // Auditar cada lectura sería un INSERT por pantalla y ahogaría la señal.
     expect(await registros()).toHaveLength(0)
@@ -234,7 +247,7 @@ describe('qué queda en la bitácora', () => {
     const usuario = await crearUsuario({ roles: [] })
     const cookie = await crearSesion(usuario)
 
-    await app.inject({ method: 'GET', url: '/ventas', headers: { cookie } })
+    await app.inject({ method: 'GET', url: '/probar/ventas', headers: { cookie } })
 
     const filas = await registros()
     expect(filas).toHaveLength(1)
@@ -244,7 +257,7 @@ describe('qué queda en la bitácora', () => {
   it('mirar la bitácora también queda en la bitácora', async () => {
     const { cookie } = await usuarioAutenticado('contador')
 
-    await app.inject({ method: 'GET', url: '/auditoria', headers: { cookie } })
+    await app.inject({ method: 'GET', url: '/probar/auditoria', headers: { cookie } })
 
     const filas = await registros()
     expect(filas).toHaveLength(1)
@@ -254,7 +267,7 @@ describe('qué queda en la bitácora', () => {
   it('guarda todos los roles activos, no uno solo', async () => {
     const { cookie } = await usuarioAutenticado('pos', 'seller')
 
-    await app.inject({ method: 'POST', url: '/ventas/anular', headers: { cookie } })
+    await app.inject({ method: 'POST', url: '/probar/ventas/anular', headers: { cookie } })
 
     expect((await registros())[0]?.rolEjercido).toEqual(['pos', 'seller'])
   })
@@ -265,7 +278,7 @@ describe('qué queda en la bitácora', () => {
 
     await app.inject({
       method: 'POST',
-      url: '/ventas/anular',
+      url: '/probar/ventas/anular',
       headers: { cookie, 'x-request-id': requestId },
     })
 
@@ -277,7 +290,7 @@ describe('qué queda en la bitácora', () => {
 
     await app.inject({
       method: 'POST',
-      url: '/ventas/anular',
+      url: '/probar/ventas/anular',
       headers: { cookie, 'user-agent': 'navegador-de-prueba/1.0' },
     })
 
