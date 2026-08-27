@@ -11,7 +11,7 @@ import { anularVenta } from './anulacion'
 import { cartera, cobrosDe, registrarCobro } from './cobros'
 import { crearCodigo, desactivarCodigo, listarCodigos } from './descuentos'
 import { devolucionesDe, registrarDevolucion } from './devoluciones'
-import { deudaDe } from './saldo'
+import { cargosPendientesDe, deudaDe } from './saldo'
 import {
   esquemaDeAnulacion,
   esquemaDeCobro,
@@ -170,10 +170,19 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
   )
 
   /**
-   * La deuda de un cliente — el número que M5 dejó en `null`.
+   * Lo que un cliente debe — los dos saldos de plata de `RN-CLI-06`.
    *
    * Va bajo `cobros:ver` y no `clientes:ver`: es información de cartera, y el
    * `seller` que ve clientes no necesariamente ve lo que deben.
+   *
+   * ── Dos números y no uno ──────────────────────────────────────────────────
+   *
+   * `deuda` nace de haber comprado; `cargosPendientes` nace de haber roto algo
+   * prestado. Se reclaman distinto, así que se cuentan distinto — un solo campo
+   * «estado de cuenta» no diría nada útil.
+   *
+   * Los dos salen de `ventas`, separados por `tipo`. Ese filtro es lo que hace
+   * que `RN-BAS-08` y `RN-CLI-06` se cumplan a la vez.
    */
   app.get(
     '/clientes/:id/deuda',
@@ -181,7 +190,11 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     async (req) => {
       const { id } = req.params as { id: string }
 
-      return { deuda: await deudaDe(id), cobros: await cobrosDe(id) }
+      return {
+        deuda: await deudaDe(id),
+        cargosPendientes: await cargosPendientesDe(id),
+        cobros: await cobrosDe(id),
+      }
     },
   )
 
