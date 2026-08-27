@@ -1062,6 +1062,30 @@ export const medioDePagoEnum = pgEnum('medio_de_pago', [
 /** Una venta confirmada no se edita: se anula — RN-VEN-02. */
 export const estadoDeVentaEnum = pgEnum('estado_de_venta', ['confirmada', 'anulada'])
 
+/**
+ * Qué clase de venta es — RN-BAS-08, y la resolución de una contradicción.
+ *
+ * ── Dos reglas confirmadas que se contradecían ──────────────────────────────
+ *
+ * `RN-BAS-08` dice que el recargo por daño a una base **es una venta**, para
+ * preservar la auditoría unificada, y que puede ser a crédito. `RN-CLI-06` dice
+ * que los cargos pendientes son **distintos de la deuda**, «porque no nacen de
+ * una venta a crédito».
+ *
+ * Si el recargo es una venta a crédito, cae en la deuda. Las dos reglas están
+ * confirmadas y no pueden cumplirse a la vez… salvo con este `tipo`.
+ *
+ * El recargo se registra como venta —hereda inmutabilidad, anulación con motivo
+ * y autor— y `deudaDe` **excluye** este tipo mientras `cargosPendientesDe` lo
+ * cuenta. Cada regla obtiene lo que pedía.
+ *
+ * :::danger
+ * Toda consulta de deuda tiene que filtrar por tipo. Una que se lo olvide le
+ * cobra al cliente un daño como si fuera producto.
+ * :::
+ */
+export const tipoDeVentaEnum = pgEnum('tipo_de_venta', ['producto', 'dano_base'])
+
 /** Por dónde entró. Registrarlo no automatiza nada; leer WhatsApp es otro proyecto. */
 export const canalDeVentaEnum = pgEnum('canal_de_venta', ['mostrador', 'whatsapp', 'ruta'])
 
@@ -1121,6 +1145,8 @@ export const ventas = pgTable(
 
     medioDePago: medioDePagoEnum('medio_de_pago').notNull(),
     canal: canalDeVentaEnum('canal').notNull().default('mostrador'),
+    /** `dano_base` no suma a la deuda: suma a los cargos pendientes. */
+    tipo: tipoDeVentaEnum('tipo').notNull().default('producto'),
     estado: estadoDeVentaEnum('estado').notNull().default('confirmada'),
 
     /** La suma de sus líneas. Guardado para no recalcular un comprobante. */
@@ -1333,3 +1359,188 @@ export const devoluciones = pgTable(
 )
 
 export type Devolucion = typeof devoluciones.$inferSelect
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Retornables — M7
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Por qué se movió un botellón — RN-ENV-02, RN-ENV-06.
+ *
+ * `compra` y `descarte` son los ÚNICOS que cambian el total del parque. Los
+ * demás lo mueven de un tenedor a otro, y por eso escriben dos filas que suman
+ * cero entre sí.
+ */
+export const tipoMovimientoBotellonEnum = pgEnum('tipo_movimiento_botellon', [
+  'compra',
+  'entrega',
+  'retorno',
+  'descarte',
+  'ajuste',
+])
+
+/**
+ * El libro de botellones — y no hay tabla de botellones.
+ *
+ * ── Por qué no existe una fila por envase ───────────────────────────────────
+ *
+ * `RN-ENV-01`: el botellón **no tiene identificador individual**. No hay nada
+ * que guardar de uno — no tiene identidad, ni estado, ni historia propia. Crear
+ * una tabla con una fila por botellón físico sería inventar exactamente la
+ * identidad que el dominio decidió no tener, y agregar un paso a cada visita sin
+ * responder ninguna pregunta nueva.
+ *
+ * Lo único que existe son los movimientos. Los saldos se derivan.
+ *
+ * ── Deltas con signo sobre UN tenedor ───────────────────────────────────────
+ *
+ * `cliente_id` en `NULL` es la bodega de la empresa. Una entrega escribe DOS
+ * filas —una que resta de la bodega y otra que suma al cliente— en la misma
+ * transacción.
+ *
+ * La alternativa era una fila con `desde` y `hasta`, y es peor: cada consulta de
+ * saldo tendría que mirar las dos columnas y sumar en un sentido o en otro según
+ * de quién se pregunte. Con deltas, el saldo de cualquiera es siempre
+ * `SUM(cantidad) WHERE cliente_id = X` — la misma consulta para la bodega y para
+ * un cliente.
+ *
+ * Y hace que la ley de conservación (`RN-ENV-02`) se verifique con una sola
+ * suma: sin ID individual, esa igualdad es **lo único** que avisa que un
+ * botellón se perdió.
+ */
+export const movimientosBotellon = pgTable(
+  'movimientos_botellon',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+
+    /** `NULL` es la bodega de la empresa. */
+    clienteId: uuid('cliente_id').references(() => clientes.id, { onDelete: 'restrict' }),
+
+    /** Positivo entra al tenedor, negativo sale. Nunca cero. */
+    cantidad: integer('cantidad').notNull(),
+    tipo: tipoMovimientoBotellonEnum('tipo').notNull(),
+    motivo: text('motivo'),
+
+    /** La venta o el documento que lo originó, si hubo uno. */
+    documentoId: uuid('documento_id').references(() => ventas.id, { onDelete: 'restrict' }),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    /* Un movimiento de cero no movió nada: es una fila que ensucia el libro. */
+    check('movimientos_botellon_cantidad', sql`${t.cantidad} <> 0`),
+
+    /*
+     * `compra` siempre suma y `descarte` siempre resta. Son los dos únicos que
+     * cambian el TOTAL del parque, así que un signo invertido acá rompe la ley
+     * de conservación sin que ninguna otra fila se vea rara.
+     */
+    check(
+      'movimientos_botellon_signos',
+      sql`(${t.tipo} = 'compra' AND ${t.cantidad} > 0)
+          OR (${t.tipo} = 'descarte' AND ${t.cantidad} < 0)
+          OR ${t.tipo} NOT IN ('compra', 'descarte')`,
+    ),
+
+    index('movimientos_botellon_cliente_idx').on(t.clienteId),
+    index('movimientos_botellon_fecha_idx').on(t.createdAt),
+  ],
+)
+
+/** El estado de una base — RN-BAS-08. */
+export const estadoDeBaseEnum = pgEnum('estado_de_base', ['sana', 'danada'])
+
+/**
+ * Las bases — el activo que SÍ tiene identidad.
+ *
+ * ── El contraste con el botellón es el punto ────────────────────────────────
+ *
+ * La base tiene un ID impreso en un sticker (`RN-BAS-10`) porque **hay que ir a
+ * buscarla a un lugar concreto**. Sin saber en cuál de los tres locales está la
+ * base `A-0913`, el préstamo deja de ser reclamable.
+ *
+ * Por eso `direccion_id` y no `cliente_id` (`RN-BAS-03`), y por eso una fila por
+ * base y no un contador.
+ *
+ * `direccion_id` en `NULL` es la bodega: una base está en **exactamente un
+ * lugar** (`RN-BAS-04`), y la bodega es uno de esos lugares.
+ */
+export const bases = pgTable(
+  'bases',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    /** El ID impreso en el sticker físico — RN-BAS-01 y RN-BAS-10. */
+    idSticker: text('id_sticker').notNull(),
+
+    estado: estadoDeBaseEnum('estado').notNull().default('sana'),
+
+    /** `NULL` es la bodega. Prestada, apunta a la dirección concreta. */
+    direccionId: uuid('direccion_id').references(() => direcciones.id, { onDelete: 'restrict' }),
+
+    danadaPor: uuid('danada_por').references(() => users.id, { onDelete: 'set null' }),
+    danadaEn: tstz('danada_en'),
+    /** La venta `dano_base` que generó el recargo — RN-BAS-08. */
+    recargoVentaId: uuid('recargo_venta_id').references(() => ventas.id, { onDelete: 'restrict' }),
+
+    activa: boolean('activa').notNull().default(true),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('bases_sticker_idx').on(t.idSticker),
+
+    /*
+     * Los tres campos del daño van juntos o los tres nulos, igual que la
+     * verificación en M5 y la anulación en M6. Media evidencia de daño —estado
+     * sin responsable— no sirve para cobrarle a nadie.
+     */
+    check(
+      'bases_dano_completo',
+      sql`(${t.estado} = 'sana' AND ${t.danadaPor} IS NULL AND ${t.danadaEn} IS NULL)
+          OR (${t.estado} = 'danada' AND ${t.danadaEn} IS NOT NULL)`,
+    ),
+
+    index('bases_direccion_idx').on(t.direccionId),
+  ],
+)
+
+/** Qué le pasó a una base — RN-BAS-05. */
+export const tipoMovimientoBaseEnum = pgEnum('tipo_movimiento_base', [
+  'alta',
+  'prestamo',
+  'retorno',
+  'dano',
+  'descarte',
+])
+
+/**
+ * El historial de cada base — RN-BAS-05.
+ *
+ * A diferencia del botellón, acá el libro cuelga de una unidad concreta: se
+ * puede contestar «dónde estuvo la base A-0913 y quién la tuvo». Esa pregunta no
+ * existe para un botellón, y por eso su libro es de cantidades.
+ */
+export const movimientosBase = pgTable(
+  'movimientos_base',
+  {
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    baseId: uuid('base_id')
+      .notNull()
+      .references(() => bases.id, { onDelete: 'restrict' }),
+
+    tipo: tipoMovimientoBaseEnum('tipo').notNull(),
+    /** A dónde fue. `NULL` es la bodega. */
+    direccionId: uuid('direccion_id').references(() => direcciones.id, { onDelete: 'restrict' }),
+
+    motivo: text('motivo'),
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('movimientos_base_base_idx').on(t.baseId)],
+)
+
+export type MovimientoBotellon = typeof movimientosBotellon.$inferSelect
+export type Base = typeof bases.$inferSelect
+export type NuevaBase = typeof bases.$inferInsert
+export type MovimientoBase = typeof movimientosBase.$inferSelect

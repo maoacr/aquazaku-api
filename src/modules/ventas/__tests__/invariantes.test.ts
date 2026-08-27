@@ -66,8 +66,50 @@ afterAll(async () => {
   await closeDb()
 })
 
+/**
+ * Una venta VÁLIDA: con su línea.
+ *
+ * ── Por qué el fixture cambió ────────────────────────────────────────────────
+ *
+ * Antes insertaba la venta sola, porque a estos tests las líneas no les
+ * importaban — probaban el `CHECK` de crédito, el trigger de anulación, cosas de
+ * la fila `ventas`.
+ *
+ * Esas filas eran **semánticamente inválidas**: una venta de producto sin
+ * líneas tiene un total que no sale de ningún lado. La base no lo sabía hasta
+ * que M7 agregó el trigger diferido que lo exige al COMMIT, y ahí se cayeron
+ * trece tests de una.
+ *
+ * El trigger tenía razón y los fixtures estaban mal. Ahora la venta nace con su
+ * línea, en una transacción — que es como nace de verdad.
+ */
 const unaVenta = (extra: Partial<typeof ventas.$inferInsert> = {}) =>
-  db.insert(ventas).values({ medioDePago: 'efectivo', total: '10000.00', ...extra }).returning()
+  db.transaction(async (tx) => {
+    const [venta] = await tx
+      .insert(ventas)
+      .values({ medioDePago: 'efectivo', total: '10000.00', ...extra })
+      .returning()
+
+    /*
+     * El recargo por daño NO lleva línea, y es lo correcto: no hay lote del que
+     * salga una base rota. Los dos caminos del invariante quedan ejercitados
+     * por el mismo helper.
+     */
+    if (venta!.tipo !== 'dano_base') {
+      await tx.insert(lineasDeVenta).values({
+        ventaId: venta!.id,
+        productoId,
+        loteId,
+        cantidad: 1,
+        precioListaAplicado: '10000.00',
+        descuentoMonto: '0.00',
+        precioMinimoAplicado: '8000.00',
+        precioFinal: '10000.00',
+      })
+    }
+
+    return [venta!]
+  })
 
 const unaLinea = (ventaId: string, extra: Partial<typeof lineasDeVenta.$inferInsert> = {}) =>
   db.insert(lineasDeVenta).values({
