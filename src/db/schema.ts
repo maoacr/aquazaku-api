@@ -1278,3 +1278,58 @@ export type NuevaLineaDeVenta = typeof lineasDeVenta.$inferInsert
 export type Cobro = typeof cobros.$inferSelect
 export type NuevoCobro = typeof cobros.$inferInsert
 export type CodigoDeDescuento = typeof codigosDeDescuento.$inferSelect
+
+
+/**
+ * En qué estado volvió el producto — RN-VEN-10.
+ *
+ * Decide a dónde va: `sano` vuelve al lote y se puede volver a vender; los otros
+ * dos van a descarte, porque el producto existe pero no se puede despachar.
+ */
+export const estadoDevueltoEnum = pgEnum('estado_devuelto', ['sano', 'danado', 'vencido'])
+
+/**
+ * Una devolución — RN-VEN-10.
+ *
+ * ── Devolver NO es anular ───────────────────────────────────────────────────
+ *
+ * La anulación cancela una venta entera y revierte todos sus efectos. La
+ * devolución **no cancela nada**: la venta ocurrió, el cliente pagó, y después
+ * trajo parte del producto de vuelta. Ajusta el inventario y —si la venta fue a
+ * crédito— la deuda.
+ *
+ * Son dos flujos porque responden a dos preguntas distintas: «esta venta no
+ * debió existir» contra «el cliente trajo de vuelta dos de las cinco pacas».
+ */
+export const devoluciones = pgTable(
+  'devoluciones',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ventaOrigenId: uuid('venta_origen_id')
+      .notNull()
+      .references(() => ventas.id, { onDelete: 'restrict' }),
+    lineaId: uuid('linea_id')
+      .notNull()
+      .references(() => lineasDeVenta.id, { onDelete: 'restrict' }),
+
+    cantidad: integer('cantidad').notNull(),
+    estadoProducto: estadoDevueltoEnum('estado_producto').notNull(),
+    motivo: text('motivo').notNull(),
+
+    /** Lo que se le devolvió de plata, si la venta fue a crédito. */
+    montoAcreditado: numeric('monto_acreditado', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0.00'),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('devoluciones_cantidad_positiva', sql`${t.cantidad} > 0`),
+    check('devoluciones_monto_no_negativo', sql`${t.montoAcreditado} >= 0`),
+    index('devoluciones_venta_idx').on(t.ventaOrigenId),
+    index('devoluciones_linea_idx').on(t.lineaId),
+  ],
+)
+
+export type Devolucion = typeof devoluciones.$inferSelect

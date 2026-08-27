@@ -1,6 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { cobros, ventas } from '@/db/schema'
+import { cobros, devoluciones, ventas } from '@/db/schema'
 // `Ejecutor` es `db` o una transacción abierta. M2 lo dejó exportado con un
 // comentario que decía «M6 va a necesitar descontar dentro de la suya» — y acá
 // está el caso: el chequeo de crédito lee la deuda DENTRO de la transacción de
@@ -11,8 +11,13 @@ import type { Ejecutor } from '@/modules/stock/saldo'
  * La deuda de un cliente — RN-CLI-03 y RN-VEN-07.
  *
  * ```
- * deuda = ventas a crédito CONFIRMADAS − cobros
+ * deuda = ventas a crédito CONFIRMADAS − cobros − devoluciones acreditadas
  * ```
+ *
+ * El tercer término se agregó al escribir las devoluciones: sin él,
+ * `montoAcreditado` quedaba guardado en la devolución **sin efecto sobre la
+ * deuda** — un campo que dice que se acreditó algo que nunca se acreditó. La
+ * clase de dato decorativo que este proyecto viene evitando en todos lados.
  *
  * ── Por qué se deriva y no se materializa ───────────────────────────────────
  *
@@ -46,12 +51,25 @@ export async function deudaDe(clienteId: string, ejecutor: Ejecutor = db): Promi
     .where(eq(cobros.clienteId, clienteId))
 
   /*
+   * Las devoluciones de ventas a crédito bajan la deuda. Se suman por JOIN con
+   * la venta porque la devolución cuelga de la LÍNEA, no del cliente: una misma
+   * línea pertenece a una venta que sí sabe de quién es.
+   */
+  const [acreditado] = await ejecutor
+    .select({ total: sql<string>`coalesce(sum(${devoluciones.montoAcreditado}), 0)` })
+    .from(devoluciones)
+    .innerJoin(ventas, eq(devoluciones.ventaOrigenId, ventas.id))
+    .where(and(eq(ventas.clienteId, clienteId), eq(ventas.estado, 'confirmada')))
+
+  /*
    * La resta se hace en centavos enteros. Sumar `numeric` en Postgres es exacto,
    * pero al pasar por JavaScript los dos números se vuelven `string` y restarlos
    * como floats reintroduce el problema que M6 evita en todo el módulo.
    */
-  const centavos = Math.round(Number(fila?.vendido ?? 0) * 100) -
-    Math.round(Number(pagado?.total ?? 0) * 100)
+  const centavos =
+    Math.round(Number(fila?.vendido ?? 0) * 100) -
+    Math.round(Number(pagado?.total ?? 0) * 100) -
+    Math.round(Number(acreditado?.total ?? 0) * 100)
 
   return (centavos / 100).toFixed(2)
 }

@@ -57,6 +57,13 @@
       "when": 1787747397388,
       "tag": "0007_ventas",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1787747397389,
+      "tag": "0008_devoluciones",
+      "breakpoints": true
     }
   ]
 }
