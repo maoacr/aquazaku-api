@@ -1,0 +1,29 @@
+meta {
+  name: Retornarla estando en la bodega
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/retorno
+}
+
+docs {
+  El espejo de `BASE_YA_PRESTADA`. Un retorno de algo que ya está acá no es
+  inofensivo: escribiría un movimiento `retorno` que nunca pasó, y el historial
+  —que es la única fuente de qué ocurrió de verdad— quedaría contando un viaje
+  inventado.
+
+  Rechazar operaciones que «no harían nada» es lo que mantiene el historial
+  confiable.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es BASE_NO_PRESTADA", function() {
+    expect(res.getBody().code).to.equal("BASE_NO_PRESTADA");
+  });
+}

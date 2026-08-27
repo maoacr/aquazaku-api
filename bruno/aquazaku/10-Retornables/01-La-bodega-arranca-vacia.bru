@@ -1,0 +1,49 @@
+meta {
+  name: La bodega arranca vacía
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/botellones
+}
+
+docs {
+  El primer pedido del módulo no registra nada: **mide**. Y lo que mide es una
+  ley, no un inventario.
+
+    Σ(saldos de todos los tenedores) = Σ compras + Σ ajustes − Σ descartes
+
+  El botellón no tiene número de serie. Esa decisión no es una simplificación:
+  ponerle uno costaría marcarlos, leerlos en cada entrega y sostener el rastro
+  con cinco personas en la calle, para responder una pregunta que nadie hace
+  —«¿dónde está el botellón #47?»—. Lo que sí se pregunta es **cuántos hay**.
+
+  Pero al no tener identidad, un botellón perdido **no deja hueco en ninguna
+  tabla**: no hay fila huérfana, no hay ID que falte, no hay nada que un
+  `NOT NULL` pueda atajar. Lo único que cambia en todo el sistema es que la suma
+  deja de cerrar.
+
+  Por eso la ley viaja en la respuesta del endpoint y no vive solamente en un
+  test. Un test corre una vez al día en CI; esto lo ve quien abre la pantalla.
+
+  En cero cierra trivialmente, y eso también hay que verlo una vez: si acá ya
+  dijera `cuadra: false`, el problema no sería el parque sino la fórmula.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("la bodega está en cero", function() {
+    expect(res.getBody().enBodega).to.equal(0);
+  });
+
+  test("y la ley cierra: nadie tiene nada porque nada entró", function() {
+    expect(res.getBody().enPoderDeAlguien).to.equal(0);
+    expect(res.getBody().registrados).to.equal(0);
+    expect(res.getBody().cuadra).to.equal(true);
+    expect(res.getBody().diferencia).to.equal(0);
+  });
+}

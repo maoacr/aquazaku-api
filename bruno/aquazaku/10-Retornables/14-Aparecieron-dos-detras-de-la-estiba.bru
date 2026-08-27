@@ -1,0 +1,54 @@
+meta {
+  name: Aparecieron dos detrás de la estiba
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/botellones/ajuste
+  body: json
+}
+
+body:json {
+  {
+    "diferencia": 2,
+    "motivo": "Conteo del lunes: aparecieron dos detrás de la estiba del fondo"
+  }
+}
+
+docs {
+  La única fila que **rompe la ley a propósito** — y por eso la única que la
+  vuelve a cerrar.
+
+  Un ajuste es lo que se registra cuando el conteo físico no coincide con el
+  sistema. Va con signo: positivo si sobran, negativo si faltan. Sin
+  `clienteId`, el ajuste es contra la bodega.
+
+  :::caution[Por qué el ajuste suma a `registrados`]
+  Es tentador dejarlo afuera de la fórmula «para que no tape los faltantes». No:
+  un ajuste es la declaración de que el parque real **es** otro. Excluirlo
+  dejaría la ley en rojo de forma permanente después del primer conteo honesto,
+  y entonces nadie volvería a mirarla.
+
+  Lo que impide que el ajuste se use para tapar cualquier cosa no es la fórmula:
+  es el motivo obligatorio y la bitácora. La ley detecta descuadres; la
+  auditoría detecta ajustes sospechosos. Son dos controles distintos y ninguno
+  reemplaza al otro.
+  :::
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el saldo de bodega sube a 95", function() {
+    expect(res.getBody().saldo).to.equal(95);
+  });
+
+  test("y la ley vuelve a cerrar en el número nuevo", function() {
+    expect(res.getBody().conservacion.registrados).to.equal(99);
+    expect(res.getBody().conservacion.enPoderDeAlguien).to.equal(99);
+    expect(res.getBody().conservacion.cuadra).to.equal(true);
+  });
+}

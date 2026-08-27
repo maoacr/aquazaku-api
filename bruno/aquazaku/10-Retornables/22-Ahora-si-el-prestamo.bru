@@ -1,0 +1,42 @@
+meta {
+  name: Ahora sí, el préstamo
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/prestamo
+  body: json
+}
+
+body:json {
+  {
+    "direccionId": "{{parqueDireccionId}}"
+  }
+}
+
+docs {
+  El préstamo apunta a la **dirección**, no al cliente. Ese es el corazón del
+  recurso.
+
+  Prestarle a un cliente sería más simple de modelar y peor de usar: la
+  Panadería del Centro puede tener tres locales, y «la Panadería tiene una base»
+  no le dice a nadie a cuál ir. La pregunta real que alguien se hace con la moto
+  encendida es *¿a cuál de sus tres locales voy a buscar la A-0913?*, y el
+  modelo tiene que poder responderla.
+
+  Escribe dos cosas: la columna `direccion_id` de la base —el **estado**, que es
+  siempre uno solo— y un movimiento `prestamo` —el **hecho**, que se acumula—.
+  El estado se puede recalcular desde los hechos; los hechos no se pueden
+  recuperar desde el estado.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("la base quedó en esa dirección", function() {
+    expect(res.getBody().direccionId).to.equal(bru.getVar("parqueDireccionId"));
+  });
+}

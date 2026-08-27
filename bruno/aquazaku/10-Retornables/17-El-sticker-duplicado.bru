@@ -1,0 +1,41 @@
+meta {
+  name: El sticker duplicado
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "idSticker": "A-0913"
+  }
+}
+
+docs {
+  409 y no 422: el conflicto es con **algo que ya existe**, no con una regla del
+  negocio.
+
+  El mensaje explica la consecuencia en vez del constraint: *dos bases con el
+  mismo ID hacen imposible saber cuál está dónde*. Y eso es literal — el
+  sticker es lo único que conecta el objeto físico con la fila, así que
+  duplicarlo no genera un dato feo, genera dos bases que el sistema cree
+  distinguibles y en la calle no lo son.
+}
+
+tests {
+  test("responde 409: choca con algo que ya existe", function() {
+    expect(res.getStatus()).to.equal(409);
+  });
+
+  test("es STICKER_DUPLICADO", function() {
+    expect(res.getBody().code).to.equal("STICKER_DUPLICADO");
+  });
+
+  test("y dice qué se rompe, no qué constraint falló", function() {
+    expect(res.getBody().mensaje).to.contain("imposible saber cuál está dónde");
+  });
+}

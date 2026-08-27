@@ -1,0 +1,45 @@
+meta {
+  name: Un cliente del parque
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Panadería del Centro",
+    "tipoDocumento": "NIT",
+    "numeroDocumento": "900.456.789",
+    "tipo": "comercial"
+  }
+}
+
+docs {
+  La carpeta arma sus propios clientes en vez de reusar los de `08-Clientes`.
+
+  No es duplicación: es que una carpeta que depende de variables sembradas tres
+  carpetas atrás deja de poder correrse sola, y cuando falla no se sabe si el
+  problema es de retornables o del fixture ajeno. Cada carpeta se explica
+  entera.
+
+  **Nace sin verificar**, y eso importa dentro de un rato: prestarle una base a
+  una identidad sin cotejar es exactamente lo que `RN-BAS-04` viene a evitar.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("parqueClienteId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("arranca sin verificar — el dato está, el cotejo no", function() {
+    expect(res.getBody().verificacionEstado).to.equal("pendiente");
+  });
+}

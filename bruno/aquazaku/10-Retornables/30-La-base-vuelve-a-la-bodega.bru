@@ -1,0 +1,32 @@
+meta {
+  name: La base vuelve a la bodega
+  type: http
+  seq: 30
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/retorno
+}
+
+docs {
+  Sin cuerpo: no hay nada que decidir. Volver a la bodega es poner
+  `direccion_id` en `null`, y no existe una segunda bodega a la que pudiera
+  volver.
+
+  Y viene **dañada**. El retorno la trae de vuelta físicamente y no le limpia el
+  estado — porque el estado describe el objeto, no dónde está.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("está en la bodega", function() {
+    expect(res.getBody().direccionId).to.equal(null);
+  });
+
+  test("y sigue dañada: volver no la arregla", function() {
+    expect(res.getBody().estado).to.equal("danada");
+  });
+}

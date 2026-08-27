@@ -1,0 +1,40 @@
+meta {
+  name: Una segunda base
+  type: http
+  seq: 33
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "idSticker": "B-0002"
+  }
+}
+
+docs {
+  Hace falta una base **sana y en la bodega** para probar el caso que sigue, y
+  la A-0913 ya no sirve: está dañada, y el chequeo de daño se dispara antes.
+
+  Que un caso necesite su propio fixture en vez de reusar el estado que quedó
+  es la señal de que los rechazos están ordenados por costo — se comprueba
+  primero lo que protege plata.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("baseEnBodegaId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("sana y en la bodega", function() {
+    expect(res.getBody().estado).to.equal("sana");
+    expect(res.getBody().direccionId).to.equal(null);
+  });
+}

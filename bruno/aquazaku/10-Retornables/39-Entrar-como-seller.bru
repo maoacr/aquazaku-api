@@ -1,0 +1,30 @@
+meta {
+  name: Entrar como seller
+  type: http
+  seq: 39
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "seller-retornables@aquazaku.com",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+docs {
+  El resto de la carpeta corrió como `admin`. Los dos pedidos que siguen son la
+  única forma de comprobar que los permisos existen de verdad: un endpoint que
+  nunca fue llamado por alguien sin permiso no tiene evidencia de estar
+  protegido.
+}
+
+tests {
+  test("entra", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

@@ -1,0 +1,40 @@
+meta {
+  name: Devuelve dos
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/botellones/retorno
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{parqueClienteId}}",
+    "cantidad": 2
+  }
+}
+
+docs {
+  Las mismas dos filas de la entrega, con el signo al revés. No hay un modelo
+  distinto para el retorno porque no es una operación distinta: es un
+  movimiento entre los mismos dos tenedores en la otra dirección.
+
+  Que entrega y retorno compartan estructura es lo que hace que la ley de
+  conservación valga para las dos sin escribirla dos veces.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("vuelven a la bodega", function() {
+    expect(res.getBody().enBodega).to.equal(96);
+  });
+
+  test("y le quedan cuatro", function() {
+    expect(res.getBody().enPoderDelCliente).to.equal(4);
+  });
+}

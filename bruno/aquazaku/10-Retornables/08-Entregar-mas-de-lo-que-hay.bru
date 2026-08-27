@@ -1,0 +1,49 @@
+meta {
+  name: Entregar más de lo que hay — con el número real
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/botellones/entrega
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{parqueClienteId}}",
+    "cantidad": 9999
+  }
+}
+
+docs {
+  422 y no 400: el pedido está perfectamente formado, lo que no da es la
+  realidad. Que no alcance es un estado normal del negocio.
+
+  Lo que define este caso es el **mensaje**, no el código. Trae los 94 reales y
+  además dice qué hacer si de verdad hay más en el piso: registrar la compra que
+  falta, o un ajuste con motivo. Sin eso, quien está en el mostrador tiene que
+  irse a otra pantalla a averiguar cuánto puede entregar, volver y registrar de
+  nuevo — y el sistema tenía el número en la mano cuando escribió el error.
+
+  Y como la transacción se cae entera antes de escribir nada, el parque sigue
+  igual después de esto.
+}
+
+tests {
+  test("responde 422: la forma está bien, la bodega no", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es BODEGA_INSUFICIENTE", function() {
+    expect(res.getBody().code).to.equal("BODEGA_INSUFICIENTE");
+  });
+
+  test("el mensaje trae los 94 reales, no un «no hay suficiente»", function() {
+    expect(res.getBody().mensaje).to.match(/hay 94 botellones y esta entrega pide 9999/);
+  });
+
+  test("y dice qué hacer si de verdad hay más", function() {
+    expect(res.getBody().mensaje).to.contain("falta registrar la compra");
+  });
+}

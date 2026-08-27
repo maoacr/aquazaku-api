@@ -1,0 +1,35 @@
+meta {
+  name: Habilitarle el crédito
+  type: http
+  seq: 21
+}
+
+put {
+  url: {{baseUrl}}/clientes/{{parqueClienteId}}/credito
+  body: json
+}
+
+body:json {
+  {
+    "habilitado": true
+  }
+}
+
+docs {
+  No hace falta para prestar una base. Hace falta para lo que viene después: el
+  recargo por daño se le va a cobrar a crédito, y un recargo a crédito exige lo
+  mismo que cualquier venta a crédito.
+
+  Que el cargo nazca de una base rota no lo hace menos crédito.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda habilitado y sin tope — el default", function() {
+    expect(res.getBody().creditoHabilitado).to.equal(true);
+    expect(res.getBody().creditoLimite).to.equal(null);
+  });
+}

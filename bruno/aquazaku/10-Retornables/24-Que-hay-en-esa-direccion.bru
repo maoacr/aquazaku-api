@@ -1,0 +1,30 @@
+meta {
+  name: Qué hay en esa dirección
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{baseUrl}}/direcciones/{{parqueDireccionId}}/bases
+}
+
+docs {
+  La consulta que justifica haber modelado el préstamo contra la dirección.
+
+  Es la que alimenta la ficha del cliente: las bases se listan **debajo de su
+  dirección**, no en una lista aparte con el nombre del cliente repetido. La
+  pantalla puede hacerlo porque el dato ya viene agrupado así desde el modelo —
+  si el préstamo apuntara al cliente, la UI tendría que inventar la agrupación
+  que el modelo no tiene, y no podría: el dato no existiría.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("está la A-0913 y nada más", function() {
+    expect(res.getBody()).to.have.lengthOf(1);
+    expect(res.getBody()[0].idSticker).to.equal("A-0913");
+  });
+}

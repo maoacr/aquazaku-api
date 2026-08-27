@@ -1,0 +1,39 @@
+meta {
+  name: Crear un seller
+  type: http
+  seq: 38
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+}
+
+body:json {
+  {
+    "name": "Seller de retornables",
+    "email": "seller-retornables@aquazaku.com",
+    "password": "contrasena-de-prueba-123",
+    "roles": ["seller"]
+  }
+}
+
+docs {
+  El `seller` es el caso interesante de la matriz en este módulo: **ve los dos
+  activos y no opera ninguno.**
+
+  Suena raro para quien reparte en la calle, y es correcto hoy: el trabajo del
+  seller se organiza por ruta, y las rutas son M8. Hasta entonces, quien
+  entrega botellones en el mostrador es el `pos`. Cuando exista la ruta, el
+  permiso llega con ella.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("emailSellerRetornables", "seller-retornables@aquazaku.com");
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

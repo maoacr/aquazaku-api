@@ -1,0 +1,54 @@
+meta {
+  name: Entregar seis
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/botellones/entrega
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{parqueClienteId}}",
+    "cantidad": 6
+  }
+}
+
+docs {
+  Una entrega escribe **dos filas con signo opuesto**: −6 en la bodega, +6 en el
+  cliente. Nunca una sola.
+
+  Podría haberse hecho con un contador por tenedor —restar de acá, sumar allá—
+  y habría funcionado igual mientras nadie se equivocara. La diferencia aparece
+  el día que algo falla a la mitad: con dos filas en una transacción, o quedan
+  las dos o no queda ninguna, y la ley de conservación **no puede** romperse por
+  una entrega. Con contadores, un fallo entre el resto y la suma inventa o
+  destruye botellones en silencio, y la alarma que tendría que sonar es la
+  misma que quedó rota.
+
+  Por eso los saldos son derivados y no columnas: la suma de los movimientos es
+  la única versión que existe, así que no hay una segunda versión con la que
+  pueda discrepar (ADR-0008).
+
+  :::note[Esto no es la recarga]
+  En una recarga el cliente trae uno vacío y se lleva uno lleno: el saldo **no
+  cambia**, y por eso una venta de agua no toca este módulo. Esto es para la
+  primera entrega y para cuando devuelve.
+  :::
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("salieron seis de la bodega", function() {
+    expect(res.getBody().enBodega).to.equal(94);
+  });
+
+  test("y los tiene el cliente — el mismo movimiento, del otro lado", function() {
+    expect(res.getBody().enPoderDelCliente).to.equal(6);
+  });
+}

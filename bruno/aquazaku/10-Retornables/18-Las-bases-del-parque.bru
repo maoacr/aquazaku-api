@@ -1,0 +1,29 @@
+meta {
+  name: Las bases del parque
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/bases
+}
+
+docs {
+  Devuelve solo las **activas**, ordenadas por sticker.
+
+  El orden no es cosmético: quien busca una base en esta lista tiene el sticker
+  en la mano —lo acaba de leer del objeto— y no la fecha en que se dio de alta.
+  Ordenar por `created_at`, que es el default cómodo, obligaría a buscar con los
+  ojos en una lista sin criterio visible.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("está la única que existe", function() {
+    expect(res.getBody()).to.have.lengthOf(1);
+    expect(res.getBody()[0].idSticker).to.equal("A-0913");
+  });
+}

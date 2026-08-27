@@ -1,0 +1,40 @@
+meta {
+  name: El cargo aparece en la cartera
+  type: http
+  seq: 29
+}
+
+get {
+  url: {{baseUrl}}/clientes/{{parqueClienteId}}/deuda
+}
+
+docs {
+  Las **dos** cuentas de plata de `RN-CLI-06`, y por qué no son una sola.
+
+    deuda              $0        no compró nada a crédito
+    cargos pendientes  $80.000   la base que rompió
+
+  Un solo campo «estado de cuenta: $80.000» sería técnicamente correcto y
+  operativamente inútil. Las dos deudas nacen de cosas distintas y se reclaman
+  distinto: una se cobra en la próxima entrega, la otra abre una conversación
+  sobre un activo roto. Quien llama al cliente necesita saber cuál de las dos
+  está cobrando.
+
+  Los dos números salen de la **misma tabla**, separados por `tipo`. Ese filtro
+  es lo que hace que `RN-BAS-08` y `RN-CLI-06` se cumplan a la vez sin duplicar
+  el modelo de deuda.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("no debe nada por compras", function() {
+    expect(res.getBody().deuda).to.equal("0.00");
+  });
+
+  test("pero sí el recargo de la base", function() {
+    expect(res.getBody().cargosPendientes).to.equal("80000.00");
+  });
+}

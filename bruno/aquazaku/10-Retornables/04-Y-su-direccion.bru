@@ -1,0 +1,45 @@
+meta {
+  name: Y su dirección
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{parqueClienteId}}/direcciones
+  body: json
+}
+
+body:json {
+  {
+    "etiqueta": "El local",
+    "direccion": "Calle 30 #12-45",
+    "indicaciones": "Frente al parque, cortina metálica azul"
+  }
+}
+
+docs {
+  Los dos activos retornables se rastrean contra cosas **distintas**, y esta
+  dirección es la mitad de esa historia.
+
+  Los **botellones** se cuentan por CLIENTE: son fungibles, y quien debe seis da
+  seis cualesquiera. Las **bases** se rastrean por DIRECCIÓN, porque hay que ir
+  a buscarlas. «La Panadería del Centro tiene una base» no le dice nada a quien
+  sale con la moto; «está en el local de la Calle 30» sí.
+
+  Un cliente con tres locales tiene una sola cuenta de botellones y tres lugares
+  posibles donde puede estar una base.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("parqueDireccionId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda colgada del cliente", function() {
+    expect(res.getBody().clienteId).to.equal(bru.getVar("parqueClienteId"));
+  });
+}

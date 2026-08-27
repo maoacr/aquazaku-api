@@ -1,0 +1,50 @@
+meta {
+  name: Devolver más de lo que figura
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/botellones/retorno
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{parqueClienteId}}",
+    "cantidad": 99
+  }
+}
+
+docs {
+  Este rechazo **no acusa al cliente**. Si trajo más de los que figuran, lo más
+  probable es que el sistema haya perdido el rastro de una entrega anterior — y
+  el mensaje lo dice con esas palabras.
+
+  Aceptarlo dejaría el saldo del cliente en negativo, que es una forma elegante
+  de tapar el problema: la ley seguiría cerrando —los números cuadran igual con
+  un saldo en −95— mientras la entrega faltante queda sin registrar para
+  siempre. Rechazarlo con el número a la vista es lo que obliga a encontrarla.
+
+  Nótese la asimetría con la entrega: allá el límite era la bodega, acá es lo
+  que figura en poder de **este** cliente. Son dos preguntas distintas y por eso
+  son dos códigos distintos.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es DEVUELVE_DE_MAS", function() {
+    expect(res.getBody().code).to.equal("DEVUELVE_DE_MAS");
+  });
+
+  test("trae los cuatro que figuran", function() {
+    expect(res.getBody().mensaje).to.match(/figuran 4 botellones .* devolviendo 99/);
+  });
+
+  test("y culpa al registro, no al cliente", function() {
+    expect(res.getBody().mensaje).to.contain("falta registrar una entrega anterior");
+  });
+}

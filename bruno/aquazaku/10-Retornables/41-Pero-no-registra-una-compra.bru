@@ -1,0 +1,39 @@
+meta {
+  name: Pero no registra una compra
+  type: http
+  seq: 41
+}
+
+post {
+  url: {{baseUrl}}/botellones/compra
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 50,
+    "motivo": "Una compra que el seller no debería poder registrar"
+  }
+}
+
+docs {
+  403, y esta es **la** barrera. `RN-ACC-02`: la UI oculta, la API prohíbe.
+
+  La pantalla de retornables no le muestra al seller el formulario de compra, y
+  eso es cosmética — no control de acceso. Cualquiera con la URL llegaría igual.
+  Lo único que de verdad lo frena es este `requirePermission`, que corre acá
+  aunque ninguna pantalla lo haya llamado nunca.
+
+  Y `registrar` es justamente el permiso más caro de regalar: cambia el total
+  del parque, que es el número contra el que se mide todo lo demás.
+}
+
+tests {
+  test("responde 403: autenticado, sin permiso", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("y el parque no se movió", function() {
+    expect(res.getBody().code).to.not.equal(undefined);
+  });
+}

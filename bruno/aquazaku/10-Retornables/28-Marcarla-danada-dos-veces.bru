@@ -1,0 +1,42 @@
+meta {
+  name: Marcarla dañada dos veces
+  type: http
+  seq: 28
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/dano
+  body: json
+}
+
+body:json {
+  {
+    "monto": "80000",
+    "motivo": "Repetir el registro del daño del soporte del grifo",
+    "medioDePago": "credito"
+  }
+}
+
+docs {
+  Este rechazo no protege una tabla: protege a un cliente de que le cobren dos
+  veces lo mismo.
+
+  Un daño no es un estado que se pueda volver a poner — es un evento que ya
+  generó plata. Repetirlo generaría un segundo recargo de $80.000 sobre la misma
+  base rota, y el mensaje lo dice con esas palabras en vez de hablar de estados
+  inválidos.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es YA_DANADA", function() {
+    expect(res.getBody().code).to.equal("YA_DANADA");
+  });
+
+  test("y dice a quién protege", function() {
+    expect(res.getBody().mensaje).to.contain("le cobraría dos veces al cliente");
+  });
+}

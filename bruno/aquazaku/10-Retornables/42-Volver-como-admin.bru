@@ -1,0 +1,28 @@
+meta {
+  name: Volver como admin
+  type: http
+  seq: 42
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{adminEmail}}",
+    "password": "{{adminPassword}}"
+  }
+}
+
+docs {
+  La carpeta deja la sesión como la encontró. `11-Sesion` cierra la colección
+  probando el logout, y necesita entrar con el admin.
+}
+
+tests {
+  test("vuelve a entrar", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

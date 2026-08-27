@@ -1,0 +1,43 @@
+meta {
+  name: Descartar sin explicar
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/botellones/descarte
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 3,
+    "motivo": "rotos"
+  }
+}
+
+docs {
+  «rotos» es un motivo, y no alcanza. 400, porque el problema es la **forma**
+  del pedido: el campo vino, pero corto.
+
+  El mínimo de caracteres no es burocracia. El descarte es la única operación
+  que hace desaparecer botellones del sistema — después de esto, la ley de
+  conservación cierra con tres menos y **nunca más vuelve a preguntar por
+  ellos**. Lo único que queda para entender qué pasó, tres meses después, es
+  este texto.
+
+  Y la regla vive en dos capas a propósito: el esquema la rechaza acá con 400, y
+  el servicio la vuelve a exigir con `MOTIVO_REQUERIDO`. No es duplicación
+  ociosa — el servicio también se llama desde adentro, y una regla que solo vive
+  en la validación HTTP no protege esos caminos.
+}
+
+tests {
+  test("responde 400: el campo vino, pero corto", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("y explica para qué sirve el motivo", function() {
+    expect(JSON.stringify(res.getBody())).to.contain("dentro de tres meses");
+  });
+}

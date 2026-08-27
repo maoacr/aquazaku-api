@@ -1,0 +1,36 @@
+meta {
+  name: El historial de la base
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{baseUrl}}/bases/{{baseId}}/historial
+}
+
+docs {
+  Los **hechos**, en orden. La columna `direccion_id` dice dónde está la base
+  hoy; esto dice cómo llegó ahí.
+
+  Guardar las dos cosas parece redundante hasta que alguien pregunta por qué una
+  base estuvo en tres direcciones distintas en un mes, o hasta que hay que
+  reconstruir quién la tenía cuando se rompió. El estado responde *¿dónde
+  está?*; el historial responde *¿qué pasó?*. Ninguna de las dos se deduce de la
+  otra.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("dos hechos, en el orden en que pasaron", function() {
+    expect(res.getBody()).to.have.lengthOf(2);
+    expect(res.getBody()[0].tipo).to.equal("alta");
+    expect(res.getBody()[1].tipo).to.equal("prestamo");
+  });
+
+  test("y el préstamo dice a qué dirección fue", function() {
+    expect(res.getBody()[1].direccionId).to.equal(bru.getVar("parqueDireccionId"));
+  });
+}

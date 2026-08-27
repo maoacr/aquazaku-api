@@ -1,0 +1,32 @@
+meta {
+  name: Cuántos tiene el cliente
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/clientes/{{parqueClienteId}}/botellones
+}
+
+docs {
+  Una de las cuatro cuentas de la ficha del cliente (`RN-CLI-06`), y la que
+  explica por qué son cuatro y no un «estado de cuenta» único.
+
+  Estos seis botellones **no son plata**. Son un activo prestado que se reclama
+  yendo a buscarlo o cobrando la reposición, y mezclarlos con la deuda daría un
+  número que no sirve para ninguna de las dos conversaciones: ni para cobrar ni
+  para recuperar.
+
+  El número sale de sumar sus movimientos, no de leer un campo. Por eso es
+  imposible que discrepe del parque: **es** el parque, filtrado.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("tiene los seis", function() {
+    expect(res.getBody().enPoderDelCliente).to.equal(6);
+  });
+}

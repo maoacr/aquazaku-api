@@ -1,0 +1,39 @@
+meta {
+  name: La ley cuenta el descarte
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/botellones
+}
+
+docs {
+  Acá se ve por qué el descarte tiene que estar **dentro** de la fórmula y no
+  ser una excepción a ella.
+
+    en bodega  93
+    con Panadería del Centro   4
+    ──────────────────────────────
+    en poder de alguien        97
+    registrados     100 − 3 =  97   ✓
+
+  Si `registrados` contara solo las compras, seguiría diciendo 100 y la ley
+  quedaría en rojo **para siempre** desde el primer descarte legítimo. Una
+  alarma que suena siempre es una alarma que nadie mira, y el módulo entero
+  perdería su única defensa.
+
+  El mismo argumento aplica a los ajustes, y por eso también están en la suma.
+}
+
+tests {
+  test("la bodega bajó y el total también — el descarte cuenta", function() {
+    expect(res.getBody().enBodega).to.equal(93);
+    expect(res.getBody().registrados).to.equal(97);
+    expect(res.getBody().enPoderDeAlguien).to.equal(97);
+  });
+
+  test("sigue cuadrando después de restar del parque", function() {
+    expect(res.getBody().cuadra).to.equal(true);
+  });
+}

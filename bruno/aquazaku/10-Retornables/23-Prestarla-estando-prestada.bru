@@ -1,0 +1,43 @@
+meta {
+  name: Prestarla estando prestada
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/prestamo
+  body: json
+}
+
+body:json {
+  {
+    "direccionId": "{{parqueDireccionId}}"
+  }
+}
+
+docs {
+  **Una base está en un solo lugar.** No es una regla del sistema: es una
+  propiedad del objeto físico, y el modelo la respeta en vez de administrarla.
+
+  Nótese que ni siquiera pregunta si la dirección es la misma. Da igual: si la
+  base figura prestada y alguien la está prestando, o volvió sin que se
+  registrara el retorno, o hay dos bases con el mismo sticker. Las dos cosas hay
+  que arreglarlas antes, y aceptar el préstamo taparía cualquiera de las dos.
+
+  Por eso el mensaje dice qué hacer —*registre el retorno primero*— en vez de
+  informar que la operación no se puede.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es BASE_YA_PRESTADA", function() {
+    expect(res.getBody().code).to.equal("BASE_YA_PRESTADA");
+  });
+
+  test("y dice el camino: registrar el retorno", function() {
+    expect(res.getBody().mensaje).to.contain("registre el retorno primero");
+  });
+}

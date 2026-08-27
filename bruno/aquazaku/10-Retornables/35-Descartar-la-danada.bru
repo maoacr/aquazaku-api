@@ -1,0 +1,36 @@
+meta {
+  name: Descartar la dañada
+  type: http
+  seq: 35
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/descarte
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "El soporte partido no tiene arreglo: sale del parque de bases"
+  }
+}
+
+docs {
+  Ahora sí: está en la bodega, así que no queda ningún préstamo colgado.
+
+  El descarte pone `activa: false` — no borra la fila. La base desaparece de las
+  listas y de los préstamos, pero su historial sigue existiendo, y el recargo de
+  $80.000 sigue apuntándole. Borrarla dejaría un cargo en la cartera de un
+  cliente sin nada que lo explique.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("sale del parque sin desaparecer", function() {
+    expect(res.getBody().activa).to.equal(false);
+    expect(res.getBody().id).to.equal(bru.getVar("baseId"));
+  });
+}

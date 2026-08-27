@@ -1,0 +1,40 @@
+meta {
+  name: Entran cien botellones
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/botellones/compra
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 100,
+    "motivo": "Compra al proveedor del 27 de agosto"
+  }
+}
+
+docs {
+  Una de las **dos** operaciones que cambian el total del parque. La otra es el
+  descarte. Todo lo demás —entregas, retornos— mueve botellones de un tenedor a
+  otro sin crear ni destruir ninguno, que es precisamente por qué la ley de
+  conservación sirve de alarma.
+
+  El `motivo` es opcional acá y obligatorio en el descarte, y la asimetría es a
+  propósito: comprar **suma**, y un parque que crece de más se nota solo cuando
+  alguien cuenta. Descartar **resta**, y es la única forma de hacer desaparecer
+  botellones del sistema — sin explicación, la ley cerraría igual mientras
+  alguien saca lo que quiera.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("los cien quedan en la bodega", function() {
+    expect(res.getBody().enBodega).to.equal(100);
+  });
+}

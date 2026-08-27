@@ -1,0 +1,41 @@
+meta {
+  name: La ley sigue cerrando
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/botellones
+}
+
+docs {
+  La comprobación que da sentido a las dos filas de la entrega.
+
+    en bodega  94
+    con Panadería del Centro   6
+    ──────────────────────────────
+    en poder de alguien       100
+    registrados               100   ✓
+
+  Una entrega **no cambia** `registrados`: mueve, no crea. Si este número
+  hubiera subido a 106, la entrega estaría inventando botellones; si hubiera
+  bajado a 94, los estaría perdiendo. Que se quede quieto en 100 mientras el
+  reparto se mueve es exactamente lo que la ley existe para vigilar.
+
+  Y `diferencia` viaja aunque sea cero, porque el día que no lo sea es el único
+  dato accionable que hay sobre un botellón perdido: no hay ID que buscar, solo
+  un cuánto.
+}
+
+tests {
+  test("la bodega bajó, el total no se movió", function() {
+    expect(res.getBody().enBodega).to.equal(94);
+    expect(res.getBody().enPoderDeAlguien).to.equal(100);
+    expect(res.getBody().registrados).to.equal(100);
+  });
+
+  test("cuadra", function() {
+    expect(res.getBody().cuadra).to.equal(true);
+    expect(res.getBody().diferencia).to.equal(0);
+  });
+}

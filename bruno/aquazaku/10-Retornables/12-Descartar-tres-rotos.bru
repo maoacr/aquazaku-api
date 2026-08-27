@@ -1,0 +1,37 @@
+meta {
+  name: Descartar tres rotos
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/botellones/descarte
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 3,
+    "motivo": "Tres botellones con el cuello partido en la descarga del martes"
+  }
+}
+
+docs {
+  La segunda —y última— operación que cambia el total del parque.
+
+  Después de esto el sistema tiene 97 botellones registrados en vez de 100, y
+  esa baja es **permanente y correcta**. Es la diferencia entre un botellón que
+  se rompió y uno que se perdió: el roto se descarta con motivo y la ley sigue
+  cerrando; el perdido no genera ninguna fila, y por eso la ley **deja** de
+  cerrar. Ese contraste es toda la señal que hay.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("salen de la bodega", function() {
+    expect(res.getBody().enBodega).to.equal(93);
+  });
+}

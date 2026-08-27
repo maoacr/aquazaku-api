@@ -1,0 +1,40 @@
+meta {
+  name: Una base sin sticker
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "idSticker": ""
+  }
+}
+
+docs {
+  Acá empieza el otro activo, y la primera regla es la que lo separa del
+  botellón: **la base sí tiene identidad, y es obligatoria.**
+
+  No es una inconsistencia con el botellón anónimo — es la consecuencia de que
+  se reclaman distinto. Un botellón se reclama contando: «me debe seis». Una
+  base se reclama yendo: «la A-0913 está en el local de la Calle 30». Sin
+  sticker no hay nada que reclamar, solo un renglón que dice que en algún lugar
+  hay una base.
+
+  Por eso el mensaje no habla de validación sino del uso: *una base sin sticker
+  no se puede reclamar*.
+}
+
+tests {
+  test("responde 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("y dice por qué importa, no que el campo es requerido", function() {
+    expect(JSON.stringify(res.getBody())).to.contain("no se puede reclamar");
+  });
+}

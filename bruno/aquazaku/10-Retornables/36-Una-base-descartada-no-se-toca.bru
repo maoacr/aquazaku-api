@@ -1,0 +1,35 @@
+meta {
+  name: Una base descartada no se toca
+  type: http
+  seq: 36
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/prestamo
+  body: json
+}
+
+body:json {
+  {
+    "direccionId": "{{parqueDireccionId}}"
+  }
+}
+
+docs {
+  El chequeo vive en `baseActiva`, la función por la que pasan **todas** las
+  operaciones sobre una base — prestar, retornar, dañar, descartar.
+
+  Ponerlo en un solo lugar en vez de repetirlo en cada endpoint es lo que
+  garantiza que el próximo endpoint que se agregue lo herede sin que nadie se
+  acuerde de escribirlo.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es BASE_DESCARTADA", function() {
+    expect(res.getBody().code).to.equal("BASE_DESCARTADA");
+  });
+}

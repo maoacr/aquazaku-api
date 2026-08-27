@@ -1,0 +1,67 @@
+meta {
+  name: Se rompió en el local
+  type: http
+  seq: 27
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/dano
+  body: json
+}
+
+body:json {
+  {
+    "monto": "80000",
+    "motivo": "La base se cayó del mostrador y se partió el soporte del grifo",
+    "medioDePago": "credito"
+  }
+}
+
+docs {
+  `RN-BAS-08`. Un daño escribe **tres** cosas: el estado `danada` en la base, un
+  movimiento `dano` en su historial, y una venta de tipo `dano_base` que es el
+  recargo.
+
+  **El monto viene en el pedido y es obligatorio.** La regla habla de un «valor
+  de reposición configurable por SKU», pero el dominio no dice cuál es ese
+  valor — y ponerle un default acá sería inventarlo. Un número inventado en un
+  cargo que se le cobra a un cliente real es peor que pedirlo cada vez. Cuando
+  exista el módulo de configuración, ese valor pasa a ser el **default** de este
+  campo, no su reemplazo.
+
+  El recargo se guarda como una venta y no como una tabla aparte porque es lo
+  que es: algo que el cliente debe. Ponerlo en su propia tabla obligaría a que
+  cobros, anulaciones y estados de cuenta supieran de dos fuentes de deuda.
+
+  Lo que sí lo separa es el `tipo`. Una venta de producto y un recargo por daño
+  se reclaman en conversaciones distintas, y ese campo es lo que permite
+  mostrarlos como dos cuentas sin partir la tabla.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("recargoId", res.getBody().recargo.id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("la base queda dañada, y con quién la marcó", function() {
+    expect(res.getBody().base.estado).to.equal("danada");
+    expect(res.getBody().base.danadaPor).to.not.equal(null);
+  });
+
+  test("sigue prestada: dañarla no la trae de vuelta sola", function() {
+    expect(res.getBody().base.direccionId).to.equal(bru.getVar("parqueDireccionId"));
+  });
+
+  test("el recargo es una venta, pero de otro tipo", function() {
+    expect(res.getBody().recargo.tipo).to.equal("dano_base");
+    expect(res.getBody().recargo.total).to.equal("80000.00");
+  });
+
+  test("y queda atado a la base que lo generó", function() {
+    expect(res.getBody().base.recargoVentaId).to.equal(res.getBody().recargo.id);
+  });
+}

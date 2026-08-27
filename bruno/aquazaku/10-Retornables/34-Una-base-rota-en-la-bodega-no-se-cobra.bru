@@ -1,0 +1,46 @@
+meta {
+  name: Una base rota en la bodega no se le cobra a nadie
+  type: http
+  seq: 34
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseEnBodegaId}}/dano
+  body: json
+}
+
+body:json {
+  {
+    "monto": "80000",
+    "motivo": "Apareció rota en el estante del fondo, sin saber desde cuándo",
+    "medioDePago": "efectivo"
+  }
+}
+
+docs {
+  El daño se le cobra **a quien la tiene**. Una base que aparece rota en la
+  bodega no tiene a quién cobrarle: es una pérdida de la empresa.
+
+  Y esa distinción no es un tecnicismo contable. Si el endpoint aceptara el
+  daño sin tenedor, tendría que elegir a alguien —el último que la tuvo, por
+  ejemplo— y le estaría cobrando por un objeto que devolvió entero hace tres
+  meses.
+
+  El camino correcto existe y el mensaje lo nombra: descartarla con motivo. La
+  base sale del parque y la pérdida queda registrada como lo que es, sin
+  inventar un deudor.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es BASE_EN_BODEGA", function() {
+    expect(res.getBody().code).to.equal("BASE_EN_BODEGA");
+  });
+
+  test("y ofrece el camino correcto", function() {
+    expect(res.getBody().mensaje).to.contain("descártela con motivo");
+  });
+}

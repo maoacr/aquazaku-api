@@ -1,0 +1,29 @@
+meta {
+  name: El seller ve el parque
+  type: http
+  seq: 40
+}
+
+get {
+  url: {{baseUrl}}/botellones
+}
+
+docs {
+  `ver` sí lo tiene, y no es un permiso de consuelo: quien sale a repartir
+  necesita saber cuántos botellones hay antes de cargar la moto.
+
+  La ley de conservación viaja igual para él. No es información privilegiada —
+  es la salud del parque, y cuanta más gente la mire, antes se detecta el
+  descuadre.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("y ve la ley, no solo el número", function() {
+    expect(res.getBody().cuadra).to.equal(true);
+    expect(res.getBody()).to.have.property("registrados");
+  });
+}

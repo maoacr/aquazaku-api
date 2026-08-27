@@ -1,0 +1,49 @@
+meta {
+  name: Dar de alta la base
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "idSticker": "A-0913"
+  }
+}
+
+docs {
+  Nace **en la bodega**: `direccionId` en `null`.
+
+  Que el lugar de la base sea una columna nullable y no una tabla de estados es
+  la decisión de fondo del recurso. Una base está en exactamente un lugar —o en
+  la bodega, o en una dirección— y esa exclusividad queda expresada por
+  construcción: no hay forma de escribir dos lugares a la vez porque no hay dos
+  columnas.
+
+  Con una tabla de préstamos abiertos habría que sostener con lógica lo que acá
+  sostiene el tipo de dato, y el día que dos préstamos quedaran abiertos el
+  sistema no tendría cómo saber cuál es el bueno.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("baseId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("nace en la bodega, no en ningún lado", function() {
+    expect(res.getBody().direccionId).to.equal(null);
+  });
+
+  test("y en servicio", function() {
+    expect(res.getBody().estado).to.equal("sana");
+    expect(res.getBody().activa).to.equal(true);
+  });
+}

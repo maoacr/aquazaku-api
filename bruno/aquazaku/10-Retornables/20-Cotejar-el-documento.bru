@@ -1,0 +1,28 @@
+meta {
+  name: Cotejar el documento
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{parqueClienteId}}/verificacion
+}
+
+docs {
+  El cuerpo va vacío: el método se **deriva del rol** de quien verifica, no
+  viene en el pedido. Si viniera, cualquiera podría declarar que su cotejo tuvo
+  el peso de una ratificación contra documento oficial.
+
+  Acá se ve para qué servía: destraba el préstamo del paso siguiente.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda verificado, y con quién lo verificó", function() {
+    expect(res.getBody().verificacionEstado).to.equal("verificado");
+    expect(res.getBody().verificadoPor).to.not.equal(null);
+  });
+}

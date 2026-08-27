@@ -1,0 +1,48 @@
+meta {
+  name: Prestarle a quien no está verificado
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/bases/{{baseId}}/prestamo
+  body: json
+}
+
+body:json {
+  {
+    "direccionId": "{{parqueDireccionId}}"
+  }
+}
+
+docs {
+  `RN-BAS-04`. La Panadería del Centro existe, tiene documento cargado y tiene
+  dirección — y aún así no se le presta.
+
+  La diferencia entre **dato presente** y **dato comprobado** no importa mientras
+  el cliente solo compra: si el NIT está mal, se cobró igual y no se perdió
+  nada. Importa el día que se le entrega un activo físico que hay que ir a
+  buscar. Una identidad sin cotejar es exactamente la que no se puede reclamar.
+
+  Y esto llega desde `08-Clientes` sin que retornables sepa nada de
+  verificación: la regla vive en el servicio de bases y consulta el flag, que es
+  la única copia que hay.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es VERIFICACION_REQUERIDA", function() {
+    expect(res.getBody().code).to.equal("VERIFICACION_REQUERIDA");
+  });
+
+  test("nombra al cliente, para no tener que ir a buscar cuál es", function() {
+    expect(res.getBody().mensaje).to.contain("Panadería del Centro");
+  });
+
+  test("y dice qué hacer: cotejarlo", function() {
+    expect(res.getBody().mensaje).to.contain("Cotéjelo primero");
+  });
+}
