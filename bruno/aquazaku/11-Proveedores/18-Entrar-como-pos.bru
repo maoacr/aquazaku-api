@@ -1,0 +1,31 @@
+meta {
+  name: Entrar como pos
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "pos-compras@aquazaku.com",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+docs {
+  Los dos requests que siguen prueban la asimetría más interesante de M9 en la
+  matriz: el `pos` **registra compras** pero **no da de alta proveedores**.
+
+  Se verifica desde los dos lados. Un test que solo comprobara el 403 no
+  distinguiría «no tiene ese permiso» de «no tiene ninguno».
+}
+
+tests {
+  test("entra", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

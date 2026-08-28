@@ -1,0 +1,34 @@
+meta {
+  name: Crear un pos de compras
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+}
+
+body:json {
+  {
+    "name": "Pos de compras",
+    "email": "pos-compras@aquazaku.com",
+    "password": "contrasena-de-prueba-123",
+    "roles": ["pos"]
+  }
+}
+
+docs {
+  El `pos` se crea acá porque esta carpeta no depende de las anteriores: si
+  falla, el error apunta a M9 y no a un fixture que alguien movió tres carpetas
+  atrás.
+
+  Viene a probar la asimetría más interesante de M9 en la matriz — registra
+  compras, no da de alta proveedores.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

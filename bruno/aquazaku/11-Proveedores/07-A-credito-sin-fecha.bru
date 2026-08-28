@@ -1,0 +1,56 @@
+meta {
+  name: A crédito sin fecha
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/compras
+  body: json
+}
+
+body:json {
+  {
+    "proveedorId": "{{proveedorId}}",
+    "medioDePago": "credito",
+    "lineas": [
+      { "botellones": 10, "cantidad": 10, "costoUnitario": "18000.00" }
+    ]
+  }
+}
+
+docs {
+  `RN-PRO-07`. 422: la forma está bien, lo que falta es información del negocio.
+
+  Sin fecha de vencimiento no hay **cuándo avisar** ni **qué reclamar**. Y no se
+  estima con un plazo por defecto —«30 días»— porque eso sería inventar un
+  acuerdo que nadie hizo: la fecha la dice el proveedor.
+
+  :::caution[Hoy esto no debería pasar nunca]
+  Aquazaku paga **todo de contado o por transferencia**: ningún proveedor fía
+  (`RN-PRO-06`).
+
+  La columna existe igual, con `credito` entre sus valores, porque agregarla
+  después obligaría a migrar las compras ya registradas y a decidir qué
+  significan retroactivamente. Modelarlo hoy cuesta una columna.
+
+  Lo que **no** se construyó es la cuenta corriente completa —saldos, pagos
+  parciales, cartera por antigüedad—: no existe una sola compra a crédito de la
+  cual derivar esas reglas, y diseñarlas sería el mismo error que se evitó con
+  el valor de reposición de `RN-BAS-08`.
+  :::
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es VENCIMIENTO_REQUERIDO", function() {
+    expect(res.getBody().code).to.equal("VENCIMIENTO_REQUERIDO");
+  });
+
+  test("y dice de dónde sale la fecha", function() {
+    expect(res.getBody().mensaje).to.contain("La dice el proveedor");
+  });
+}

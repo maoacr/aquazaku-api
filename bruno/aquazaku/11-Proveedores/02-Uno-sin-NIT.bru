@@ -1,0 +1,34 @@
+meta {
+  name: Uno sin NIT
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/proveedores
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "El señor de las tapas"
+  }
+}
+
+docs {
+  El caso que justifica que el NIT sea opcional. Alcanza con el nombre.
+
+  Lo que **no** es opcional es el nombre: un proveedor sin nombre no se puede
+  identificar, y el `CHECK` de la base rechaza incluso uno en blanco.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("sin NIT ni contacto, y eso está bien", function() {
+    expect(res.getBody().nit).to.equal(null);
+    expect(res.getBody().contacto).to.equal(null);
+  });
+}

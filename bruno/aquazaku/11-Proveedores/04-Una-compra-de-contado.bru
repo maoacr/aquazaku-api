@@ -1,0 +1,66 @@
+meta {
+  name: Una compra de contado
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/compras
+  body: json
+}
+
+body:json {
+  {
+    "proveedorId": "{{proveedorId}}",
+    "medioDePago": "efectivo",
+    "lineas": [
+      { "botellones": 20, "cantidad": 20, "costoUnitario": "18000.00" }
+    ]
+  }
+}
+
+docs {
+  `RN-PRO-05`. La compra **no crea un inventario nuevo: le pone nombre al que ya
+  entra.**
+
+  Botellones, bases e insumos ya tenían su camino de entrada al parque y al
+  stock. Lo que la compra agrega es **de quién vino, cuánto costó y cómo se
+  paga**.
+
+  Por eso escribe el documento **y** el movimiento de inventario en la misma
+  transacción, igual que una venta escribe la venta y el descuento de stock:
+
+  - Registrar la compra sin mover el inventario deja mercadería pagada que el
+    sistema no ve.
+  - Mover el inventario sin la compra deja stock que apareció de la nada.
+
+  El total sale de `cantidad × costo unitario` y queda **congelado**
+  (`RN-PRO-04`): sin costo histórico no se puede calcular el margen real de un
+  período, igual que sin precio congelado no se puede reconstruir una venta
+  vieja.
+
+  :::note[Lo de contado nace pagado]
+  No hay nada que cobrar después, y una compra de contado «pendiente» aparecería
+  en el aviso de vencidas sin que nadie deba nada. El `CHECK` de la base lo
+  impide.
+  :::
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("compraContadoId", res.getBody().compra.id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("20 × 18.000 = 360.000, congelado", function() {
+    expect(res.getBody().compra.total).to.equal("360000.00");
+  });
+
+  test("nace pagada y sin vencimiento", function() {
+    expect(res.getBody().compra.pagada).to.equal(true);
+    expect(res.getBody().compra.venceEl).to.equal(null);
+  });
+}

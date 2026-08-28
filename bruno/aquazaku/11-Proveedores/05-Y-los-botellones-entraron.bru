@@ -1,0 +1,29 @@
+meta {
+  name: Y los botellones entraron
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/botellones
+}
+
+docs {
+  La comprobación de que la compra movió el inventario de verdad, y no solo
+  registró un papel.
+
+  A esta altura el parque venía de `10-Retornables` con 99 registrados. Los 20 de
+  la compra lo dejan en 119 — y la ley de conservación sigue cerrando, porque
+  una compra **suma** al parque: es una de las dos operaciones que cambian el
+  total (la otra es el descarte).
+}
+
+tests {
+  test("los 20 de la compra están en el parque", function() {
+    expect(res.getBody().registrados).to.equal(119);
+  });
+
+  test("y la ley cierra", function() {
+    expect(res.getBody().cuadra).to.equal(true);
+  });
+}

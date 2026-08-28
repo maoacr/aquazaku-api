@@ -1,0 +1,31 @@
+meta {
+  name: Ya se pagó
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/compras/{{compraVencidaId}}/pago
+}
+
+docs {
+  Una de las **dos** únicas transiciones que el trigger permite sobre una compra
+  recibida. La otra es anularla con motivo.
+
+  Todo lo demás está congelado: el proveedor, el total, el medio de pago y la
+  fecha. Corregir una compra en caliente reescribiría el costo histórico con el
+  que se calcula el margen — justo el número que `RN-PRO-04` protege.
+
+  Sin pagos parciales: hoy no existe una sola compra a crédito de la cual derivar
+  cómo se manejan.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda pagada", function() {
+    expect(res.getBody().pagada).to.equal(true);
+  });
+}

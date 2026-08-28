@@ -1,0 +1,30 @@
+meta {
+  name: Volver a activarlo
+  type: http
+  seq: 16
+}
+
+patch {
+  url: {{baseUrl}}/proveedores/{{proveedorId}}/estado
+  body: json
+}
+
+body:json {
+  {
+    "activo": true
+  }
+}
+
+docs {
+  Activar y desactivar comparten ruta porque son la misma operación con distinto
+  valor.
+
+  Reactivar existe por el caso real —«le volvimos a comprar»— y es lo que hace
+  que el rechazo anterior sea una guía y no una pared.
+}
+
+tests {
+  test("vuelve a estar activo", function() {
+    expect(res.getBody().activo).to.equal(true);
+  });
+}

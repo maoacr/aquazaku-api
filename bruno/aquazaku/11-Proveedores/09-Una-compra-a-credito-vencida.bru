@@ -1,0 +1,52 @@
+meta {
+  name: Una compra a crédito, ya vencida
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/compras
+  body: json
+}
+
+body:json {
+  {
+    "proveedorId": "{{proveedorId}}",
+    "medioDePago": "credito",
+    "venceEl": "{{vencioHaceTresDias}}",
+    "lineas": [
+      { "botellones": 10, "cantidad": 10, "costoUnitario": "18000.00" }
+    ]
+  }
+}
+
+docs {
+  El caso que hoy no ocurre en Aquazaku, pero que el modelo ya soporta.
+
+  La fecha se calcula en el script de pre-request para que el test no dependa de
+  cuándo se corra la colección: un `2026-08-20` hardcodeado deja de estar vencido
+  el día que alguien corra esto en 2025, y deja de tener tres días de atraso
+  mañana.
+
+  Nace **pendiente**, que es lo único que la separa de una de contado.
+}
+
+script:pre-request {
+  const hace = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+  bru.setVar("vencioHaceTresDias", hace.toISOString().slice(0, 10));
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("compraVencidaId", res.getBody().compra.id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("nace pendiente, con su fecha", function() {
+    expect(res.getBody().compra.pagada).to.equal(false);
+    expect(res.getBody().compra.venceEl).to.equal(bru.getVar("vencioHaceTresDias"));
+  });
+}

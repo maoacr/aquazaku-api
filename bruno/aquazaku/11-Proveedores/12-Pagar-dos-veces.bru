@@ -1,0 +1,27 @@
+meta {
+  name: Pagar dos veces
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/compras/{{compraVencidaId}}/pago
+}
+
+docs {
+  No es inofensivo, y por eso se rechaza en vez de ignorarse.
+
+  Marcar pagada dos veces significa que **alguien mandó la plata dos veces**, y
+  el sistema es el que tiene que frenarlo. Un «ya estaba» silencioso dejaría al
+  operario convencido de que hizo el pago que en realidad duplicó.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es COMPRA_YA_PAGADA", function() {
+    expect(res.getBody().code).to.equal("COMPRA_YA_PAGADA");
+  });
+}

@@ -1,0 +1,23 @@
+meta {
+  name: Y el aviso se apaga
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/compras/vencidas
+}
+
+docs {
+  La otra mitad del aviso: **se apaga cuando el problema se resolvió**, no antes.
+
+  Es la lección de M1 que ya estaba en el aviso de stock: «un aviso que se apaga
+  antes de que el problema esté resuelto convence de que terminaste». Acá se
+  apaga porque la compra se pagó, que es exactamente cuando debe.
+}
+
+tests {
+  test("ya no hay nada vencido", function() {
+    expect(res.getBody()).to.have.lengthOf(0);
+  });
+}

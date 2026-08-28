@@ -1,0 +1,46 @@
+meta {
+  name: Al desactivado no se le compra
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/compras
+  body: json
+}
+
+body:json {
+  {
+    "proveedorId": "{{proveedorId}}",
+    "medioDePago": "efectivo",
+    "lineas": [
+      { "botellones": 10, "cantidad": 10, "costoUnitario": "18000.00" }
+    ]
+  }
+}
+
+docs {
+  Un proveedor desactivado conserva su historial pero **no recibe compras
+  nuevas**.
+
+  El mensaje dice el camino: si le volvieron a comprar, se **reactiva** primero.
+  Eso deja el hecho registrado, en vez de contradecirlo en silencio aceptando una
+  compra a alguien que el sistema da por fuera de la operación.
+
+  Y evita el atajo peor: cargarlo de nuevo con otro nombre, que partiría el
+  historial en dos proveedores que en realidad son el mismo.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es PROVEEDOR_INACTIVO", function() {
+    expect(res.getBody().code).to.equal("PROVEEDOR_INACTIVO");
+  });
+
+  test("y dice el camino: reactivarlo", function() {
+    expect(res.getBody().mensaje).to.contain("actívelo primero");
+  });
+}

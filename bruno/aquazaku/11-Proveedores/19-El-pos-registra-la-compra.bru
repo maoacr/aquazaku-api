@@ -1,0 +1,34 @@
+meta {
+  name: El pos registra la compra
+  type: http
+  seq: 19
+}
+
+post {
+  url: {{baseUrl}}/compras
+  body: json
+}
+
+body:json {
+  {
+    "proveedorId": "{{proveedorId}}",
+    "medioDePago": "efectivo",
+    "lineas": [
+      { "botellones": 5, "cantidad": 5, "costoUnitario": "18000.00" }
+    ]
+  }
+}
+
+docs {
+  Sí puede, y tiene que poder: **es quien recibe la mercadería en la planta.**
+
+  Si el `pos` no pudiera registrar lo que llegó, la compra quedaría para cuando
+  el admin tenga tiempo — y mientras tanto el inventario diría menos de lo que
+  hay, que es el error que hace comprar de más.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

@@ -1,0 +1,38 @@
+meta {
+  name: Desactivar un proveedor
+  type: http
+  seq: 14
+}
+
+patch {
+  url: {{baseUrl}}/proveedores/{{proveedorId}}/estado
+  body: json
+}
+
+body:json {
+  {
+    "activo": false
+  }
+}
+
+docs {
+  `RN-PRO-01`. Se desactiva, **no se borra**.
+
+  Su historial de compras le sigue apuntando: borrarlo dejaría compras sin decir
+  a quién se le pagaron, y el costo congelado de `RN-PRO-04` perdería la mitad de
+  su sentido.
+
+  La base ya le revocó el `DELETE` al rol de la aplicación, y el servicio tampoco
+  expone el método. Las dos capas dicen lo mismo, y eso no es duplicación: una
+  protege de un bug, la otra de un `psql`.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda desactivado, no borrado", function() {
+    expect(res.getBody().activo).to.equal(false);
+  });
+}

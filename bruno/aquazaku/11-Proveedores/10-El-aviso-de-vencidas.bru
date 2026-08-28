@@ -1,0 +1,41 @@
+meta {
+  name: El aviso de vencidas
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/compras/vencidas
+}
+
+docs {
+  `RN-PRO-07`, y el contraste que vale la pena ver.
+
+  El aviso de bases (`RN-BAS-13`) tuvo que **derivar** su umbral: nadie sabía
+  cuál era el mínimo, así que se calcula desde cuántas se prestan mientras llega
+  el pedido.
+
+  Acá no hace falta nada de eso. **El dato ya es una fecha: o pasó o no pasó.**
+
+  Trae los **días de atraso**, no solo el hecho de que venció. No es lo mismo un
+  día que treinta, y sin ese número hay que ir a mirar fecha por fecha para saber
+  qué pagar primero.
+
+  Y solo mira las de crédito sin pagar: una de contado nace pagada, así que no
+  puede aparecer acá ni por error — el request 4 lo confirma por omisión.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("trae la vencida, y solo esa", function() {
+    expect(res.getBody()).to.have.lengthOf(1);
+    expect(res.getBody()[0].proveedor).to.equal("Plásticos del Caribe");
+  });
+
+  test("con los días de atraso, que es lo que ordena la urgencia", function() {
+    expect(res.getBody()[0].diasDeAtraso).to.equal(3);
+  });
+}

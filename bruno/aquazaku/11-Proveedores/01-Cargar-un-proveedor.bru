@@ -1,0 +1,50 @@
+meta {
+  name: Cargar un proveedor
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/proveedores
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Plásticos del Caribe",
+    "nit": "900.777.888",
+    "contacto": "300 555 1234"
+  }
+}
+
+docs {
+  El lado de **entrada** del negocio.
+
+  Lo que se compra es insumos, botellones y bases. El agua **no**: esa se
+  produce en planta. Una compra que sumara producto terminado al stock de bodega
+  sería, casi seguro, un error de registro.
+
+  :::note[El NIT es opcional, y eso es una decisión]
+  Un proveedor puede ser el señor que trae las tapas en su camioneta. Exigirle
+  NIT llevaría a inventar uno —el mismo error que `RN-CLI-13` evita del otro
+  lado del negocio— y un documento inventado es peor que ninguno: parece un
+  dato.
+
+  Pero **cuando está, es único**: dos proveedores con el mismo NIT son el mismo
+  cargado dos veces, y el historial de compras queda partido entre los dos.
+  :::
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("proveedorId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("nace activo: no se borra, se desactiva", function() {
+    expect(res.getBody().activo).to.equal(true);
+  });
+}

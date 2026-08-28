@@ -1,0 +1,43 @@
+meta {
+  name: De contado no vence
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/compras
+  body: json
+}
+
+body:json {
+  {
+    "proveedorId": "{{proveedorId}}",
+    "medioDePago": "efectivo",
+    "venceEl": "2026-12-31",
+    "lineas": [
+      { "botellones": 10, "cantidad": 10, "costoUnitario": "18000.00" }
+    ]
+  }
+}
+
+docs {
+  El espejo del request anterior, y la razón por la que la regla se escribió en
+  los **dos** sentidos.
+
+  Una compra a crédito sin fecha no se puede reclamar. Una de contado **con**
+  fecha no significa nada: ya está pagada. Aceptarla dejaría un dato que después
+  alguien va a interpretar como una deuda que no existe.
+
+  El `CHECK` de la base dice lo mismo con una igualdad:
+  `(medio_de_pago = 'credito') = (vence_el IS NOT NULL)`.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es VENCIMIENTO_SIN_CREDITO", function() {
+    expect(res.getBody().code).to.equal("VENCIMIENTO_SIN_CREDITO");
+  });
+}

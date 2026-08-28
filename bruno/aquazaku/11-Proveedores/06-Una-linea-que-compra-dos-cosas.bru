@@ -1,0 +1,42 @@
+meta {
+  name: Una línea que compra dos cosas
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/compras
+  body: json
+}
+
+body:json {
+  {
+    "proveedorId": "{{proveedorId}}",
+    "medioDePago": "efectivo",
+    "lineas": [
+      { "botellones": 5, "bases": 5, "cantidad": 5, "costoUnitario": "100.00" }
+    ]
+  }
+}
+
+docs {
+  400: el problema es la **forma**.
+
+  Una línea que sea botellones y bases a la vez no se puede convertir en un
+  movimiento de inventario sin adivinar cuál — y adivinar ahí significa inventar
+  stock de un lado y perderlo del otro.
+
+  La regla vive en tres capas y no es duplicación ociosa: el esquema la rechaza
+  acá con 400, el servicio la vuelve a comprobar porque también se lo llama
+  desde adentro, y el `CHECK` de la base la sostiene contra un `psql`.
+}
+
+tests {
+  test("responde 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("y dice cuál es la regla", function() {
+    expect(JSON.stringify(res.getBody())).to.contain("exactamente una cosa");
+  });
+}

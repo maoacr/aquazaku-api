@@ -1,0 +1,39 @@
+meta {
+  name: El NIT duplicado
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/proveedores
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Plásticos del Caribe S.A.S.",
+    "nit": "900.777.888"
+  }
+}
+
+docs {
+  409 y no 422: choca con **algo que ya existe**.
+
+  El mensaje nombra al proveedor que ya está cargado, y eso es lo que lo hace
+  útil: sin el nombre, quien lo lee no sabe si equivocarse fue tipear el NIT o
+  intentar cargar de nuevo a alguien que ya estaba.
+}
+
+tests {
+  test("responde 409", function() {
+    expect(res.getStatus()).to.equal(409);
+  });
+
+  test("es NIT_DUPLICADO", function() {
+    expect(res.getBody().code).to.equal("NIT_DUPLICADO");
+  });
+
+  test("y nombra al que ya está", function() {
+    expect(res.getBody().mensaje).to.contain("Plásticos del Caribe");
+  });
+}

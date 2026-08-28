@@ -1,0 +1,34 @@
+meta {
+  name: Pero no da de alta proveedores
+  type: http
+  seq: 20
+}
+
+post {
+  url: {{baseUrl}}/proveedores
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Un proveedor que el pos no debería poder crear"
+  }
+}
+
+docs {
+  403, y es la asimetría que define el rol.
+
+  Registrar lo que llegó es una tarea del mostrador: pasa todos los días y el
+  dato se pierde si no se anota en el momento. **Abrir un proveedor nuevo es una
+  decisión del negocio**, no una tarea operativa — implica que se va a comprar
+  ahí de ahora en adelante.
+
+  Lo dice la matriz desde M0 y esta carpeta lo verifica desde los dos lados: el
+  request anterior probó que sí puede comprar, este que no puede crear.
+}
+
+tests {
+  test("responde 403: autenticado, sin permiso", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+}
