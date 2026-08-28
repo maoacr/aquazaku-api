@@ -1,0 +1,8 @@
+node_modules
+.env
+.env.*
+coverage
+bruno
+.github
+*.md
+.git
