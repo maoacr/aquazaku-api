@@ -2,6 +2,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { type Insumo, insumos, movimientosInsumo } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import type { Ejecutor } from '@/modules/stock/saldo'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { type Resultado, descontar, ingresar } from '@/modules/insumos/saldo'
 
@@ -37,8 +38,15 @@ export async function buscarInsumo(id: string): Promise<Insumo | undefined> {
   return insumo
 }
 
-async function exigirInsumo(id: string): Promise<Insumo> {
-  const insumo = await buscarInsumo(id)
+/*
+ * Recibe el ejecutor porque `registrarEntrada` puede correr DENTRO de la
+ * transacción de una compra a proveedor. Consultar con `db` desde ahí adentro
+ * pide una conexión que la transacción ya tiene tomada: en tests, donde el pool
+ * es de una sola conexión, eso es un deadlock —no un error—, y se manifiesta
+ * como un test que nunca termina.
+ */
+async function exigirInsumo(id: string, ejecutor: Ejecutor = db): Promise<Insumo> {
+  const [insumo] = await ejecutor.select().from(insumos).where(eq(insumos.id, id))
   if (!insumo) throw new ErrorDeNegocio('INSUMO_NO_ENCONTRADO', 404, 'no existe ese insumo')
   return insumo
 }
@@ -123,8 +131,15 @@ export async function registrarEntrada(
     documentoId?: string | undefined
   },
   registradoPor: string | null,
+  /*
+   * Se recibe el ejecutor para que una compra a proveedor pueda escribir el
+   * documento y esta entrada en LA MISMA transacción — M9, RN-PRO-05. Sin eso
+   * habría que reimplementar la conversión kilo→unidad acá, y sería la segunda
+   * copia de una regla que ya vive en un solo lugar.
+   */
+  ejecutor: Ejecutor = db,
 ): Promise<Resultado> {
-  const insumo = await exigirInsumo(insumoId)
+  const insumo = await exigirInsumo(insumoId, ejecutor)
 
   if (datos.kilos === undefined) {
     return ingresar(
@@ -135,7 +150,7 @@ export async function registrarEntrada(
         documentoId: datos.documentoId,
         registradoPor,
       },
-      db,
+      ejecutor,
     )
   }
 
@@ -167,7 +182,7 @@ export async function registrarEntrada(
       documentoId: datos.documentoId,
       registradoPor,
     },
-    db,
+    ejecutor,
   )
 }
 

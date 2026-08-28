@@ -175,6 +175,12 @@ export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
 export async function comprarBases(
   cantidad: number,
   registradoPor: string | null,
+  /*
+   * Se recibe la transacción para que una compra a proveedor escriba el
+   * documento y el alta de las bases juntos — M9, RN-PRO-05. Sin esto habría
+   * que reimplementar la numeración consecutiva acá.
+   */
+  externa?: Tx,
 ): Promise<Base[]> {
   if (!Number.isInteger(cantidad) || cantidad <= 0) {
     throw new ErrorDeNegocio(
@@ -184,7 +190,7 @@ export async function comprarBases(
     )
   }
 
-  return db.transaction(async (tx) => {
+  const alta = async (tx: Tx): Promise<Base[]> => {
     const tomados = await codigosTomados(tx)
     const compradas: Base[] = []
 
@@ -220,7 +226,9 @@ export async function comprarBases(
     }
 
     return compradas
-  })
+  }
+
+  return externa ? alta(externa) : db.transaction(alta)
 }
 
 /**

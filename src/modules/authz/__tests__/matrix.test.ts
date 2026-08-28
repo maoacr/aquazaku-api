@@ -59,6 +59,7 @@ const ESPERADO: Record<Role, string[]> = {
     'configuracion:equivalencias:todo',
     'proveedores:ver:todo',
     'proveedores:crear:todo',
+    'proveedores:editar:todo',
     'compras:crear:todo',
     'compras:recibir:todo',
     'rutas:ver:todo',

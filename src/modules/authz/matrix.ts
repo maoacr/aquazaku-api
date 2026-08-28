@@ -157,6 +157,13 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
 
     { resource: 'proveedores', action: 'ver', scope: 'todo' },
     { resource: 'proveedores', action: 'crear', scope: 'todo' },
+    /*
+     * `editar` cubre también desactivar, igual que en clientes: RN-PRO-01 dice
+     * que un proveedor con historial se desactiva, y desactivar es escribir una
+     * columna. Una acción propia solo tendría sentido si el conjunto de roles
+     * fuera distinto, y no lo es.
+     */
+    { resource: 'proveedores', action: 'editar', scope: 'todo' },
     { resource: 'compras', action: 'crear', scope: 'todo' },
     { resource: 'compras', action: 'recibir', scope: 'todo' },
 
