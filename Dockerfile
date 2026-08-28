@@ -34,7 +34,11 @@ WORKDIR /app
 
 # Las dependencias en su propia capa: el código cambia todos los días, el
 # lockfile casi nunca. Sin esta separación, cada deploy reinstala todo.
-COPY package.json pnpm-lock.yaml ./
+# `pnpm-workspace.yaml` NO es opcional acá: es donde vive `allowBuilds`, y sin
+# él pnpm ignora el script de instalación de esbuild —del que depende `tsx`— y
+# el install falla. Se olvidó en la primera versión, y el síntoma apareció recién
+# al construir: en local nunca se nota porque `node_modules` ya está resuelto.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod
 
 COPY tsconfig.json ./
