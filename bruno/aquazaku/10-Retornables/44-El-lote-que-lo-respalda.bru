@@ -1,0 +1,34 @@
+meta {
+  name: El lote que lo respalda
+  type: http
+  seq: 44
+}
+
+post {
+  url: {{baseUrl}}/stock/entradas
+  body: json
+}
+
+body:json {
+  {
+    "productoId": "{{recargaId}}",
+    "cantidad": 20,
+    "fechaEmpaque": "{{fechaDeEmpaqueVentas}}",
+    "motivo": "lote de arranque para probar el vínculo venta ↔ parque"
+  }
+}
+
+docs {
+  El agua es **producto terminado** y vive en `stock`, con lote y vencimiento.
+  El envase que la contiene es **activo retornable** y vive en el parque.
+
+  Son dos inventarios distintos sobre la misma operación física, y por eso una
+  venta de recarga puede descontar stock sin mover el parque —cuando el cliente
+  trae el vacío— o mover los dos, cuando no lo trae.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

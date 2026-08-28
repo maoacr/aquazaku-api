@@ -1,5 +1,8 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { movimientosBotellon } from '@/db/schema'
+import { comprarBotellones } from '@/modules/retornables/botellones'
+import { botellonesDe, botellonesEnBodega } from '@/modules/retornables/conservacion'
 import { closeDb, db } from '@/db/client'
 import {
   clientes,
@@ -443,5 +446,112 @@ describe('o quedan los tres escritos, o ninguno', () => {
     expect(await db.select().from(ventas)).toHaveLength(0)
     expect(await db.select().from(lineasDeVenta)).toHaveLength(0)
     expect(await saldoDelLoteDe(botellonId)).toBe(antes)
+  })
+})
+
+/**
+ * ── La venta y el parque de botellones — RN-ENV-03 y RN-ENV-09 ──────────────
+ *
+ * Antes de esto eran dos actos separados: el `pos` vendía la recarga y tenía que
+ * ACORDARSE de ir a otra pantalla a registrar la entrega. Olvidarlo no dejaba
+ * rastro, y ese es el punto — la ley de conservación **no detecta** una fila que
+ * falta: `registrados` no cambia, `enPoderDeAlguien` no cambia, y la cuenta
+ * cierra igual mientras el envase está en la casa del cliente.
+ */
+describe('los botellones que salen con la venta', () => {
+  const enPoderDe = (id: string) => botellonesDe(id)
+
+  it('la recarga normal no mueve el parque: es un intercambio', async () => {
+    const antesEnBodega = await botellonesEnBodega()
+
+    await unaVenta({ clienteId })
+
+    expect(await botellonesEnBodega()).toBe(antesEnBodega)
+    expect(await enPoderDe(clienteId)).toBe(0)
+  })
+
+  it('el que no trae vacío se lleva el envase, y queda a su nombre', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    await unaVenta({ clienteId, botellonesSinVacio: 1 })
+
+    expect(await botellonesEnBodega()).toBe(99)
+    expect(await enPoderDe(clienteId)).toBe(1)
+  })
+
+  /*
+   * El caso mixto es el que justifica que sea un número y no un booleano: en el
+   * mostrador se dice «vendí tres, trajo dos vacíos», y eso es UN botellón que
+   * sale, no tres ni ninguno.
+   */
+  it('cuenta solo los que salen, no los que se intercambian', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    await registrarVenta(
+      {
+        medioDePago: 'efectivo',
+        clienteId,
+        items: [{ productoId: botellonId, cantidad: 3 }],
+        botellonesSinVacio: 1,
+        hoy: HOY,
+      },
+      null,
+    )
+
+    expect(await enPoderDe(clienteId)).toBe(1)
+  })
+
+  it('no se pueden despachar más envases que recargas vendidas', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    await expect(unaVenta({ clienteId, botellonesSinVacio: 5 })).rejects.toMatchObject({
+      code: 'BOTELLONES_SIN_RESPALDO',
+    })
+  })
+
+  /*
+   * ── El alcance exacto de la regla — RN-ENV-09 ─────────────────────────────
+   *
+   * La venta anónima sigue siendo válida: quien compra una paca de bolsas no se
+   * lleva ningún activo retornable. Lo que exige cliente es que salga un
+   * BOTELLÓN, porque es de la empresa y hay que poder reclamarlo.
+   */
+  it('un botellón no sale sin nombre', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    await expect(unaVenta({ botellonesSinVacio: 1 })).rejects.toMatchObject({
+      code: 'CLIENTE_REQUERIDO',
+    })
+  })
+
+  it('pero la venta anónima de una paca sigue siendo válida', async () => {
+    const { venta } = await unaVenta({ items: [{ productoId: pacaId, cantidad: 1 }] })
+
+    expect(venta.clienteId).toBeNull()
+  })
+
+  it('si la venta se cae, el botellón no salió: una transacción o ninguna', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    await expect(
+      unaVenta({ clienteId, items: [{ productoId: botellonId, cantidad: 9999 }], botellonesSinVacio: 1 }),
+    ).rejects.toMatchObject({ code: 'STOCK_INSUFICIENTE' })
+
+    expect(await botellonesEnBodega()).toBe(100)
+    expect(await enPoderDe(clienteId)).toBe(0)
+  })
+
+  it('el movimiento apunta a la venta que lo originó', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    const { venta } = await unaVenta({ clienteId, botellonesSinVacio: 1 })
+
+    const movimientos = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.documentoId, venta.id))
+
+    expect(movimientos).toHaveLength(2)
+    expect(movimientos.map((m) => m.cantidad).sort((a, b) => a - b)).toEqual([-1, 1])
   })
 })

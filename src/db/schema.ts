@@ -1433,6 +1433,25 @@ export const movimientosBotellon = pgTable(
     check('movimientos_botellon_cantidad', sql`${t.cantidad} <> 0`),
 
     /*
+     * Ningún botellón sale del parque sin responsable — RN-ENV-09.
+     *
+     * Cada movimiento son DOS filas y solo una es del cliente; la de la bodega
+     * va siempre con `cliente_id` en NULL. Por eso cruza tipo y signo: exigirle
+     * cliente a toda fila positiva rompería el retorno, que ingresa a bodega.
+     *
+     * Vive acá y no solo en el servicio porque el fallo que previene es una
+     * fila que FALTA, y la ley de conservación no detecta esas: sigue cerrando
+     * mientras el botellón está afuera y el sistema lo cree adentro.
+     */
+    check(
+      'movimientos_botellon_con_responsable',
+      sql`
+        NOT (${t.tipo} = 'entrega' AND ${t.cantidad} > 0 AND ${t.clienteId} IS NULL)
+        AND NOT (${t.tipo} = 'retorno' AND ${t.cantidad} < 0 AND ${t.clienteId} IS NULL)
+      `,
+    ),
+
+    /*
      * `compra` siempre suma y `descarte` siempre resta. Son los dos únicos que
      * cambian el TOTAL del parque, así que un signo invertido acá rompe la ley
      * de conservación sin que ninguna otra fila se vea rara.

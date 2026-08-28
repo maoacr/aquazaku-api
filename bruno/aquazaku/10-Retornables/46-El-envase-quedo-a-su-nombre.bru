@@ -1,0 +1,30 @@
+meta {
+  name: El envase quedó a su nombre
+  type: http
+  seq: 46
+}
+
+get {
+  url: {{baseUrl}}/clientes/{{parqueClienteId}}/botellones
+}
+
+docs {
+  La comprobación de que la venta movió el parque de verdad.
+
+  El cliente tenía **4** botellones —6 entregados menos 2 devueltos, en los
+  requests 5 y 9— y ahora tiene **5**. Ese quinto salió con una venta, sin que
+  nadie entrara a esta pantalla.
+
+  No se le cobró nada por él: el envase sigue siendo de la planta, solo que
+  ahora se sabe dónde está.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("subió a 5: el que se llevó sin traer vacío", function() {
+    expect(res.getBody().enPoderDelCliente).to.equal(5);
+  });
+}

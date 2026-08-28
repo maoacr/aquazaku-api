@@ -1,0 +1,46 @@
+meta {
+  name: No se despacha más de lo vendido
+  type: http
+  seq: 49
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "clienteId": "{{parqueClienteId}}",
+    "items": [
+      { "productoId": "{{recargaId}}", "cantidad": 1 }
+    ],
+    "botellonesSinVacio": 5
+  }
+}
+
+docs {
+  Una recarga vendida, cinco envases despachados. No.
+
+  Si de verdad hacen falta envases sueltos, eso **es una entrega** y va por su
+  propio camino —el del request 5, donde queda registrada como lo que es— en vez
+  de esconderse adentro de una venta que dice otra cosa.
+
+  Sin este límite el campo sería una puerta trasera para sacar botellones del
+  parque sin motivo y sin que la operación se llame por su nombre.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es BOTELLONES_SIN_RESPALDO", function() {
+    expect(res.getBody().code).to.equal("BOTELLONES_SIN_RESPALDO");
+  });
+
+  test("y ofrece el camino correcto", function() {
+    expect(res.getBody().mensaje).to.contain("regístrelos como entrega");
+  });
+}

@@ -9,6 +9,7 @@ import {
   lineasDeVenta,
   productos,
   ventas,
+  movimientosBotellon,
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { asignarFifo } from '@/modules/stock/asignacion'
@@ -62,6 +63,21 @@ export interface DatosDeVenta {
   /** El código tal como lo dictaron. `undefined` es sin descuento. */
   codigoDescuento?: string | undefined
   requiereFacturaElectronica?: boolean
+
+  /**
+   * Cuántos de los botellones que se lleva NO tienen un vacío de contrapartida
+   * — RN-ENV-03.
+   *
+   * Es la conversación del mostrador tal cual ocurre: «vendí tres recargas, el
+   * cliente trajo dos vacíos» son tres líneas de venta y **un** botellón que
+   * sale del parque.
+   *
+   * El default es 0 porque la recarga normal es un intercambio: entra un vacío,
+   * sale uno lleno, y el saldo del cliente no se mueve. Por eso la mayoría de
+   * las ventas de agua no tocan este módulo.
+   */
+  botellonesSinVacio?: number
+
   /** `YYYY-MM-DD`. Se recibe para poder testear el borde del vencimiento. */
   hoy: string
 }
@@ -177,6 +193,52 @@ export async function registrarVenta(
       exigirCreditoValido(cliente!, await deudaDe(cliente!.id, tx), total)
     }
 
+    /*
+     * ── Los botellones que salen sin vacío de vuelta — RN-ENV-03, RN-ENV-09 ──
+     *
+     * Se valida ANTES de escribir, junto al crédito y por el mismo motivo: si
+     * el pedido no cierra, que no se haya escrito nada.
+     */
+    const salen = datos.botellonesSinVacio ?? 0
+
+    if (salen > 0) {
+      const botellonesVendidos = planificadas
+        .filter(({ producto }) => producto.presentacion === 'botellon')
+        .reduce((suma, { item }) => suma + item.cantidad, 0)
+
+      if (salen > botellonesVendidos) {
+        /*
+         * No se puede llevar más envases que recargas compró. Si de verdad
+         * necesita envases sueltos, eso es una entrega y va por su propio
+         * camino —donde queda con su motivo— y no escondida en una venta.
+         */
+        throw new ErrorDeNegocio(
+          'BOTELLONES_SIN_RESPALDO',
+          422,
+          `esta venta lleva ${botellonesVendidos} botellón(es) y se están despachando ${salen} sin vacío de vuelta. Si hacen falta envases sueltos, regístrelos como entrega en Retornables`,
+        )
+      }
+
+      if (!cliente) {
+        /*
+         * ── La regla, y su alcance exacto — RN-ENV-09 ────────────────────────
+         *
+         * Una venta SIN cliente sigue siendo válida: quien compra una paca de
+         * bolsas no se lleva ningún activo retornable, y exigirle documento
+         * llevaría a inventar clientes o a reusar el del anterior.
+         *
+         * Pero un botellón es de la empresa y vuelve. Si sale sin nombre, no hay
+         * a quién reclamárselo — y la ley de conservación NO lo detecta: sin
+         * fila escrita, la cuenta cierra igual mientras el envase está afuera.
+         */
+        throw new ErrorDeNegocio(
+          'CLIENTE_REQUERIDO',
+          422,
+          'un botellón que sale sin vacío de vuelta queda a cargo de alguien. Registre al cliente antes de despacharlo: sin nombre no hay a quién reclamárselo',
+        )
+      }
+    }
+
     const [venta] = await tx
       .insert(ventas)
       .values({
@@ -192,6 +254,31 @@ export async function registrarVenta(
         registradoPor,
       })
       .returning()
+
+    /*
+     * ── Dos filas, en la MISMA transacción que la venta ────────────────────
+     *
+     * Que sea la misma transacción es todo el punto. Antes esto era un segundo
+     * acto que el `pos` tenía que recordar en otra pantalla, y olvidarlo no
+     * dejaba ningún rastro: sin fila escrita, la ley de conservación sigue
+     * cerrando mientras el envase está en la casa del cliente y el sistema lo
+     * cree en la bodega.
+     *
+     * `documentoId` apunta a la venta que lo originó, así que el movimiento se
+     * puede explicar sin preguntarle a nadie.
+     */
+    if (salen > 0) {
+      await tx.insert(movimientosBotellon).values([
+        { cantidad: -salen, tipo: 'entrega', documentoId: venta!.id, registradoPor },
+        {
+          cantidad: salen,
+          tipo: 'entrega',
+          clienteId: cliente!.id,
+          documentoId: venta!.id,
+          registradoPor,
+        },
+      ])
+    }
 
     const lineas: LineaRegistrada[] = []
 

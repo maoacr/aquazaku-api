@@ -1,0 +1,61 @@
+meta {
+  name: La venta que despacha un envase
+  type: http
+  seq: 45
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "clienteId": "{{parqueClienteId}}",
+    "items": [
+      { "productoId": "{{recargaId}}", "cantidad": 1 }
+    ],
+    "botellonesSinVacio": 1
+  }
+}
+
+docs {
+  `RN-ENV-09`. La venta y el parque dejaron de ser dos actos separados.
+
+  Antes de esto el `pos` vendía la recarga y tenía que **acordarse** de ir a
+  Retornables a registrar la entrega. Olvidarlo no dejaba rastro — y ahí está
+  todo el problema:
+
+  :::danger[La ley de conservación NO atrapa este fallo]
+  Sin movimiento escrito no se escribe **nada**. `registrados` no cambia,
+  `enPoderDeAlguien` no cambia, y `RN-ENV-02` sigue diciendo `cuadra: true`
+  mientras el envase está en la casa del cliente y el sistema lo cree en la
+  bodega.
+
+  La ley detecta filas que faltan **respecto de sí misma**. No detecta que la
+  realidad se fue por otro lado. Eso aparece meses después, cuando alguien
+  cuenta físicamente, y ya no hay a quién reclamarle.
+
+  Por eso el invariante vive también en la base: la fila del cliente no puede
+  existir sin cliente.
+  :::
+
+  El movimiento se escribe en la **misma transacción** que la venta, y su
+  `documentoId` apunta a la venta que lo originó.
+
+  El campo es un **número** y no un booleano porque en el mostrador se dice
+  «vendí tres, trajo dos vacíos» — y eso es UN envase que sale.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("es una venta normal: cobra y descuenta stock", function() {
+    expect(res.getBody().venta.estado).to.equal("confirmada");
+    expect(res.getBody().venta.total).to.equal("8000.00");
+    expect(res.getBody().lineas).to.have.lengthOf(1);
+  });
+}

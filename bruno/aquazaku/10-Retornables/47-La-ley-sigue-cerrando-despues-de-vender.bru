@@ -1,0 +1,29 @@
+meta {
+  name: La ley sigue cerrando después de vender
+  type: http
+  seq: 47
+}
+
+get {
+  url: {{baseUrl}}/botellones
+}
+
+docs {
+  Una venta **mueve** botellones, no los crea ni los destruye. Por eso
+  `registrados` no se toca y la cuenta sigue cerrando.
+
+  Que este número quede quieto mientras el envase cambia de manos es exactamente
+  lo que la ley existe para vigilar — y es la diferencia con el estado anterior,
+  donde el envase se movía en la realidad y **no** en el sistema.
+}
+
+tests {
+  test("la bodega bajó en uno", function() {
+    expect(res.getBody().enBodega).to.equal(94);
+  });
+
+  test("pero el total del parque no se movió: la venta mueve, no crea", function() {
+    expect(res.getBody().registrados).to.equal(99);
+    expect(res.getBody().cuadra).to.equal(true);
+  });
+}

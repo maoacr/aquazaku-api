@@ -38,6 +38,22 @@ export const esquemaDeVenta = z.object({
 
   codigoDescuento: z.string().trim().min(1).optional(),
   requiereFacturaElectronica: z.boolean().optional(),
+
+  /*
+   * Cuántos botellones salen SIN vacío de contrapartida — RN-ENV-03.
+   *
+   * El default es 0 porque la recarga normal es un intercambio: entra un vacío,
+   * sale uno lleno, y el saldo del cliente no cambia. Que el caso común no
+   * requiera escribir nada es lo que hace que este campo no estorbe.
+   *
+   * Que no pueda exceder los botellones vendidos, y que exija cliente, lo
+   * decide el servicio: son reglas de negocio, no de forma.
+   */
+  botellonesSinVacio: z
+    .number()
+    .int()
+    .nonnegative('los botellones que salen sin vacío no pueden ser negativos')
+    .optional(),
 })
 
 /**

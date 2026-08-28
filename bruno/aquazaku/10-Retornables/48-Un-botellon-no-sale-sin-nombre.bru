@@ -1,0 +1,55 @@
+meta {
+  name: Un botellón no sale sin nombre
+  type: http
+  seq: 48
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "items": [
+      { "productoId": "{{recargaId}}", "cantidad": 1 }
+    ],
+    "botellonesSinVacio": 1
+  }
+}
+
+docs {
+  La misma venta, **sin cliente**. 422.
+
+  Acá está el alcance exacto de `RN-ENV-09`, que es lo que la hace convivir con
+  la venta anónima en vez de contradecirla:
+
+  | Caso | ¿Exige cliente? |
+  | --- | --- |
+  | Paca de bolsas al mostrador | **No** — no se lleva ningún retornable |
+  | Recarga con vacío de vuelta | **No** — el saldo no cambia |
+  | Recarga sin vacío de vuelta | **Sí** |
+
+  La regla es «ningún **botellón** sale sin responsable», no «toda venta necesita
+  cliente». La venta anónima de `09-Ventas` sigue siendo válida y tiene que
+  seguir siéndolo: exigir documento en cada venta llevaría a inventar clientes
+  o —lo que pasa de verdad— a reusar el del anterior, que le cuelga el historial
+  a alguien que no compró nada.
+
+  El mensaje no dice «falta un campo»: dice **qué se pierde**.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("es CLIENTE_REQUERIDO", function() {
+    expect(res.getBody().code).to.equal("CLIENTE_REQUERIDO");
+  });
+
+  test("y explica qué se pierde, no qué campo falta", function() {
+    expect(res.getBody().mensaje).to.contain("no hay a quién reclamárselo");
+  });
+}

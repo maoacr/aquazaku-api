@@ -71,6 +71,13 @@
       "when": 1787747397390,
       "tag": "0009_retornables",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787747397391,
+      "tag": "0010_botellon_con_responsable",
+      "breakpoints": true
     }
   ]
 }

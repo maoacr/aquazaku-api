@@ -1,0 +1,55 @@
+meta {
+  name: Un producto de botellón
+  type: http
+  seq: 43
+}
+
+post {
+  url: {{baseUrl}}/productos
+  body: json
+}
+
+body:json {
+  {
+    "nombre": "Recarga de botellón (Bruno)",
+    "presentacion": "botellon",
+    "contenidoMl": 20000,
+    "unidades": 1,
+    "precioResidencial": "10000.00",
+    "precioComercial": "8000.00",
+    "precioMinimo": "6000.00"
+  }
+}
+
+docs {
+  Los requests de `09-Ventas` venden una **paca**, y una paca de bolsas no lleva
+  ningún activo retornable. Para probar el vínculo entre la venta y el parque
+  hace falta un producto de presentación `botellon`.
+
+  Que la distinción sea la **presentación** y no un campo aparte es lo que hace
+  que el servidor no tenga que adivinar: cuenta los botellones del carrito
+  mirando el producto, no confiando en lo que diga el pedido.
+
+  Nótese que el código sale **generado**: `BOT_20L`, porque son 20.000 ml y el
+  botellón se nombra en litros. Y como el catálogo del seed ya trae uno igual,
+  el generador resuelve la colisión con `_2` — la «segunda encarnación» de
+  `RN-CAT-11`, no un desempate arbitrario.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("recargaId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el código se genera desde la presentación y el contenido", function() {
+    expect(res.getBody().codigo).to.match(/^BOT_20L(_\d+)?$/);
+  });
+
+  test("y resuelve la colisión con el del seed en vez de fallar", function() {
+    expect(res.getBody().codigo).to.equal("BOT_20L_2");
+  });
+}
