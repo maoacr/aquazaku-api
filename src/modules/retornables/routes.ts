@@ -11,6 +11,7 @@ import {
   comprarBases,
   darDeAltaBase,
   descartarBase,
+  disponibilidadDeBases,
   historialDe,
   prestarBase,
   proximoCodigoDeBase,
@@ -222,6 +223,23 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
         return manejarError(err, req, reply, 'bases', 'bases:registrar')
       }
     },
+  )
+
+  /**
+   * ¿Alcanzan las bases hasta el próximo pedido? — RN-BAS-13.
+   *
+   * Devuelve los DOS números y la demora, no solo el veredicto: un aviso que
+   * dice «hay que comprar» sin decir cuántas quedan ni a qué ritmo se van
+   * obliga a ir a buscarlo a otra pantalla antes de poder decidir cuántas
+   * pedir.
+   *
+   * Va bajo `ver` y no bajo `registrar`: quien mira el parque tiene que poder
+   * ver si alcanza, aunque no sea quien compra.
+   */
+  app.get(
+    '/bases/disponibilidad',
+    { preHandler: [requireAuth, requirePermission('bases', 'ver')] },
+    async () => disponibilidadDeBases(),
   )
 
   app.get(

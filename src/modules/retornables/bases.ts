@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, gte, isNull, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
 import {
   type Base,
@@ -79,6 +79,78 @@ export async function darDeAltaBase(
 
     return base!
   })
+}
+
+/**
+ * Cuánto tarda en llegar un pedido de bases al proveedor.
+ *
+ * Viaja en la respuesta para que la pantalla no lo copie: el día que el
+ * proveedor cambie, un `7` escrito en un componente seguiría avisando tarde sin
+ * que nadie lo note. Mismo criterio que las constantes del cierre de producción.
+ */
+export const DIAS_DE_ENTREGA = 7
+
+export interface DisponibilidadDeBases {
+  /** En bodega, sanas y activas: las que de verdad se pueden prestar hoy. */
+  libres: number
+  /** Cuántas se prestaron en los últimos `DIAS_DE_ENTREGA` días. */
+  prestadasEnLaVentana: number
+  diasDeEntrega: number
+  /** `false` cuando hay que comprar — RN-BAS-13. */
+  alcanza: boolean
+}
+
+/**
+ * ¿Alcanzan las bases hasta el próximo pedido? — RN-BAS-13.
+ *
+ * ── Por qué el umbral se CALCULA y no se configura ──────────────────────────
+ *
+ * Un pedido tarda 7 días. Avisar cuando quedan cero es avisar tarde por diseño:
+ * para entonces ya se le dijo que no a un cliente y todavía faltan siete días.
+ * Eso separa a las bases del agua, donde cero alcanza porque la planta produce
+ * mañana.
+ *
+ * La pregunta correcta no es «¿cuál es el mínimo?» sino **«¿cuántas se prestan
+ * mientras llega el pedido?»**. Y esa el sistema la sabe: cada préstamo queda
+ * con su fecha. Un umbral fijo habría que inventarlo hoy —sin operación
+ * todavía— y quedaría viejo el día que el negocio cambie de tamaño.
+ *
+ * ── Se cuentan los préstamos BRUTOS, no el neto contra retornos ─────────────
+ *
+ * Una base prestada se queda en el local del cliente: los retornos son raros y
+ * ocurren cuando alguien deja de comprar. Restarlos daría un neto cercano a
+ * cero en operación normal, y el aviso volvería a sonar recién en cero.
+ *
+ * El bruto sobreestima, y ese es el error correcto: avisar de más cuesta una
+ * compra anticipada; avisar de menos cuesta un cliente al que hay que decirle
+ * que no durante una semana.
+ */
+export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
+  const desde = new Date(Date.now() - DIAS_DE_ENTREGA * 24 * 60 * 60 * 1000)
+
+  const [fila] = await db
+    .select({ n: sql<string>`count(*)` })
+    .from(bases)
+    .where(and(eq(bases.activa, true), eq(bases.estado, 'sana'), isNull(bases.direccionId)))
+
+  const [ritmo] = await db
+    .select({ n: sql<string>`count(*)` })
+    .from(movimientosBase)
+    .where(and(eq(movimientosBase.tipo, 'prestamo'), gte(movimientosBase.createdAt, desde)))
+
+  const libres = Number(fila?.n ?? 0)
+  const prestadasEnLaVentana = Number(ritmo?.n ?? 0)
+
+  return {
+    libres,
+    prestadasEnLaVentana,
+    diasDeEntrega: DIAS_DE_ENTREGA,
+    /*
+     * Cero libres avisa siempre, aunque el ritmo también sea cero: no se puede
+     * prestar lo que no hay, y ahí el aviso no depende de ninguna estimación.
+     */
+    alcanza: libres > 0 && libres >= prestadasEnLaVentana,
+  }
 }
 
 /**

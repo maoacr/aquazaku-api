@@ -1,0 +1,59 @@
+meta {
+  name: ¿Alcanzan hasta el próximo pedido?
+  type: http
+  seq: 51
+}
+
+get {
+  url: {{baseUrl}}/bases/disponibilidad
+}
+
+docs {
+  `RN-BAS-13`. El aviso de compra, y por qué **no dispara en cero**.
+
+  Un pedido de bases tarda **7 días** en llegar. Avisar cuando quedan cero es
+  avisar tarde por diseño: para entonces ya se le dijo que no a un cliente y
+  todavía falta una semana. Eso separa a las bases del agua, donde el aviso de
+  stock sí dispara en cero — la planta produce mañana.
+
+  :::note[El umbral se calcula, no se configura]
+  La pregunta correcta no es «¿cuál es el mínimo?» sino **«¿cuántas se prestan
+  mientras llega el pedido?»**. Y esa el sistema la sabe: cada préstamo queda
+  con su fecha.
+
+  Un umbral fijo habría que inventarlo hoy —sin operación todavía— y quedaría
+  viejo el día que el negocio cambie de tamaño. Este se recalibra solo.
+  :::
+
+  Se cuentan los préstamos **brutos**, no el neto contra retornos. Una base
+  prestada se queda en el local del cliente: los retornos son raros. Restarlos
+  daría un neto cercano a cero en operación normal y el aviso volvería a sonar
+  recién en cero. El bruto sobreestima, y ese es el error correcto — avisar de
+  más cuesta una compra anticipada; avisar de menos cuesta un cliente al que hay
+  que decirle que no durante una semana.
+
+  A esta altura la 0913 está descartada, la 0914 sigue en bodega y entraron
+  cinco en la compra: seis libres, contra un préstamo en la ventana.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("cuenta las libres: en bodega, sanas y activas", function() {
+    expect(res.getBody().libres).to.equal(6);
+  });
+
+  test("trae la demora para que la pantalla no la copie", function() {
+    expect(res.getBody().diasDeEntrega).to.equal(7);
+  });
+
+  test("y el ritmo, que es contra lo que se compara", function() {
+    expect(res.getBody()).to.have.property("prestadasEnLaVentana");
+  });
+
+  test("con seis libres y un préstamo en la semana, alcanza", function() {
+    expect(res.getBody().alcanza).to.equal(true);
+  });
+}
