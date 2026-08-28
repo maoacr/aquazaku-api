@@ -23,8 +23,8 @@ tests {
     expect(res.getStatus()).to.equal(200);
   });
 
-  test("está la A-0913 y nada más", function() {
+  test("está la 0913 y nada más", function() {
     expect(res.getBody()).to.have.lengthOf(1);
-    expect(res.getBody()[0].idSticker).to.equal("A-0913");
+    expect(res.getBody()[0].idSticker).to.equal("0913");
   });
 }

@@ -151,14 +151,48 @@ describe('los botellones', () => {
 })
 
 describe('las bases', () => {
-  const darDeAlta = (idSticker = 'A-0913') =>
+  const darDeAlta = (idSticker = '0913') =>
     comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker } })
 
   it('se dan de alta con su sticker', async () => {
     const res = await darDeAlta()
 
     expect(res.statusCode).toBe(201)
-    expect(res.json().idSticker).toBe('A-0913')
+    expect(res.json().idSticker).toBe('0913')
+  })
+
+  /*
+   * ── El sistema propone, el sticker manda — RN-BAS-10 ──────────────────────
+   */
+  it('sin sticker, el sistema pone el próximo', async () => {
+    await darDeAlta('0040')
+
+    const res = await comoAdmin({ method: 'POST', url: '/bases', payload: {} })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().idSticker).toBe('0041')
+  })
+
+  it('un sticker que no son cuatro dígitos lo frena el esquema, con 400', async () => {
+    const res = await darDeAlta('913')
+
+    expect(res.statusCode).toBe(400)
+    expect(JSON.stringify(res.json())).toContain('cuatro dígitos')
+  })
+
+  /*
+   * La propuesta se expone por endpoint en vez de calcularse en la pantalla: la
+   * regla del consecutivo vive en un solo lugar. Una copia en el componente
+   * propondría un número ya tomado el día que la regla cambie, y el alta
+   * fallaría con un duplicado que el operario no pidió.
+   */
+  it('el próximo código se consulta antes de dar de alta', async () => {
+    await darDeAlta('0040')
+
+    const res = await comoAdmin({ method: 'GET', url: '/bases/proximo-codigo' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().proximo).toBe('0041')
   })
 
   it('se prestan a una DIRECCIÓN', async () => {
@@ -212,7 +246,7 @@ describe('las bases', () => {
  */
 describe('el recargo por daño', () => {
   const danar = async (medioDePago = 'credito') => {
-    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: 'A-0913' } })).json()
+    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: '0913' } })).json()
     await comoAdmin({ method: 'POST', url: `/bases/${base.id}/prestamo`, payload: { direccionId } })
 
     return comoAdmin({
@@ -243,7 +277,7 @@ describe('el recargo por daño', () => {
   })
 
   it('sin monto no se cobra: el dominio no dice cuánto vale reponerla', async () => {
-    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: 'A-1' } })).json()
+    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: '0001' } })).json()
     await comoAdmin({ method: 'POST', url: `/bases/${base.id}/prestamo`, payload: { direccionId } })
 
     const res = await comoAdmin({

@@ -1,0 +1,51 @@
+meta {
+  name: Un sticker mal formado
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "idSticker": "913"
+  }
+}
+
+docs {
+  Acá empieza el otro activo, y la primera regla es la que lo separa del
+  botellón: **la base sí tiene identidad.**
+
+  No es una inconsistencia con el botellón anónimo — es la consecuencia de que
+  se reclaman distinto. Un botellón se reclama contando: «me debe seis». Una
+  base se reclama yendo: «la 0913 está en el local de la Calle 30».
+
+  El formato son **cuatro dígitos con los ceros adelante**. `913` se rechaza, y
+  no por prolijidad: aceptar `913` junto a `0913` crearía dos códigos para la
+  misma base física, y la unicidad —que es lo único que garantiza saber cuál
+  está dónde— dejaría de proteger nada.
+
+  :::note[¿Y por qué no un código como el de los productos?]
+  `P20U_600ML` codifica **en qué se diferencia** ese producto: presentación,
+  unidades, contenido. Se lee sin conocer la convención.
+
+  Con las bases eso es imposible, y no por una limitación técnica: `RN-BAS-09`
+  dice que hay **una sola clase de base, sin SKU**. Todas son idénticas. No hay
+  atributo que codificar, así que el número no puede significar nada más que
+  «la siguiente». Copiar el patrón de productos habría dado el mismo string
+  para las cuarenta.
+  :::
+}
+
+tests {
+  test("responde 400", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("y dice cuál es la forma, con ejemplos", function() {
+    expect(JSON.stringify(res.getBody())).to.contain("cuatro dígitos");
+  });
+}

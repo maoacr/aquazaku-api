@@ -1,0 +1,61 @@
+meta {
+  name: El sistema propone el siguiente
+  type: http
+  seq: 33
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {}
+}
+
+docs {
+  **Sin `idSticker`, el sistema propone.** Es el otro camino del alta, y los dos
+  existen porque los dos casos son reales.
+
+  Aquazaku ya tiene 40 bases **con su sticker pegado**: para esas manda el
+  mundo físico, y el operario tipea lo que tiene en la mano (así entró la 0913).
+  Para las que vengan después, el sistema rotula.
+
+  Ese mismo camino cubre el caso que `RN-BAS-10` ya advierte —un sticker
+  ilegible que hay que reemplazar— sin necesitar un parche especial.
+
+  :::caution[El próximo sale del MÁXIMO, no del conteo]
+  Acá hay una sola base, la 0913. Con `count + 1` propondría `0002`.
+
+  Los huecos son inevitables por dos causas distintas: el operario pisa números
+  al registrar los stickers ya pegados, y **un número descartado no se
+  recicla** — mismo criterio que `RN-CAT-11` para productos desactivados, y acá
+  pesa más: una base descartada puede tener un recargo por daño apuntándole, y
+  darle su número a una base nueva volvería ambiguo ese cobro.
+
+  Con el conteo, la propuesta chocaría contra un número ya tomado y el alta
+  fallaría con un duplicado que el operario nunca pidió.
+  :::
+
+  Hace falta una base **sana y en la bodega** para el caso que sigue, y la 0913
+  ya no sirve: está dañada, y ese chequeo se dispara antes.
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("baseEnBodegaId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("propone 0914: sigue a la 0913, no al conteo", function() {
+    expect(res.getBody().idSticker).to.equal("0914");
+  });
+
+  test("sana y en la bodega", function() {
+    expect(res.getBody().estado).to.equal("sana");
+    expect(res.getBody().direccionId).to.equal(null);
+  });
+}

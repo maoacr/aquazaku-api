@@ -156,14 +156,14 @@ describe('lo que la base no deja escribir', () => {
 
 describe('las bases — el activo que SÍ tiene identidad', () => {
   it('dos bases no comparten sticker', async () => {
-    await db.insert(bases).values({ idSticker: 'A-0913' })
+    await db.insert(bases).values({ idSticker: '0913' })
 
-    await expect(db.insert(bases).values({ idSticker: 'A-0913' })).rejects.toThrow()
+    await expect(db.insert(bases).values({ idSticker: '0913' })).rejects.toThrow()
   })
 
   /** Media evidencia de daño no sirve para cobrarle a nadie. */
   it('marcar dañada sin fecha no entra', async () => {
-    const [base] = await db.insert(bases).values({ idSticker: 'A-0001' }).returning()
+    const [base] = await db.insert(bases).values({ idSticker: '0001' }).returning()
 
     await expect(
       db.update(bases).set({ estado: 'danada' }).where(eq(bases.id, base!.id)),
@@ -171,7 +171,7 @@ describe('las bases — el activo que SÍ tiene identidad', () => {
   })
 
   it('una base no se borra: se desactiva', async () => {
-    const [base] = await db.insert(bases).values({ idSticker: 'A-0002' }).returning()
+    const [base] = await db.insert(bases).values({ idSticker: '0002' }).returning()
 
     await expect(db.delete(bases).where(eq(bases.id, base!.id))).rejects.toThrow()
   })

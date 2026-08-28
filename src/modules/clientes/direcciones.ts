@@ -9,7 +9,7 @@ import { clientePorId } from './service'
  *
  * `Cliente 1—N Dirección`. Una base prestada se asigna a una dirección concreta,
  * no al cliente: sin eso no se puede contestar «¿a cuál de sus tres locales voy
- * a buscar la base #A-0913?», y el préstamo deja de ser reclamable.
+ * a buscar la base #0913?», y el préstamo deja de ser reclamable.
  *
  * **Sin `ruta_id`**: las rutas son M8.
  */

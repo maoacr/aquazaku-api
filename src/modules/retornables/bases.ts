@@ -10,6 +10,8 @@ import {
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
+import type { Ejecutor } from '@/modules/stock/saldo'
+import { esCodigoDeBase, proximoCodigo } from './codigo'
 
 /**
  * Las bases — RN-BAS-01 a 07.
@@ -18,7 +20,7 @@ import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
  *
  * A diferencia del botellón, cada base es una unidad con historia. La razón no
  * es de implementación: **hay que ir a buscarla a un lugar concreto**. Sin saber
- * en cuál de los tres locales está la base `A-0913`, el préstamo deja de ser
+ * en cuál de los tres locales está la base `0913`, el préstamo deja de ser
  * reclamable, y una base que no se puede reclamar es una base regalada.
  *
  * Por eso `direccion_id` y no `cliente_id` (`RN-BAS-03`).
@@ -30,22 +32,33 @@ import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
  * el sistema perdió el rastro de un retorno.
  */
 
-/** Alta de una base al parque. El sticker es su identidad — RN-BAS-10. */
+/**
+ * Alta de una base al parque. El sticker es su identidad — RN-BAS-10.
+ *
+ * Sin `idSticker`, el sistema propone el próximo consecutivo. Con él, manda el
+ * sticker que el operario tiene en la mano: las 40 bases que Aquazaku ya tiene
+ * llegaron con el suyo puesto, y el mundo físico no se renumera desde acá.
+ *
+ * La propuesta y la validación de unicidad viven **en la misma transacción**.
+ * Calcular el próximo afuera dejaría una ventana en la que dos altas simultáneas
+ * proponen el mismo número, y la segunda fallaría con un duplicado que el
+ * operario no pidió.
+ */
 export async function darDeAltaBase(
-  idSticker: string,
+  idSticker: string | undefined,
   registradoPor: string | null,
 ): Promise<Base> {
-  const sticker = idSticker.trim().toUpperCase()
-
-  if (sticker.length === 0) {
-    throw new ErrorDeNegocio(
-      'STICKER_REQUERIDO',
-      422,
-      'una base sin ID de sticker no se puede reclamar: es lo único que la identifica',
-    )
-  }
-
   return db.transaction(async (tx) => {
+    const sticker = idSticker?.trim() ?? proximoCodigo(await codigosTomados(tx))
+
+    if (!esCodigoDeBase(sticker)) {
+      throw new ErrorDeNegocio(
+        'STICKER_INVALIDO',
+        422,
+        `«${sticker}» no tiene la forma de un sticker: son cuatro dígitos con los ceros adelante, como 0001 o 0040`,
+      )
+    }
+
     const [existente] = await tx.select().from(bases).where(eq(bases.idSticker, sticker))
 
     if (existente) {
@@ -66,6 +79,31 @@ export async function darDeAltaBase(
 
     return base!
   })
+}
+
+/**
+ * Todos los códigos ocupados — **incluidas las bases descartadas**.
+ *
+ * El filtro por `activa` que usa el resto del módulo NO va acá, y es la
+ * diferencia que hace que el número no se recicle: una base descartada puede
+ * tener un recargo por daño (RN-BAS-08) apuntándole, y darle su número a una
+ * base nueva volvería ambiguo ese cobro. Mismo criterio que `RN-CAT-11` para
+ * productos desactivados.
+ */
+async function codigosTomados(ejecutor: Ejecutor): Promise<string[]> {
+  const filas = await ejecutor.select({ idSticker: bases.idSticker }).from(bases)
+  return filas.map((f) => f.idSticker)
+}
+
+/**
+ * El código que el sistema propondría para la próxima base.
+ *
+ * Existe como endpoint para que la pantalla lo muestre sin recalcularlo: la
+ * regla del consecutivo vive en un solo lugar, y una copia en el componente
+ * empezaría a mentir el día que cambie.
+ */
+export async function proximoCodigoDeBase(): Promise<string> {
+  return proximoCodigo(await codigosTomados(db))
 }
 
 /**

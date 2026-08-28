@@ -55,24 +55,53 @@ afterAll(async () => {
 })
 
 describe('el alta', () => {
-  it('el sticker se guarda en mayúsculas y queda en el historial', async () => {
-    const base = await darDeAltaBase('a-0913', null)
+  it('registra el sticker que ya está pegado, y queda en el historial', async () => {
+    const base = await darDeAltaBase('0913', null)
 
-    expect(base.idSticker).toBe('A-0913')
+    expect(base.idSticker).toBe('0913')
     expect(base.direccionId).toBeNull()
     expect(await historialDe(base.id)).toHaveLength(1)
   })
 
   it('dos bases no comparten sticker: sería imposible saber cuál está dónde', async () => {
-    await darDeAltaBase('A-0913', null)
+    await darDeAltaBase('0913', null)
 
-    await expect(darDeAltaBase('a-0913', null)).rejects.toMatchObject({
+    await expect(darDeAltaBase('0913', null)).rejects.toMatchObject({
       code: 'STICKER_DUPLICADO',
     })
   })
 
-  it('sin sticker no hay base: es lo único que la identifica', async () => {
-    await expect(darDeAltaBase('   ', null)).rejects.toMatchObject({ code: 'STICKER_REQUERIDO' })
+  /*
+   * ── El sistema propone, el sticker manda — RN-BAS-10 ──────────────────────
+   *
+   * Los dos caminos existen porque los dos casos son reales: las 40 bases que
+   * Aquazaku ya tiene llegaron con su sticker puesto, y las que vengan después
+   * se rotulan con lo que el sistema diga.
+   */
+  it('sin sticker, propone el próximo consecutivo', async () => {
+    const primera = await darDeAltaBase(undefined, null)
+
+    expect(primera.idSticker).toBe('0001')
+    expect((await darDeAltaBase(undefined, null)).idSticker).toBe('0002')
+  })
+
+  it('la propuesta sigue al máximo, no al conteo: respeta el sticker pisado', async () => {
+    await darDeAltaBase('0040', null)
+
+    /*
+     * Con `count + 1` propondría `0002`, que está libre pero rompe la
+     * convención del rótulo: quedarían dos bases con números que no reflejan el
+     * orden en que entraron, y la siguiente propuesta volvería a chocar.
+     */
+    expect((await darDeAltaBase(undefined, null)).idSticker).toBe('0041')
+  })
+
+  it('un sticker que no son cuatro dígitos no entra', async () => {
+    for (const malo of ['913', '00913', 'A-0913', '  ']) {
+      await expect(darDeAltaBase(malo, null)).rejects.toMatchObject({
+        code: 'STICKER_INVALIDO',
+      })
+    }
   })
 })
 
@@ -81,7 +110,7 @@ describe('el alta', () => {
  */
 describe('el préstamo', () => {
   it('queda asignada a la DIRECCIÓN, no al cliente', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
 
     const prestada = await prestarBase(base.id, direccionId, null)
 
@@ -95,7 +124,7 @@ describe('el préstamo', () => {
    * que se perdió.
    */
   it('prestar una que ya está prestada se rechaza', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
     await prestarBase(base.id, direccionId, null)
 
     const [otra] = await db
@@ -125,7 +154,7 @@ describe('el préstamo', () => {
       })
       .where(eq(clientes.id, clienteId))
 
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
 
     await expect(prestarBase(base.id, direccionId, null)).rejects.toMatchObject({
       code: 'VERIFICACION_REQUERIDA',
@@ -133,7 +162,7 @@ describe('el préstamo', () => {
   })
 
   it('una base dañada no se vuelve a prestar', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
     await prestarBase(base.id, direccionId, null)
     await marcarBaseDanada(
       { baseId: base.id, monto: '80000.00', motivo: MOTIVO, medioDePago: 'efectivo' },
@@ -149,7 +178,7 @@ describe('el préstamo', () => {
 
 describe('el retorno y el descarte', () => {
   it('vuelve a la bodega y deja rastro', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
     await prestarBase(base.id, direccionId, null)
 
     const retornada = await retornarBase(base.id, null)
@@ -163,7 +192,7 @@ describe('el retorno y el descarte', () => {
   })
 
   it('descartar una prestada se rechaza: quedaría un préstamo abierto', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
     await prestarBase(base.id, direccionId, null)
 
     await expect(
@@ -172,7 +201,7 @@ describe('el retorno y el descarte', () => {
   })
 
   it('una descartada ya no está en el parque', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
     await descartarBase(base.id, 'se partió sin arreglo posible', null)
 
     await expect(prestarBase(base.id, direccionId, null)).rejects.toMatchObject({
@@ -189,7 +218,7 @@ describe('el retorno y el descarte', () => {
  */
 describe('el recargo por daño', () => {
   const danar = async (medioDePago: 'efectivo' | 'credito' = 'credito') => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
     await prestarBase(base.id, direccionId, null)
 
     return marcarBaseDanada(
@@ -237,7 +266,7 @@ describe('el recargo por daño', () => {
    * cobrarle. Se descarta con motivo.
    */
   it('una base en bodega no le genera recargo a nadie', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
 
     await expect(
       marcarBaseDanada(
@@ -248,7 +277,7 @@ describe('el recargo por daño', () => {
   })
 
   it('sin explicación no se le cobra a nadie', async () => {
-    const base = await darDeAltaBase('A-0913', null)
+    const base = await darDeAltaBase('0913', null)
     await prestarBase(base.id, direccionId, null)
 
     await expect(

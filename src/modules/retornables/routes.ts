@@ -12,6 +12,7 @@ import {
   descartarBase,
   historialDe,
   prestarBase,
+  proximoCodigoDeBase,
   retornarBase,
 } from './bases'
 import {
@@ -195,6 +196,30 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     '/bases',
     { preHandler: [requireAuth, requirePermission('bases', 'ver')] },
     async () => db.select().from(bases).where(eq(bases.activa, true)).orderBy(bases.idSticker),
+  )
+
+  /**
+   * El código que el sistema propondría para la próxima base — RN-BAS-10.
+   *
+   * Existe como endpoint y no como cálculo en la pantalla porque la regla del
+   * consecutivo —máximo + 1, sin reciclar descartados— vive en un solo lugar.
+   * Una copia en el componente empezaría a mentir el día que cambie, y lo haría
+   * en silencio: propondría un número ya tomado y el alta fallaría con un
+   * duplicado que el operario no pidió.
+   *
+   * Va bajo `registrar` y no bajo `ver`: es una ayuda para dar de alta, y quien
+   * no puede dar de alta no tiene qué hacer con el número siguiente.
+   */
+  app.get(
+    '/bases/proximo-codigo',
+    { preHandler: [requireAuth, requirePermission('bases', 'registrar')] },
+    async (req, reply) => {
+      try {
+        return { proximo: await proximoCodigoDeBase() }
+      } catch (err) {
+        return manejarError(err, req, reply, 'bases', 'bases:registrar')
+      }
+    },
   )
 
   app.get(

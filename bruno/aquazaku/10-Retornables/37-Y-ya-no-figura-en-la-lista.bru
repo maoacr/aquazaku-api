@@ -9,7 +9,7 @@ get {
 }
 
 docs {
-  Queda la B-0002. La A-0913 sigue en la base de datos con su historial y su
+  Queda la 0914. La 0913 sigue en la base de datos con su historial y su
   recargo, pero no en el parque — que es exactamente la diferencia entre
   `activa: false` y un `DELETE`.
 }
@@ -17,6 +17,6 @@ docs {
 tests {
   test("solo queda la que sigue activa", function() {
     expect(res.getBody()).to.have.lengthOf(1);
-    expect(res.getBody()[0].idSticker).to.equal("B-0002");
+    expect(res.getBody()[0].idSticker).to.equal("0914");
   });
 }

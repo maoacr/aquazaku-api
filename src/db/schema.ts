@@ -1459,7 +1459,7 @@ export const estadoDeBaseEnum = pgEnum('estado_de_base', ['sana', 'danada'])
  *
  * La base tiene un ID impreso en un sticker (`RN-BAS-10`) porque **hay que ir a
  * buscarla a un lugar concreto**. Sin saber en cuál de los tres locales está la
- * base `A-0913`, el préstamo deja de ser reclamable.
+ * base `0913`, el préstamo deja de ser reclamable.
  *
  * Por eso `direccion_id` y no `cliente_id` (`RN-BAS-03`), y por eso una fila por
  * base y no un contador.
@@ -1518,7 +1518,7 @@ export const tipoMovimientoBaseEnum = pgEnum('tipo_movimiento_base', [
  * El historial de cada base — RN-BAS-05.
  *
  * A diferencia del botellón, acá el libro cuelga de una unidad concreta: se
- * puede contestar «dónde estuvo la base A-0913 y quién la tuvo». Esa pregunta no
+ * puede contestar «dónde estuvo la base 0913 y quién la tuvo». Esa pregunta no
  * existe para un botellón, y por eso su libro es de cantidades.
  */
 export const movimientosBase = pgTable(

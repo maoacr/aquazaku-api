@@ -38,8 +38,23 @@ export const esquemaDeAjusteDeBotellones = z.object({
   motivo,
 })
 
+/**
+ * El sticker es **opcional**, y esa opcionalidad es la regla — RN-BAS-10.
+ *
+ * Si no viene, el sistema propone el próximo consecutivo. Si viene, es porque el
+ * operario tiene la base en la mano con el sticker ya pegado —las 40 que
+ * Aquazaku ya tiene llegan así— y entonces manda el mundo físico.
+ *
+ * El formato sí es estricto en los dos caminos: cuatro dígitos. Aceptar `1`
+ * junto a `0001` crearía dos códigos para la misma base y la unicidad dejaría
+ * de proteger nada.
+ */
 export const esquemaDeAltaDeBase = z.object({
-  idSticker: z.string().trim().min(1, 'una base sin sticker no se puede reclamar'),
+  idSticker: z
+    .string()
+    .trim()
+    .regex(/^\d{4}$/, 'el sticker son cuatro dígitos, con los ceros adelante: 0001, 0040, 0231')
+    .optional(),
 })
 
 export const esquemaDePrestamo = z.object({ direccionId: z.string().uuid() })
