@@ -1563,3 +1563,141 @@ export type MovimientoBotellon = typeof movimientosBotellon.$inferSelect
 export type Base = typeof bases.$inferSelect
 export type NuevaBase = typeof bases.$inferInsert
 export type MovimientoBase = typeof movimientosBase.$inferSelect
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Proveedores y compras — M9, RN-PRO-01 a 07
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const estadoCompraEnum = pgEnum('estado_compra', ['recibida', 'anulada'])
+
+/**
+ * Un proveedor — RN-PRO-01.
+ *
+ * `nit` y `contacto` son opcionales a propósito: un proveedor puede ser el señor
+ * que trae las tapas en su camioneta. Exigirle NIT llevaría a inventar uno, que
+ * es exactamente lo que RN-CLI-13 evita del otro lado del negocio.
+ */
+export const proveedores = pgTable(
+  'proveedores',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    nombre: text('nombre').notNull(),
+    nit: text('nit'),
+    contacto: text('contacto'),
+    /** No se borra: se desactiva. Su historial de compras sigue apuntándole. */
+    activo: boolean('activo').notNull().default(true),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('proveedores_nombre_no_vacio', sql`length(btrim(${t.nombre})) > 0`),
+    /*
+     * Único cuando está. Dos proveedores con el mismo NIT son el mismo cargado
+     * dos veces, y el historial queda partido entre los dos.
+     */
+    uniqueIndex('proveedores_nit_idx').on(t.nit).where(sql`${t.nit} IS NOT NULL`),
+  ],
+)
+
+/**
+ * Una compra — RN-PRO-02 a 07.
+ *
+ * ── No crea inventario nuevo: le pone nombre al que ya entra ────────────────
+ *
+ * Botellones, bases e insumos ya tienen su camino de entrada. Lo que la compra
+ * agrega es de quién vino, cuánto costó y cómo se paga. Por eso escribe el
+ * documento **y** el movimiento de inventario en la misma transacción, igual
+ * que una venta escribe la venta y el descuento de stock.
+ *
+ * ── El crédito está modelado y no se ejerce — RN-PRO-06 ─────────────────────
+ *
+ * Hoy Aquazaku paga todo de contado o por transferencia. La columna existe con
+ * `credito` entre sus valores porque agregarla después obligaría a migrar las
+ * compras viejas y a decidir qué significan retroactivamente. Cuesta una
+ * columna hoy.
+ */
+export const compras = pgTable(
+  'compras',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    proveedorId: uuid('proveedor_id')
+      .notNull()
+      .references(() => proveedores.id, { onDelete: 'restrict' }),
+
+    medioDePago: medioDePagoEnum('medio_de_pago').notNull(),
+
+    /** Obligatoria SOLO a crédito. La dice el proveedor, no se estima. */
+    venceEl: date('vence_el'),
+    /** Pendiente o pagada, y nada más: no hay pagos parciales todavía. */
+    pagada: boolean('pagada').notNull().default(false),
+
+    /** RN-PRO-04: congelado. Sin costo histórico no hay margen real. */
+    total: numeric('total', { precision: 12, scale: 2 }).notNull(),
+
+    estado: estadoCompraEnum('estado').notNull().default('recibida'),
+    motivoAnulacion: text('motivo_anulacion'),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('compras_total_no_negativo', sql`${t.total} >= 0`),
+    /*
+     * La fecha y el crédito viajan juntos, en los DOS sentidos. Una compra de
+     * contado con vencimiento no significa nada; una a crédito sin vencimiento
+     * no se puede reclamar ni avisar.
+     */
+    check(
+      'compras_vencimiento_solo_a_credito',
+      sql`(${t.medioDePago} = 'credito') = (${t.venceEl} IS NOT NULL)`,
+    ),
+    check('compras_contado_nace_pagada', sql`${t.medioDePago} = 'credito' OR ${t.pagada}`),
+    check(
+      'compras_anulacion_con_motivo',
+      sql`(${t.estado} = 'anulada') = (${t.motivoAnulacion} IS NOT NULL)`,
+    ),
+    index('compras_por_proveedor_idx').on(t.proveedorId),
+  ],
+)
+
+/**
+ * El detalle de lo que llegó — RN-PRO-03 y 04.
+ *
+ * `cantidad` es lo **recibido**, no lo pedido: cerrar con las cantidades del
+ * pedido mete el faltante del proveedor en el inventario propio.
+ *
+ * Exactamente UNA cosa por línea. Una que sea insumo y botellón a la vez no se
+ * puede convertir en un movimiento de inventario sin adivinar cuál.
+ */
+export const lineasDeCompra = pgTable(
+  'lineas_de_compra',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    compraId: uuid('compra_id')
+      .notNull()
+      .references(() => compras.id, { onDelete: 'restrict' }),
+
+    insumoId: uuid('insumo_id').references(() => insumos.id, { onDelete: 'restrict' }),
+    botellones: integer('botellones'),
+    bases: integer('bases'),
+
+    cantidad: numeric('cantidad', { precision: 12, scale: 3 }).notNull(),
+    costoUnitario: numeric('costo_unitario', { precision: 12, scale: 2 }).notNull(),
+
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('lineas_compra_cantidad_positiva', sql`${t.cantidad} > 0`),
+    check('lineas_compra_costo_no_negativo', sql`${t.costoUnitario} >= 0`),
+    check(
+      'lineas_compra_una_sola_cosa',
+      sql`((${t.insumoId} IS NOT NULL)::int + (${t.botellones} IS NOT NULL)::int + (${t.bases} IS NOT NULL)::int) = 1`,
+    ),
+    check('lineas_compra_botellones_positivos', sql`${t.botellones} IS NULL OR ${t.botellones} > 0`),
+    check('lineas_compra_bases_positivas', sql`${t.bases} IS NULL OR ${t.bases} > 0`),
+    index('lineas_compra_por_compra_idx').on(t.compraId),
+  ],
+)
+
+export type Proveedor = typeof proveedores.$inferSelect
+export type Compra = typeof compras.$inferSelect
+export type LineaDeCompra = typeof lineasDeCompra.$inferSelect

@@ -78,6 +78,13 @@
       "when": 1787747397391,
       "tag": "0010_botellon_con_responsable",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787747397392,
+      "tag": "0011_proveedores",
+      "breakpoints": true
     }
   ]
 }

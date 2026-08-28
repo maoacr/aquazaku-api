@@ -88,6 +88,12 @@ export function poolConcurrente(conexiones: number) {
 
 /** Tablas en orden seguro para truncar (las hijas primero por las FK). */
 const TABLAS = [
+  // M9 — cuelgan de `users` e `insumos`, pero `proveedores` no cuelga de nada:
+  // sin nombrarla, el CASCADE no la alcanza y los datos sobreviven al reset.
+  'lineas_de_compra',
+  'compras',
+  'proveedores',
+
   'movimientos_agua',
   'cierres_produccion',
   'movimientos_insumo',
