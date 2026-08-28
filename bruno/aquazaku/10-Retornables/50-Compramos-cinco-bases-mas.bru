@@ -1,0 +1,59 @@
+meta {
+  name: Compramos cinco bases más
+  type: http
+  seq: 50
+}
+
+post {
+  url: {{baseUrl}}/bases/compra
+  body: json
+}
+
+body:json {
+  {
+    "cantidad": 5
+  }
+}
+
+docs {
+  Espeja `POST /botellones/compra`: los **dos** activos entran al parque por una
+  compra con cantidad.
+
+  Esa simetría no es estética. Cargar cuarenta bases de a una son cuarenta
+  operaciones independientes, y si la número veintisiete falla, el parque queda a
+  medio cargar sin nada que diga dónde se cortó — con los stickers ya impresos,
+  el hueco queda en la caja y no en la pantalla. Acá **o entran todas o no entra
+  ninguna**.
+
+  :::note[La compra NO acepta sticker]
+  Una base comprada llega **sin rotular**: el sistema la numera y después se
+  imprimen los stickers con esos números.
+
+  El camino inverso —el rótulo ya viene pegado— es `POST /bases`, donde el
+  operario tipea lo que tiene en la mano. Son los dos casos reales de
+  `RN-BAS-10`, y cada uno tiene su endpoint en vez de un campo que signifique
+  cosas distintas según venga o no.
+  :::
+
+  A esta altura el parque tiene la 0913 —descartada, pero su número sigue
+  reservado— y la 0914. Así que la compra arranca en 0915: el consecutivo sale
+  del **máximo**, y un número descartado no se recicla nunca.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("entran las cinco", function() {
+    expect(res.getBody()).to.have.lengthOf(5);
+  });
+
+  test("numeradas en orden desde la 0915, sin reciclar la descartada", function() {
+    expect(res.getBody().map(b => b.idSticker)).to.eql(["0915","0916","0917","0918","0919"]);
+  });
+
+  test("todas nacen sanas y en la bodega", function() {
+    expect(res.getBody().every(b => b.estado === "sana" && b.direccionId === null)).to.equal(true);
+  });
+}

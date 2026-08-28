@@ -8,6 +8,7 @@ import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import {
   basesEnDireccion,
+  comprarBases,
   darDeAltaBase,
   descartarBase,
   historialDe,
@@ -28,6 +29,7 @@ import {
   esquemaDeAjusteDeBotellones,
   esquemaDeAltaDeBase,
   esquemaDeCompra,
+  esquemaDeCompraDeBases,
   esquemaDeDano,
   esquemaDeDescarteDeBase,
   esquemaDeDescarteDeBotellones,
@@ -243,6 +245,32 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         return reply.code(201).send(await darDeAltaBase(datos.idSticker, req.user?.id ?? null))
+      } catch (err) {
+        return manejarError(err, req, reply, 'bases', 'bases:registrar')
+      }
+    },
+  )
+
+  /**
+   * Comprar bases — RN-BAS-10.
+   *
+   * Espeja `POST /botellones/compra`: los dos activos entran al parque por una
+   * compra con cantidad. Cargar 40 de a una son 40 operaciones que pueden
+   * cortarse por la mitad, y con los stickers ya impresos el hueco queda en la
+   * caja y no en la pantalla.
+   *
+   * No acepta sticker: una base comprada llega sin rotular y el sistema la
+   * numera. El camino de «el rótulo ya viene pegado» es `POST /bases`.
+   */
+  app.post(
+    '/bases/compra',
+    { preHandler: [requireAuth, requirePermission('bases', 'registrar', { auditaLaRuta: true })] },
+    async (req, reply) => {
+      const datos = validar(esquemaDeCompraDeBases, req.body, reply)
+      if (!datos) return
+
+      try {
+        return reply.code(201).send(await comprarBases(datos.cantidad, req.user?.id ?? null))
       } catch (err) {
         return manejarError(err, req, reply, 'bases', 'bases:registrar')
       }

@@ -74,3 +74,18 @@ export const esquemaDeDano = z.object({
   motivo,
   medioDePago: z.enum(['efectivo', 'transferencia', 'credito']),
 })
+
+/**
+ * Comprar bases — RN-BAS-10.
+ *
+ * No lleva sticker: una base comprada llega sin rotular y el sistema la numera.
+ * El camino de «el rótulo ya viene pegado» es `esquemaDeAltaDeBase`.
+ *
+ * Tampoco lleva motivo, a diferencia de la compra de botellones. La asimetría
+ * es del dominio: una base queda con su fila propia y su historial, así que la
+ * compra se puede reconstruir mirando el parque. Un botellón no deja rastro
+ * individual, y ahí el texto es lo único que explica de dónde salieron.
+ */
+export const esquemaDeCompraDeBases = z.object({
+  cantidad: z.number().int().positive('una compra de bases es de al menos una base'),
+})

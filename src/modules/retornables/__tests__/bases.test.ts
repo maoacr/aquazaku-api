@@ -5,6 +5,7 @@ import { bases, clientes, direcciones, movimientosBase } from '@/db/schema'
 import {
   basesEnDireccion,
   darDeAltaBase,
+  comprarBases,
   descartarBase,
   historialDe,
   prestarBase,
@@ -297,5 +298,63 @@ describe('el recargo por daño', () => {
       .from(movimientosBase)
       .where(eq(movimientosBase.tipo, 'dano'))
     expect(dano?.motivo).toBe(MOTIVO)
+  })
+})
+
+/**
+ * ── La compra de bases — RN-BAS-10 ──────────────────────────────────────────
+ *
+ * Espeja `POST /botellones/compra`: los dos activos entran al parque por una
+ * compra con cantidad, y esa simetría no es estética. Dar de alta 40 bases de a
+ * una son 40 operaciones donde cada una puede fallar por su cuenta y dejar el
+ * parque a medio cargar, sin nada que diga dónde se cortó.
+ */
+describe('la compra de bases', () => {
+  it('numera consecutivo desde el próximo disponible', async () => {
+    const compradas = await comprarBases(3, null)
+
+    expect(compradas.map((b) => b.idSticker)).toEqual(['0001', '0002', '0003'])
+  })
+
+  it('sigue al máximo, no al conteo, igual que el alta de a una', async () => {
+    await darDeAltaBase('0040', null)
+
+    expect((await comprarBases(2, null)).map((b) => b.idSticker)).toEqual(['0041', '0042'])
+  })
+
+  it('todas nacen sanas y en la bodega, con su alta en el historial', async () => {
+    const [primera] = await comprarBases(2, null)
+
+    expect(primera!.estado).toBe('sana')
+    expect(primera!.direccionId).toBeNull()
+    expect(await historialDe(primera!.id)).toHaveLength(1)
+  })
+
+  /*
+   * ── O entran las 20 o no entra ninguna ────────────────────────────────────
+   *
+   * Una compra a medio registrar deja al operario sin saber cuántas cargó ni
+   * desde qué número seguir, y el sticker físico ya está impreso: el hueco
+   * quedaría en la caja, no en la pantalla.
+   *
+   * El fallo que se usa acá es el único alcanzable a mitad de compra: agotar el
+   * formato de cuatro dígitos. Colisionar es imposible por construcción —
+   * `proximoCodigo` sale del máximo—, así que un test que buscara un duplicado
+   * pasaría siempre sin probar nada.
+   */
+  it('o entran todas o no entra ninguna', async () => {
+    await darDeAltaBase('9998', null)
+
+    // La primera tomaría 9999 y la segunda se queda sin números.
+    await expect(comprarBases(3, null)).rejects.toMatchObject({ code: 'CODIGOS_AGOTADOS' })
+
+    // La 9999 NO quedó: el rollback se llevó la parte que sí había entrado.
+    expect(await db.select().from(bases)).toHaveLength(1)
+  })
+
+  it('una compra de cero o negativa no es una compra', async () => {
+    for (const mala of [0, -3]) {
+      await expect(comprarBases(mala, null)).rejects.toMatchObject({ code: 'CANTIDAD_INVALIDA' })
+    }
   })
 })

@@ -181,6 +181,30 @@ describe('las bases', () => {
   })
 
   /*
+   * La compra espeja `POST /botellones/compra`: los dos activos entran al parque
+   * con una cantidad. Cargar 40 de a una son 40 operaciones que pueden cortarse
+   * por la mitad, con los stickers ya impresos.
+   */
+  it('la compra numera consecutivo y entra entera', async () => {
+    await darDeAlta('0040')
+
+    const res = await comoAdmin({ method: 'POST', url: '/bases/compra', payload: { cantidad: 3 } })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().map((b: { idSticker: string }) => b.idSticker)).toEqual([
+      '0041',
+      '0042',
+      '0043',
+    ])
+  })
+
+  it('una compra de cero no es una compra', async () => {
+    const res = await comoAdmin({ method: 'POST', url: '/bases/compra', payload: { cantidad: 0 } })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  /*
    * La propuesta se expone por endpoint en vez de calcularse en la pantalla: la
    * regla del consecutivo vive en un solo lugar. Una copia en el componente
    * propondría un número ya tomado el día que la regla cambie, y el alta

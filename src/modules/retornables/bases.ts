@@ -82,6 +82,76 @@ export async function darDeAltaBase(
 }
 
 /**
+ * Comprar bases — entran varias al parque de una vez.
+ *
+ * ── Por qué existe además del alta de a una ─────────────────────────────────
+ *
+ * Espeja `comprarBotellones`: los dos activos entran al parque por una compra
+ * con cantidad, y esa simetría no es estética. Cargar 40 bases de a una son 40
+ * operaciones independientes, y si la número 27 falla el parque queda a medio
+ * cargar sin nada que diga dónde se cortó — con los stickers ya impresos, el
+ * hueco queda en la caja y no en la pantalla.
+ *
+ * Acá o entran todas o no entra ninguna.
+ *
+ * ── Las compradas NO llevan sticker explícito ───────────────────────────────
+ *
+ * Una base comprada llega sin rotular: el sistema la numera y después se
+ * imprime el sticker. El camino de «el rótulo ya viene pegado» es el alta de a
+ * una, donde el operario tipea lo que tiene en la mano.
+ */
+export async function comprarBases(
+  cantidad: number,
+  registradoPor: string | null,
+): Promise<Base[]> {
+  if (!Number.isInteger(cantidad) || cantidad <= 0) {
+    throw new ErrorDeNegocio(
+      'CANTIDAD_INVALIDA',
+      422,
+      'una compra de bases es de al menos una base',
+    )
+  }
+
+  return db.transaction(async (tx) => {
+    const tomados = await codigosTomados(tx)
+    const compradas: Base[] = []
+
+    for (let i = 0; i < cantidad; i++) {
+      /*
+       * El próximo se recalcula sobre la lista que va creciendo, no sobre la
+       * base: adentro de la transacción las filas recién insertadas ya se ven,
+       * pero pasar por la lista deja explícito que la numeración es continua
+       * dentro de la compra.
+       */
+      const sticker = proximoCodigo(tomados)
+      tomados.push(sticker)
+
+      const [existente] = await tx.select().from(bases).where(eq(bases.idSticker, sticker))
+
+      if (existente) {
+        /*
+         * No debería pasar —`proximoCodigo` sale del máximo—, pero si pasa, que
+         * se caiga la compra entera. Media compra registrada es peor que
+         * ninguna: nadie sabría desde qué número seguir.
+         */
+        throw new ErrorDeNegocio(
+          'STICKER_DUPLICADO',
+          409,
+          `ya hay una base con el sticker ${sticker}. La compra no se registró: vuelva a intentarla`,
+        )
+      }
+
+      const [base] = await tx.insert(bases).values({ idSticker: sticker }).returning()
+      await tx.insert(movimientosBase).values({ baseId: base!.id, tipo: 'alta', registradoPor })
+
+      compradas.push(base!)
+    }
+
+    return compradas
+  })
+}
+
+/**
  * Todos los códigos ocupados — **incluidas las bases descartadas**.
  *
  * El filtro por `activa` que usa el resto del módulo NO va acá, y es la
