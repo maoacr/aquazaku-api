@@ -7,10 +7,16 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      # Misma línea de versión que el entorno local (ver /empezar/entorno-local/):
-      # es lo que mantiene la paridad sin obligar a Docker en desarrollo.
+      # Misma versión que PRODUCCIÓN, no que el entorno local.
+      #
+      # Supabase corre 17 (ADR-0009). El entorno local puede estar en 16 y no
+      # pasa nada: la compuerta que decide si algo se mergea es esta, y es la
+      # que tiene que parecerse al lugar donde el código va a correr de verdad.
+      #
+      # Al revés —CI en 16 y producción en 17— un bug propio de 17 no se vería
+      # hasta que ya está desplegado.
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: aquazaku
           POSTGRES_PASSWORD: aquazaku
@@ -90,7 +96,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: aquazaku
           POSTGRES_PASSWORD: aquazaku
