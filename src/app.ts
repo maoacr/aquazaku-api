@@ -6,6 +6,7 @@ import { buildLoggerOptions } from '@/lib/logger'
 import { authRoutes } from '@/modules/auth/routes'
 import { auditRoutes } from '@/modules/audit/routes'
 import { productoRoutes } from '@/modules/productos/routes'
+import { proveedoresRoutes } from '@/modules/proveedores/routes'
 import { insumosRoutes } from '@/modules/insumos/routes'
 import { clientesRoutes } from '@/modules/clientes/routes'
 import { retornablesRoutes } from '@/modules/retornables/routes'
@@ -64,6 +65,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(clientesRoutes)
   await app.register(ventasRoutes)
   await app.register(retornablesRoutes)
+  await app.register(proveedoresRoutes)
 
   return app
 }
