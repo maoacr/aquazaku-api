@@ -4,7 +4,8 @@ import { validar } from '@/lib/http'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { carteraPorEdad } from './cartera'
 import { extracto } from './extracto'
-import { esquemaDeExtracto } from './validation'
+import { resumenMensual } from './mensual'
+import { esquemaDeExtracto, esquemaDeResumenMensual } from './validation'
 
 /**
  * Lo que consulta el contador — M11.
@@ -73,6 +74,30 @@ export async function contadorRoutes(app: FastifyInstance): Promise<void> {
     '/reportes/cartera',
     { preHandler: [requireAuth, requirePermission('reportes', 'financieros')] },
     async () => carteraPorEdad(hoyISO()),
+  )
+
+  /**
+   * El resumen mensual — RN-CON-07.
+   *
+   * Una fila por mes con sus totales. Responde «cómo viene el año», que el
+   * extracto no contesta sin pedirlo doce veces y sumar a mano.
+   */
+  app.get(
+    '/reportes/mensual',
+    { preHandler: [requireAuth, requirePermission('reportes', 'financieros')] },
+    async (req, reply) => {
+      const datos = validar(esquemaDeResumenMensual, req.query, reply)
+      if (!datos) return
+
+      try {
+        return await resumenMensual(datos)
+      } catch (err) {
+        if (err instanceof ErrorDeNegocio) {
+          return reply.code(err.status).send({ code: err.code, mensaje: err.message })
+        }
+        throw err
+      }
+    },
   )
 }
 

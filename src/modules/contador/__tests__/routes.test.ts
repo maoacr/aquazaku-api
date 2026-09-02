@@ -132,3 +132,46 @@ describe('la cartera', () => {
     expect(res.json()).toEqual([])
   })
 })
+
+describe('el resumen mensual', () => {
+  it('devuelve una fila por mes del rango', async () => {
+    const res = await comoContador({
+      method: 'GET',
+      url: '/reportes/mensual?desde=2026-06&hasta=2026-08',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().map((m: { mes: string }) => m.mes)).toEqual(['2026-06', '2026-07', '2026-08'])
+  })
+
+  /*
+   * Una fecha completa daría un mes PARCIAL con pinta de mes entero, y esa
+   * comparación falsa no la detecta nadie. El esquema la frena en la puerta.
+   */
+  it('una fecha completa se rechaza: el resumen va por meses', async () => {
+    const res = await comoContador({
+      method: 'GET',
+      url: '/reportes/mensual?desde=2026-06-15&hasta=2026-08',
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('un rango al revés responde 422', async () => {
+    const res = await comoContador({
+      method: 'GET',
+      url: '/reportes/mensual?desde=2026-08&hasta=2026-06',
+    })
+
+    expect(res.statusCode).toBe(422)
+  })
+
+  it('el `pos` no lo ve: son montos del negocio', async () => {
+    const res = await como('pos', {
+      method: 'GET',
+      url: '/reportes/mensual?desde=2026-06&hasta=2026-08',
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+})

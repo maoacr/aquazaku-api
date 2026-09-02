@@ -234,7 +234,7 @@ export async function extracto({ desde, hasta, tipos }: Filtros): Promise<Extrac
  * Todo en centavos enteros. Sumar `Number('12000.50')` acumula error de coma
  * flotante y aparece un descuadre de un centavo que nadie puede explicar.
  */
-function sumar(movimientos: Movimiento[]): Totales {
+export function sumar(movimientos: Movimiento[]): Totales {
   let entradas = 0
   let salidas = 0
   const porMedio = { efectivo: 0, transferencia: 0, credito: 0 }

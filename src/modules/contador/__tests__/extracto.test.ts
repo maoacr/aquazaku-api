@@ -20,6 +20,23 @@ import { extracto } from '@/modules/contador/extracto'
  */
 
 const HOY = '2026-08-28'
+/**
+ * ── Un rango que SIEMPRE contiene hoy ───────────────────────────────────────
+ *
+ * Los fixtures que pasan por los servicios de verdad se fechan con `now()`: no
+ * se les puede dictar la fecha sin saltearse la garantía que se está probando.
+ *
+ * Anclar esos tests a un mes fijo hace que la suite se ponga roja SOLA al
+ * cambiar el mes. Pasó el 1-sep-2026: siete tests que llevaban días en verde
+ * amanecieron rojos sin que nadie tocara una línea, y el primer reflejo fue
+ * buscar el bug en el cambio recién escrito.
+ *
+ * Lo que se prueba de acá para abajo es la CLASIFICACIÓN —qué entra, qué sale,
+ * con qué signo—, no el filtro de fechas. Ese tiene su propio bloque arriba,
+ * con fechas fijas y fixtures fechados a mano.
+ */
+const SIEMPRE = { desde: '2000-01-01', hasta: new Date().toISOString().slice(0, 10) }
+
 const DESDE = '2026-08-01'
 const HASTA = '2026-08-31'
 
@@ -106,7 +123,7 @@ describe('los cinco movimientos caen en una sola vista — RN-CON-04', () => {
   it('una compra entra como SALIDA', async () => {
     await unaCompra('1200.00')
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA })
+    const r = await extracto(SIEMPRE)
 
     expect(r.movimientos).toHaveLength(1)
     expect(r.movimientos[0]!.tipo).toBe('compra')
@@ -118,7 +135,7 @@ describe('los cinco movimientos caen en una sola vista — RN-CON-04', () => {
   it('un cobro entra como ENTRADA, con su cliente', async () => {
     await db.insert(cobros).values({ clienteId, monto: '80000.00', medioDePago: 'transferencia' })
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA })
+    const r = await extracto(SIEMPRE)
 
     expect(r.movimientos[0]!.tipo).toBe('cobro')
     expect(r.movimientos[0]!.signo).toBe(1)
@@ -132,7 +149,7 @@ describe('los cinco movimientos caen en una sola vista — RN-CON-04', () => {
       { clienteId, monto: '20.00', medioDePago: 'efectivo', createdAt: new Date('2026-08-05T10:00:00Z') },
     ])
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA })
+    const r = await extracto(SIEMPRE)
 
     expect(r.movimientos.map((m) => m.monto)).toEqual(['20.00', '10.00'])
   })
@@ -145,7 +162,7 @@ describe('los cinco movimientos caen en una sola vista — RN-CON-04', () => {
   it('cada fila trae su documento', async () => {
     const { compra } = await unaCompra('500.00')
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA })
+    const r = await extracto(SIEMPRE)
 
     expect(r.movimientos[0]!.documentoId).toBe(compra.id)
   })
@@ -161,7 +178,7 @@ describe('el cuadre', () => {
       { clienteId, monto: '70000.00', medioDePago: 'transferencia' },
     ])
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA })
+    const r = await extracto(SIEMPRE)
 
     expect(r.totales.entradas).toBe('100000.00')
     expect(r.totales.porMedioDePago.efectivo).toBe('30000.00')
@@ -173,7 +190,7 @@ describe('el cuadre', () => {
     await db.insert(cobros).values({ clienteId, monto: '200000.00', medioDePago: 'efectivo' })
     await unaCompra('500.00')
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA })
+    const r = await extracto(SIEMPRE)
 
     // 200.000 de cobro − 50.000 de compra (100 × 500)
     expect(r.totales.neto).toBe('150000.00')
@@ -185,7 +202,7 @@ describe('el filtro por tipo', () => {
     await db.insert(cobros).values({ clienteId, monto: '80000.00', medioDePago: 'efectivo' })
     await unaCompra('500.00')
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA, tipos: ['compra'] })
+    const r = await extracto({ ...SIEMPRE, tipos: ['compra'] })
 
     expect(r.movimientos).toHaveLength(1)
     expect(r.movimientos[0]!.tipo).toBe('compra')
@@ -200,7 +217,7 @@ describe('el filtro por tipo', () => {
     await db.insert(cobros).values({ clienteId, monto: '80000.00', medioDePago: 'efectivo' })
     await unaCompra('500.00')
 
-    const r = await extracto({ desde: DESDE, hasta: HASTA, tipos: ['cobro'] })
+    const r = await extracto({ ...SIEMPRE, tipos: ['cobro'] })
 
     expect(r.totales.entradas).toBe('80000.00')
     expect(r.totales.salidas).toBe('0.00')

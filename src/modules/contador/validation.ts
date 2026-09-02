@@ -25,3 +25,15 @@ export const esquemaDeExtracto = z.object({
     )
     .optional(),
 })
+
+/**
+ * El resumen mensual — M11.
+ *
+ * Acepta MESES, no fechas. Un rango de fechas sueltas devolvería meses parciales
+ * con pinta de meses completos, y nadie compara «enero» contra «medio enero» a
+ * sabiendas: se compara sin mirar.
+ */
+export const esquemaDeResumenMensual = z.object({
+  desde: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'el mes va como 2026-08'),
+  hasta: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'el mes va como 2026-08'),
+})
