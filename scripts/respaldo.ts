@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { getTableName, is } from 'drizzle-orm'
 import { PgTable } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
+import { describirConexion } from './describir-conexion'
 import { privilegiosQuitados, verificarRespaldo } from './verificar-respaldo'
 
 /**
@@ -44,8 +45,21 @@ function main(): void {
     fallar('falta DATABASE_MIGRATION_URL: es la conexión del rol dueño, la única que puede volcar todo')
   }
 
+  /*
+   * ── A DÓNDE nos conectamos, dicho antes de empezar ────────────────────────
+   *
+   * Sin esto, el script volcó la base local creyendo que volcaba producción: la
+   * variable estaba puesta con `export` en otra terminal, se perdió al abrir
+   * una nueva, y el `.env` tomó el control en silencio.
+   *
+   * El destino se anuncia antes, se repite al final, y va en el nombre del
+   * archivo. Una carpeta de respaldos tiene que poder leerse sin abrirlos.
+   */
+  const { descripcion, etiqueta } = describirConexion(url)
+  console.log(`→ respaldando ${descripcion}`)
+
   const sello = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
-  const archivo = join(DESTINO, `aquazaku-${sello}.sql.gz`)
+  const archivo = join(DESTINO, `aquazaku-${etiqueta}-${sello}.sql.gz`)
 
   let volcado: string
   try {
@@ -105,7 +119,10 @@ function main(): void {
   const { ok, problemas } = verificarRespaldo(volcado!, tablas, privilegiosQuitados(migraciones))
 
   if (!ok) {
-    fallar(`el volcado salió, pero no pasó la verificación:\n${problemas.map((p) => `  · ${p}`).join('\n')}`)
+    fallar(
+      `el volcado de ${descripcion} no pasó la verificación:\n` +
+        `${problemas.map((p) => `  · ${p}`).join('\n')}`,
+    )
   }
 
   mkdirSync(DESTINO, { recursive: true })
@@ -113,7 +130,7 @@ function main(): void {
   writeFileSync(archivo, comprimido)
 
   const mb = (comprimido.byteLength / 1024 / 1024).toFixed(2)
-  console.log(`✓ respaldo verificado — ${tablas.length} tablas · ${mb} MB`)
+  console.log(`✓ respaldo verificado de ${descripcion} — ${tablas.length} tablas · ${mb} MB`)
   console.log(`  ${archivo}`)
   console.log('\n  Para restaurar en una base VACÍA:')
   console.log(`    gunzip -c ${archivo} | psql "$DATABASE_MIGRATION_URL"`)
