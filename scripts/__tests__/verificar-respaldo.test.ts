@@ -145,3 +145,27 @@ describe('los permisos que una migración había quitado', () => {
     expect(verificarRespaldo(volcadoCompleto(), TABLAS, privilegiosQuitados(MIGRACIONES)).ok).toBe(true)
   })
 })
+
+/**
+ * ── El bug que este archivo existía para prevenir, y no previno ─────────────
+ *
+ * `pnpm db:respaldo` imprimió «✓ respaldo verificado — 0 tablas» contra la base
+ * de producción. La lista de tablas se armaba adivinando la forma interna de
+ * los objetos de Drizzle, salía vacía, y todos los chequeos pasaban por
+ * vacuidad.
+ *
+ * Un verificador que no puede fallar es peor que ninguno: da exactamente la
+ * confianza que uno fue a buscar, y la da siempre.
+ */
+describe('verificar contra nada no es verificar', () => {
+  it('una lista de tablas vacía es un FALLO, no un pase', () => {
+    const { ok, problemas } = verificarRespaldo(volcadoCompleto(), [])
+
+    expect(ok).toBe(false)
+    expect(problemas[0]).toContain('NO se verificó')
+  })
+
+  it('y gana sobre cualquier otro chequeo: no se reporta nada más', () => {
+    expect(verificarRespaldo(volcadoCompleto(), []).problemas).toHaveLength(1)
+  })
+})

@@ -66,6 +66,25 @@ export function verificarRespaldo(
     return { ok: false, problemas: ['el volcado está vacío'] }
   }
 
+  /*
+   * ── Verificar contra nada NO es verificar ─────────────────────────────────
+   *
+   * Sin tablas esperadas, todo lo de abajo pasa por vacuidad y el script
+   * imprime «✓ respaldo verificado — 0 tablas». Ya pasó: la lista se armaba
+   * adivinando la forma interna de los objetos de Drizzle y salía vacía.
+   *
+   * Un verificador que no puede fallar es peor que ninguno: da exactamente la
+   * confianza que uno fue a buscar, y la da siempre.
+   */
+  if (tablasEsperadas.length === 0) {
+    return {
+      ok: false,
+      problemas: [
+        'no hay ninguna tabla que verificar: la lista llegó vacía, así que este respaldo NO se verificó',
+      ],
+    }
+  }
+
   if (!volcado.includes(CIERRE)) {
     problemas.push(
       'falta el marcador de cierre de pg_dump: el volcado quedó TRUNCADO aunque el comando no haya fallado',

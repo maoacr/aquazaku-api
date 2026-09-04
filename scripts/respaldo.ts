@@ -2,6 +2,8 @@ import { execFileSync } from 'node:child_process'
 import { gzipSync } from 'node:zlib'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { getTableName, is } from 'drizzle-orm'
+import { PgTable } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { privilegiosQuitados, verificarRespaldo } from './verificar-respaldo'
 
@@ -80,9 +82,15 @@ function main(): void {
     fallar(`pg_dump falló:\n${mensaje}`)
   }
 
+  /*
+   * La lista sale de Drizzle con SU API pública, no adivinando la forma de sus
+   * objetos internos. La primera versión filtraba por `'_' in t` y devolvía
+   * CERO tablas — con lo cual el respaldo se verificaba contra una lista vacía
+   * y pasaba siempre.
+   */
   const tablas = Object.values(schema)
-    .filter((t): t is { _: { name: string } } => typeof t === 'object' && t !== null && '_' in t)
-    .map((t) => t._.name)
+    .filter((t): t is PgTable => is(t, PgTable))
+    .map(getTableName)
 
   /*
    * Los privilegios quitados se leen de las migraciones, que son la fuente de
