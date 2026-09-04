@@ -73,8 +73,21 @@ function main(): void {
      *
      * Un volcado sin ellos restaura una base que funciona, pasa los tests y
      * tiene la bitácora editable. El peor resultado posible: parece correcto.
+     *
+     * ── Solo `public` y `drizzle` ───────────────────────────────────────────
+     *
+     * Sin acotarlo, el volcado se lleva los esquemas internos de Supabase
+     * —`auth`, `storage`, `realtime`—: 35 tablas que Aquazaku no usa, porque la
+     * sesión la maneja Better-Auth con tablas propias en `public`.
+     *
+     * No es cuestión de peso. Al restaurar en un proyecto de Supabase nuevo,
+     * esos esquemas YA existen con su propio estado, y el respaldo intentaría
+     * pisar las tablas que ese proyecto necesita para funcionar.
+     *
+     * `drizzle` sí va: ahí vive el registro de migraciones. Sin él, la base
+     * restaurada cree que no se migró nunca e intenta aplicarlas de nuevo.
      */
-    volcado = execFileSync('pg_dump', [url], {
+    volcado = execFileSync('pg_dump', ['--schema=public', '--schema=drizzle', url], {
       encoding: 'utf8',
       maxBuffer: 512 * 1024 * 1024,
     })
