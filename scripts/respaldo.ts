@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process'
 import { gzipSync } from 'node:zlib'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as schema from '@/db/schema'
-import { verificarRespaldo } from './verificar-respaldo'
+import { privilegiosQuitados, verificarRespaldo } from './verificar-respaldo'
 
 /**
  * Respaldo de la base — la mitad que Supabase Free no trae.
@@ -28,6 +28,7 @@ import { verificarRespaldo } from './verificar-respaldo'
  */
 
 const DESTINO = process.env.RESPALDOS_DIR ?? join(process.cwd(), 'respaldos')
+const MIGRACIONES = join(process.cwd(), 'src', 'db', 'migrations')
 
 function main(): void {
   /*
@@ -83,7 +84,17 @@ function main(): void {
     .filter((t): t is { _: { name: string } } => typeof t === 'object' && t !== null && '_' in t)
     .map((t) => t._.name)
 
-  const { ok, problemas } = verificarRespaldo(volcado!, tablas)
+  /*
+   * Los privilegios quitados se leen de las migraciones, que son la fuente de
+   * verdad. Así, el día que una migración nueva revoque algo, el respaldo lo
+   * empieza a verificar sin que nadie toque este script.
+   */
+  const migraciones = readdirSync(MIGRACIONES)
+    .filter((f) => f.endsWith('.sql'))
+    .map((f) => readFileSync(join(MIGRACIONES, f), 'utf8'))
+    .join('\n')
+
+  const { ok, problemas } = verificarRespaldo(volcado!, tablas, privilegiosQuitados(migraciones))
 
   if (!ok) {
     fallar(`el volcado salió, pero no pasó la verificación:\n${problemas.map((p) => `  · ${p}`).join('\n')}`)
