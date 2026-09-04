@@ -2,7 +2,7 @@
   "name": "@aquazaku/api",
   "version": "0.1.0",
   "private": true,
-  "description": "API de Aquazaku \u2014 Fastify + Drizzle + Postgres + Better-Auth",
+  "description": "API de Aquazaku — Fastify + Drizzle + Postgres + Better-Auth",
   "type": "module",
   "engines": {
     "node": ">=22"
@@ -18,7 +18,8 @@
     "db:generate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx --env-file-if-exists=.env drizzle/migrate.ts",
     "db:migrate:test": "tsx --env-file-if-exists=.env drizzle/migrate.ts --test",
-    "db:seed": "tsx --env-file-if-exists=.env drizzle/seed.ts"
+    "db:seed": "tsx --env-file-if-exists=.env drizzle/seed.ts",
+    "db:respaldo": "tsx --env-file-if-exists=.env scripts/respaldo.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
