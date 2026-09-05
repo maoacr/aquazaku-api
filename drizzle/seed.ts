@@ -4,6 +4,7 @@ import { type NuevoProducto, insumos, productos, roles, userRoles, users } from 
 import { auth } from '@/modules/auth/better-auth'
 import { ROLES } from '@/modules/authz/matrix'
 import { codigoBase } from '@/modules/productos/codigo'
+import { describirConexion } from '../scripts/describir-conexion'
 import { INSUMOS_POR_BOTELLON } from '@/modules/produccion/cierre'
 
 /**
@@ -284,6 +285,19 @@ function esProblema(v: ProblemaDeEntorno | OpcionesDeSeed): v is ProblemaDeEntor
 }
 
 async function main(): Promise<void> {
+  /*
+   * ── A DÓNDE vamos a escribir, dicho antes de escribir ─────────────────────
+   *
+   * El respaldo ya volcó la base local creyendo que volcaba producción: la
+   * variable se puso con `export` en otra terminal y el `.env` tomó el control
+   * en silencio.
+   *
+   * Ese script solo LEÍA. Este escribe, y encima usa `DATABASE_URL` mientras el
+   * resto del despliegue usa `DATABASE_MIGRATION_URL` — o sea que es todavía
+   * más fácil sembrar la base equivocada sin enterarse.
+   */
+  console.log(`→ sembrando ${describirConexion(process.env.DATABASE_URL ?? '').descripcion}`)
+
   const entorno = leerEntorno(process.env)
 
   if (esProblema(entorno)) {
