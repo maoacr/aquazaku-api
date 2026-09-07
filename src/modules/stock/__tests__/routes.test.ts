@@ -268,11 +268,31 @@ describe('consultas', () => {
       payload: { productoId, cantidad: 10, fechaEmpaque: '2026-08-01', motivo: 'carga inicial de inventario' },
     })
 
-    const lotesDelProducto = (
+    const respuesta = (
       await comoAdmin({ method: 'GET', url: `/stock/${productoId}/lotes` })
     ).json()
 
-    expect(lotesDelProducto[0].codigo).toBe('2026-08-01-L1')
+    expect(respuesta.lotes[0].codigo).toBe('2026-08-01-L1')
+  })
+
+  /**
+   * ── El umbral viaja CON los lotes ─────────────────────────────────────────
+   *
+   * Configurar el aviso de vencimiento es de `admin`, pero mirarlo es de quien
+   * ve stock — y el `pos` no tiene `configuracion:ver` a propósito. Si la
+   * pantalla tuviera que pedirlo aparte, el `pos` pintaría con un número
+   * inventado o con ninguno.
+   *
+   * Es el mismo patrón que `/retornables/bases` con `diasDeEntrega`.
+   */
+  it('la respuesta trae el umbral de «vence pronto», para que la pantalla no lo copie', async () => {
+    await cargar()
+
+    const respuesta = (
+      await comoAdmin({ method: 'GET', url: `/stock/${productoId}/lotes` })
+    ).json()
+
+    expect(respuesta.diasDeAvisoDeVencimiento).toBe(7)
   })
 
   it('el libro pagina por cursor y filtra por tipo', async () => {

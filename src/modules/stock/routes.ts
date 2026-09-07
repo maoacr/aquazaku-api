@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
+import { leerParametro } from '@/modules/alertas/parametros'
 import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { listarMovimientos, lotesConSaldoDe, resumenDeStock } from './consultas'
@@ -35,7 +36,19 @@ export async function stockRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/stock/:productoId/lotes',
     { preHandler: [requireAuth, requirePermission('stock', 'ver')] },
-    async (req) => lotesConSaldoDe((req.params as { productoId: string }).productoId),
+    /*
+     * El umbral de «vence pronto» viaja CON los lotes, no en un endpoint
+     * aparte: configurarlo es de `admin` pero mirarlo es de quien ve stock, y
+     * el `pos` no tiene `configuracion:ver` a propósito.
+     *
+     * Es el mismo patrón que `/retornables/bases`: el día que el umbral
+     * cambie, un `7` escrito en un componente seguiría pintando mal sin que
+     * nadie lo note.
+     */
+    async (req) => ({
+      lotes: await lotesConSaldoDe((req.params as { productoId: string }).productoId),
+      diasDeAvisoDeVencimiento: await leerParametro('dias_aviso_vencimiento'),
+    }),
   )
 
   app.get(
