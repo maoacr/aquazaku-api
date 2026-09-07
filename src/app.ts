@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { env } from '@/lib/env'
 import { buildLoggerOptions } from '@/lib/logger'
 import { authRoutes } from '@/modules/auth/routes'
+import { leerEstado, resumirLatido } from '@/lib/latido'
 import { auditRoutes } from '@/modules/audit/routes'
 import { contadorRoutes } from '@/modules/contador/routes'
 import { productoRoutes } from '@/modules/productos/routes'
@@ -51,8 +52,28 @@ export async function buildApp(): Promise<FastifyInstance> {
     credentials: true,
   })
 
+  /**
+   * ── `/health` reporta lo que el latido descubrió ──────────────────────────
+   *
+   * Antes devolvía `ok` fijo, sin consultar nada. Railway estuvo en verde
+   * durante toda la puesta en marcha con Supabase inalcanzable: el proceso
+   * estaba vivo y el sistema no servía para nada.
+   *
+   * No consulta la base **en cada petición**, a propósito. El healthcheck de la
+   * plataforma pega cada pocos segundos: eso sería carga constante, y un
+   * parpadeo de la base tumbaría el contenedor sin arreglar nada. Reporta el
+   * último latido, que corre por su cuenta.
+   *
+   * Y sigue devolviendo 200 aunque la base falle. Un 503 haría que Railway
+   * reinicie el contenedor en bucle, y reiniciar `api` no levanta Supabase.
+   * Lo que cambia es que ahora el CUERPO lo dice, y el log lo grita.
+   */
   app.get('/health', async () => {
-    return { status: 'ok', service: 'aquazaku-api' }
+    return {
+      status: 'ok',
+      service: 'aquazaku-api',
+      ...resumirLatido(leerEstado(), new Date()),
+    }
   })
 
   await app.register(authPlugin)
