@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { db } from '@/db/client'
+import { type EstadoDeMigraciones, revisarMigraciones } from '@/lib/migraciones'
 
 /**
  * El latido que evita que Supabase apague el proyecto.
@@ -40,9 +41,16 @@ export interface EstadoDeLatido {
   ultimoContacto: Date | null
   ultimoError: string | null
   latidos: number
+  /** Se revisa una vez al arrancar: el esquema no cambia mientras el proceso vive. */
+  migraciones: EstadoDeMigraciones | null
 }
 
-const estado: EstadoDeLatido = { ultimoContacto: null, ultimoError: null, latidos: 0 }
+const estado: EstadoDeLatido = {
+  ultimoContacto: null,
+  ultimoError: null,
+  latidos: 0,
+  migraciones: null,
+}
 
 export function leerEstado(): EstadoDeLatido {
   return { ...estado }
@@ -58,7 +66,22 @@ export function resumirLatido(
   e: EstadoDeLatido,
   ahora: Date,
   sinNoticias = SIN_NOTICIAS,
-): { base: 'ok' | 'sin-contacto' | 'arrancando'; desdeHaceMs: number | null; error?: string } {
+): {
+  base: 'ok' | 'sin-contacto' | 'arrancando'
+  desdeHaceMs: number | null
+  error?: string
+  esquema?: EstadoDeMigraciones['estado']
+  faltan?: string[]
+} {
+  /*
+   * El estado del esquema viaja en el mismo reporte que el de la base. Son la
+   * misma pregunta: «¿este proceso puede hacer su trabajo?»
+   */
+  const esquema =
+    e.migraciones && e.migraciones.estado !== 'al-dia'
+      ? { esquema: e.migraciones.estado, faltan: e.migraciones.faltan }
+      : {}
+
   if (!e.ultimoContacto) {
     /*
      * Sin contacto todavía NO es lo mismo que contacto perdido. Al arrancar hay
@@ -66,8 +89,8 @@ export function resumirLatido(
      * enseñaría a ignorar ese valor.
      */
     return e.ultimoError
-      ? { base: 'sin-contacto', desdeHaceMs: null, error: e.ultimoError }
-      : { base: 'arrancando', desdeHaceMs: null }
+      ? { base: 'sin-contacto', desdeHaceMs: null, error: e.ultimoError, ...esquema }
+      : { base: 'arrancando', desdeHaceMs: null, ...esquema }
   }
 
   const desdeHaceMs = ahora.getTime() - e.ultimoContacto.getTime()
@@ -76,10 +99,11 @@ export function resumirLatido(
       base: 'sin-contacto',
       desdeHaceMs,
       ...(e.ultimoError && { error: e.ultimoError }),
+      ...esquema,
     }
   }
 
-  return { base: 'ok', desdeHaceMs }
+  return { base: 'ok', desdeHaceMs, ...esquema }
 }
 
 /** Una consulta trivial que además devuelve algo cierto: el reloj de la base. */
@@ -123,6 +147,29 @@ export function iniciarLatido(
       log.warn({ error: estado.ultimoError }, 'latido: la base NO respondió')
     }
   }
+
+  /*
+   * Al arrancar, además del latido: ¿el esquema es el que este código espera?
+   *
+   * Una sola vez, porque las migraciones no se aplican solas mientras el
+   * proceso vive — si alguien las corre, el redeploy vuelve a revisar.
+   */
+  void revisarMigraciones()
+    .then((m) => {
+      estado.migraciones = m
+
+      if (m.estado === 'pendientes') {
+        log.warn(
+          { faltan: m.faltan },
+          'FALTAN MIGRACIONES: este código espera tablas que la base no tiene. Corré `pnpm db:migrate` contra producción',
+        )
+      } else if (m.estado === 'no-verificable') {
+        log.warn({ motivo: m.motivo }, 'no se pudo verificar si faltan migraciones')
+      }
+    })
+    .catch((err: unknown) => {
+      log.warn({ error: String(err) }, 'falló la revisión de migraciones')
+    })
 
   void golpe()
 

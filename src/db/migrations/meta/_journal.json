@@ -92,6 +92,13 @@
       "when": 1788748224373,
       "tag": "0012_parametros",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1788806670725,
+      "tag": "0013_ver_migraciones",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ const estado = (e: Partial<EstadoDeLatido> = {}): EstadoDeLatido => ({
   ultimoContacto: null,
   ultimoError: null,
   latidos: 0,
+  migraciones: null,
   ...e,
 })
 
@@ -106,5 +107,57 @@ describe('la consulta', () => {
 
     expect(enLaBase).toBeInstanceOf(Date)
     expect(Math.abs(Date.now() - enLaBase.getTime())).toBeLessThan(5 * 60_000)
+  })
+})
+
+/**
+ * ── El esquema viaja en el mismo reporte que la base ────────────────────────
+ *
+ * Son la misma pregunta: «¿este proceso puede hacer su trabajo?»
+ *
+ * El 7-sep-2026 se desplegó código que leía una tabla que la migración todavía
+ * no había creado. El servidor arrancó sano, `/health` dio verde, y los dos
+ * módulos afectados fallaron recién cuando alguien los abrió — en una demo con
+ * el cliente.
+ */
+describe('si faltan migraciones', () => {
+  it('lo dice en el mismo /health, aunque la base responda', () => {
+    const r = resumirLatido(
+      estado({
+        ultimoContacto: haceMinutos(1),
+        migraciones: { estado: 'pendientes', faltan: ['0012_parametros'] },
+      }),
+      AHORA,
+    )
+
+    expect(r.base).toBe('ok')
+    expect(r.esquema).toBe('pendientes')
+    expect(r.faltan).toEqual(['0012_parametros'])
+  })
+
+  /*
+   * «No se pudo mirar» no es «está todo bien». Decirlo al revés es exactamente
+   * la mentira que este chequeo vino a eliminar.
+   */
+  it('no-verificable se reporta, no se calla', () => {
+    const r = resumirLatido(
+      estado({
+        ultimoContacto: haceMinutos(1),
+        migraciones: { estado: 'no-verificable', faltan: [], motivo: 'permission denied' },
+      }),
+      AHORA,
+    )
+
+    expect(r.esquema).toBe('no-verificable')
+  })
+
+  it('al día no ensucia la respuesta con campos vacíos', () => {
+    const r = resumirLatido(
+      estado({ ultimoContacto: haceMinutos(1), migraciones: { estado: 'al-dia', faltan: [] } }),
+      AHORA,
+    )
+
+    expect(r.esquema).toBeUndefined()
+    expect(r.faltan).toBeUndefined()
   })
 })
