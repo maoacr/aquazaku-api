@@ -42,10 +42,18 @@ if (!url) {
 try {
   new URL(url)
 } catch {
+  /*
+   * El aviso del `export` no es un detalle. Una variable exportada le GANA al
+   * archivo de `--env-file`, así que alguien puede crear un
+   * `.env.produccion.local` perfecto y seguir viendo el valor viejo sin
+   * entender por qué. Pasó dos veces seguidas, con el mismo valor.
+   */
   console.error(
     `✗ ${faltante} no es una cadena de conexión válida.\n` +
       `  Recibí: ${url}\n` +
-      '  Se ve así: postgresql://usuario:contraseña@host:5432/postgres',
+      '  Se ve así: postgresql://usuario:contraseña@host:5432/postgres\n\n' +
+      `  Si exportaste ${faltante} en esta terminal, ESE valor le gana al archivo.\n` +
+      `  Sacala con:  unset ${faltante}`,
   )
   process.exit(1)
 }
