@@ -1027,9 +1027,57 @@ export const direcciones = pgTable(
 
     /** Cómo la llaman: «Sucursal Norte», «la casa», «el depósito». */
     etiqueta: text('etiqueta').notNull(),
-    direccion: text('direccion').notNull(),
+
+    /*
+     * ── Ningún campo de ubicación es obligatorio, y es una decisión ─────────
+     *
+     * Aquazaku reparte en Campo de la Cruz y en pueblos vecinos. La
+     * nomenclatura `CL 45 A # 12 B - 34` es urbana: hay direcciones que son
+     * «Vereda La Peña, casa de tabla azul» y no se dejan descomponer.
+     *
+     * Exigir la estructura bloquearía el registro de un cliente REAL, y el
+     * operador inventaría `CL 1 # 1-1` para poder guardar — perdiendo el dato y
+     * ensuciando la base.
+     *
+     * Lo que SÍ exige la base es que el conjunto ubique: `direcciones_ubicable`.
+     */
+    viaTipo: text('via_tipo'),
+    viaNumero: text('via_numero'),
+    viaLetra: text('via_letra'),
+    placaNumero: text('placa_numero'),
+    placaLetra: text('placa_letra'),
+    placaSegundo: text('placa_segundo'),
+    placaLetraFinal: text('placa_letra_final'),
+    /** «Apto 302», «Torre B», «local 4». */
+    complemento: text('complemento'),
+
+    /**
+     * Municipio, pueblo o vereda. Un solo campo porque así se dice: «Suan»,
+     * «Vereda La Peña». No hay departamento ni país — Aquazaku no reparte más
+     * lejos, y un campo que siempre dice lo mismo no informa nada.
+     */
+    municipio: text('municipio'),
+
+    /**
+     * El departamento. Campo de la Cruz está cerca del límite con Bolívar y
+     * Magdalena: un municipio vecino puede ser de otro departamento.
+     */
+    departamento: text('departamento'),
+
+    /** La línea libre, para lo que no se descompone. Ya no es obligatoria. */
+    direccion: text('direccion'),
     /** Referencias para llegar: «al lado de la panadería». */
     indicaciones: text('indicaciones'),
+
+    /*
+     * El pin que alguien arrastró en el mapa.
+     *
+     * Es lo único que M8 (rutas) puede usar para ordenar un recorrido:
+     * geocodificar una dirección de municipio pequeño en Colombia no funciona,
+     * y una ruta calculada sobre una posición inventada es peor que ninguna.
+     */
+    latitud: numeric('latitud', { precision: 9, scale: 6 }),
+    longitud: numeric('longitud', { precision: 9, scale: 6 }),
 
     activa: boolean('activa').notNull().default(true),
     createdAt: tstz('created_at').notNull().defaultNow(),
@@ -1041,6 +1089,33 @@ export type Cliente = typeof clientes.$inferSelect
 export type NuevoCliente = typeof clientes.$inferInsert
 export type Direccion = typeof direcciones.$inferSelect
 export type NuevaDireccion = typeof direcciones.$inferInsert
+
+/**
+ * Los teléfonos de un cliente — M14.
+ *
+ * Tabla aparte y no una columna, por lo mismo que `direcciones`: un cliente
+ * comercial tiene el celular del dueño y el fijo del local, y en una casa el
+ * número puede ser el del vecino. Cuál es cuál lo dice la etiqueta.
+ */
+export const telefonos = pgTable(
+  'telefonos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    clienteId: uuid('cliente_id')
+      .notNull()
+      .references(() => clientes.id, { onDelete: 'restrict' }),
+    numero: text('numero').notNull(),
+    /** «celular del dueño», «el local», «la señora del frente». */
+    etiqueta: text('etiqueta'),
+    /** No se borra: se desactiva. El historial de a quién se llamó lo necesita. */
+    activo: boolean('activo').notNull().default(true),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [index('telefonos_cliente_idx').on(t.clienteId)],
+)
+
+export type Telefono = typeof telefonos.$inferSelect
+export type NuevoTelefono = typeof telefonos.$inferInsert
 
 
 // ─────────────────────────────────────────────────────────────────────────────

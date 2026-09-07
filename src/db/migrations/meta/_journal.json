@@ -99,6 +99,13 @@
       "when": 1788806670725,
       "tag": "0013_ver_migraciones",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1788808858126,
+      "tag": "0014_clientes_ubicables",
+      "breakpoints": true
     }
   ]
 }
