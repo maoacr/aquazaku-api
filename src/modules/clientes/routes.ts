@@ -4,7 +4,12 @@ import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { configurarCredito } from './credito'
-import { agregarDireccion, desactivarDireccion, direccionesDe } from './direcciones'
+import {
+  agregarDireccion,
+  desactivarDireccion,
+  direccionesDe,
+  editarDireccion,
+} from './direcciones'
 import { agregarTelefono, desactivarTelefono, telefonosDe } from './telefonos'
 import { documentoParaMostrar } from './documento'
 import {
@@ -276,6 +281,31 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         return await desactivarTelefono(id)
+      } catch (err) {
+        return manejarError(err, req, reply, 'clientes:editar', id)
+      }
+    },
+  )
+
+  /**
+   * Editar una dirección — M14.
+   *
+   * Se reemplaza entera, no campo por campo: el formulario manda todo lo que
+   * tiene, y lo que el operador borró llega ausente. Con un merge parcial,
+   * vaciar un campo sería imposible.
+   */
+  app.patch(
+    '/direcciones/:id',
+    {
+      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string }
+      const datos = validar(esquemaDeDireccion, req.body, reply)
+      if (!datos) return
+
+      try {
+        return await editarDireccion(id, datos)
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:editar', id)
       }

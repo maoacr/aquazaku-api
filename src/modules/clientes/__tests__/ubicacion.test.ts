@@ -287,3 +287,117 @@ describe('los teléfonos', () => {
     expect((await como({ method: 'GET', url: `/clientes/${clienteId}` })).json().telefonos).toHaveLength(0)
   })
 })
+
+/**
+ * ── Editar reemplaza la dirección entera ────────────────────────────────────
+ *
+ * El formulario manda todo lo que tiene, y lo que el operador borró llega
+ * ausente. Con un merge parcial, vaciar un campo sería imposible: mandar
+ * «municipio: nada» se leería como «no lo toques», y el dato viejo quedaría
+ * para siempre.
+ */
+describe('editar una dirección', () => {
+  const crearYObtener = async (payload: Record<string, unknown>) => {
+    await crearDireccion(payload)
+    const [d] = (await como({ method: 'GET', url: `/clientes/${clienteId}` })).json().direcciones
+    return d
+  }
+
+  it('cambia lo que se manda', async () => {
+    const d = await crearYObtener({ etiqueta: 'la casa', direccion: 'la casa azul', municipio: 'suan' })
+
+    const res = await como({
+      method: 'PATCH',
+      url: `/direcciones/${d.id}`,
+      payload: { etiqueta: 'el local', direccion: 'la esquina', municipio: 'campo de la cruz' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().legible).toBe('la esquina, Campo de la Cruz')
+    expect(res.json().etiqueta).toBe('el local')
+  })
+
+  it('un campo que se borró queda borrado, no con el valor viejo', async () => {
+    const d = await crearYObtener({
+      etiqueta: 'la casa',
+      direccion: 'la casa azul',
+      municipio: 'suan',
+      indicaciones: 'al lado del parque',
+    })
+
+    const res = await como({
+      method: 'PATCH',
+      url: `/direcciones/${d.id}`,
+      payload: { etiqueta: 'la casa', direccion: 'la casa azul', municipio: 'suan' },
+    })
+
+    expect(res.json().indicaciones).toBeNull()
+  })
+
+  /*
+   * Una edición puede dejar la dirección sin nada que la ubique, igual que un
+   * alta. Las reglas se comparten para que la edición no acepte lo que el alta
+   * rechaza.
+   */
+  it('no puede dejarla sin nada que la ubique', async () => {
+    const d = await crearYObtener({ etiqueta: 'la casa', direccion: 'la casa azul', municipio: 'suan' })
+
+    const res = await como({
+      method: 'PATCH',
+      url: `/direcciones/${d.id}`,
+      payload: { etiqueta: 'la casa', municipio: 'suan' },
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(res.json().mensaje).toContain('no dice dónde queda')
+  })
+
+  it('una que no existe responde 404', async () => {
+    const res = await como({
+      method: 'PATCH',
+      url: '/direcciones/00000000-0000-0000-0000-000000000000',
+      payload: { etiqueta: 'x', direccion: 'y' },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+})
+
+/**
+ * ── El servicio y la base tienen que decir lo mismo ─────────────────────────
+ *
+ * `direcciones_ubicable` (migración 0014) lista qué campos ubican, y el
+ * servicio repite esa lista para poder explicar el rechazo con un mensaje que
+ * se lea.
+ *
+ * Cuando se separaron, el servicio aceptaba una dirección con solo municipio y
+ * la base la rechazaba: el operador veía un error de constraint sin
+ * explicación. Este test las mantiene atadas.
+ */
+describe('qué cuenta como «ubica»', () => {
+  const soloCon = (campo: string, valor: unknown) =>
+    crearDireccion({ etiqueta: 'x', [campo]: valor })
+
+  it.each([
+    ['viaTipo', 'CL'],
+    ['viaNumero', '45'],
+    ['placaNumero', '12'],
+    ['direccion', 'la casa azul'],
+    ['indicaciones', 'al lado del parque'],
+  ])('%s alcanza', async (campo, valor) => {
+    expect((await soloCon(campo, valor)).statusCode).toBe(201)
+  })
+
+  /*
+   * A «Suan» no se le puede entregar agua, y un departamento menos todavía. Un
+   * campo lleno no es lo mismo que una dirección.
+   */
+  it.each([
+    ['municipio', 'suan'],
+    ['departamento', 'atlántico'],
+    ['complemento', 'Apto 302'],
+    ['viaLetra', 'A'],
+  ])('%s NO alcanza solo', async (campo, valor) => {
+    expect((await soloCon(campo, valor)).statusCode).toBe(422)
+  })
+})

@@ -68,6 +68,28 @@ export async function agregarDireccion(
 ): Promise<Direccion> {
   await clientePorId(clienteId)
 
+  const { etiqueta, limpios, coordenadas } = normalizar(datos)
+
+  const [creada] = await db
+    .insert(direcciones)
+    .values({ clienteId, etiqueta, ...limpios, ...coordenadas })
+    .returning()
+
+  return creada!
+}
+
+/**
+ * Las reglas que comparten el alta y la edición.
+ *
+ * Duplicadas, la edición podría aceptar una dirección que el alta rechaza —y
+ * nadie lo notaría hasta que alguien edite una y la deje sin nada que la
+ * ubique.
+ */
+function normalizar(datos: DatosDeDireccion): {
+  etiqueta: string
+  limpios: Record<string, string | null>
+  coordenadas: Record<string, string>
+} {
   const etiqueta = datos.etiqueta.trim()
 
   if (etiqueta.length === 0) {
@@ -100,8 +122,22 @@ export async function agregarDireccion(
       campo === 'municipio' || campo === 'departamento' ? paraGuardar(valor) : valor
   }
 
+  /*
+   * ── Qué cuenta como «ubica» ───────────────────────────────────────────────
+   *
+   * La MISMA lista que el CHECK `direcciones_ubicable` de la migración 0014.
+   * No es «cualquier campo lleno»: un municipio solo no ubica nada — a «Suan»
+   * no se le puede entregar agua.
+   *
+   * Esta lista y la del CHECK tienen que decir lo mismo. Antes no lo decían: el
+   * servicio aceptaba una dirección con solo municipio y la base la rechazaba,
+   * así que el operador veía un error de constraint sin explicación. Lo
+   * encontró un test, no una lectura.
+   */
+  const UBICAN = ['viaTipo', 'viaNumero', 'placaNumero', 'direccion', 'indicaciones'] as const
+
   const ubicable =
-    Object.values(limpios).some((v) => v !== null) || typeof datos.latitud === 'number'
+    UBICAN.some((campo) => limpios[campo] !== null) || typeof datos.latitud === 'number'
 
   /*
    * ── La invariante, explicada ──────────────────────────────────────────────
@@ -118,20 +154,18 @@ export async function agregarDireccion(
     )
   }
 
-  const [creada] = await db
-    .insert(direcciones)
-    .values({
-      clienteId,
-      etiqueta,
-      ...limpios,
-      ...(typeof datos.latitud === 'number' && {
-        latitud: String(datos.latitud),
-        longitud: String(datos.longitud),
-      }),
-    })
-    .returning()
-
-  return creada!
+  return {
+    etiqueta,
+    limpios,
+    /*
+     * Las coordenadas van de a dos o no van: media coordenada no ubica nada, y
+     * la base lo vuelve a exigir con un CHECK.
+     */
+    coordenadas:
+      typeof datos.latitud === 'number' && typeof datos.longitud === 'number'
+        ? { latitud: String(datos.latitud), longitud: String(datos.longitud) }
+        : {},
+  }
 }
 
 /**
@@ -158,6 +192,40 @@ export async function direccionesDe(
     .orderBy(direcciones.createdAt)
 
   return filas.map((d) => ({ ...d, legible: direccionLegible(d) }))
+}
+
+/**
+ * Editar una dirección — M14.
+ *
+ * ── Se reemplaza entera, no campo por campo ─────────────────────────────────
+ *
+ * El formulario manda todo lo que tiene, y lo que el operador borró llega
+ * ausente. Con un merge parcial, vaciar un campo sería imposible: mandar
+ * «municipio: nada» se interpretaría como «no lo toques», y el dato viejo
+ * quedaría para siempre.
+ *
+ * La invariante se revalida: una edición puede dejar la dirección sin nada que
+ * la ubique, igual que un alta.
+ */
+export async function editarDireccion(
+  id: string,
+  datos: DatosDeDireccion,
+): Promise<DireccionLegible> {
+  const [existe] = await db.select().from(direcciones).where(eq(direcciones.id, id))
+
+  if (!existe) {
+    throw new ErrorDeNegocio('DIRECCION_NO_ENCONTRADA', 404, 'esa dirección no existe')
+  }
+
+  const { etiqueta, limpios, coordenadas } = normalizar(datos)
+
+  const [actualizada] = await db
+    .update(direcciones)
+    .set({ etiqueta, ...limpios, ...coordenadas })
+    .where(eq(direcciones.id, id))
+    .returning()
+
+  return { ...actualizada!, legible: direccionLegible(actualizada!) }
 }
 
 /** Una dirección no se borra: se desactiva. Puede tener bases prestadas. */
