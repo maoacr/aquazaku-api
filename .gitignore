@@ -11,3 +11,6 @@ coverage/
 .idea/
 *.swp
 respaldos/
+
+# Cadenas de producción: nunca al repo.
+.env.produccion*

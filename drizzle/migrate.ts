@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { describirConexion } from '../scripts/describir-conexion'
 import postgres from 'postgres'
 
 /**
@@ -18,9 +19,34 @@ const url = useTestDb
   ? process.env.DATABASE_MIGRATION_URL_TEST
   : process.env.DATABASE_MIGRATION_URL
 
+const faltante = useTestDb ? 'DATABASE_MIGRATION_URL_TEST' : 'DATABASE_MIGRATION_URL'
+
 if (!url) {
-  const faltante = useTestDb ? 'DATABASE_MIGRATION_URL_TEST' : 'DATABASE_MIGRATION_URL'
-  console.error(`✗ Falta ${faltante}. Copiá .env.example a .env y completalo.`)
+  console.error(
+    `✗ Falta ${faltante}.\n` +
+      '  Para la base local: copiá .env.example a .env y completalo.\n' +
+      '  Para producción:    pnpm db:migrate:prod (lee .env.produccion.local)',
+  )
+  process.exit(1)
+}
+
+/*
+ * ── Que la cadena SEA una cadena ──────────────────────────────────────────
+ *
+ * Sin esto, `postgres()` tira un `TypeError: Invalid URL` con un stack de Node
+ * que no menciona ni la variable ni qué se esperaba. Pasó de verdad: se pegó un
+ * marcador de posición —`LA-DEL-5432`— y el error no ayudaba a verlo.
+ *
+ * El mensaje tiene que decir QUÉ variable, QUÉ recibió y CÓMO se ve la buena.
+ */
+try {
+  new URL(url)
+} catch {
+  console.error(
+    `✗ ${faltante} no es una cadena de conexión válida.\n` +
+      `  Recibí: ${url}\n` +
+      '  Se ve así: postgresql://usuario:contraseña@host:5432/postgres',
+  )
   process.exit(1)
 }
 
@@ -29,8 +55,12 @@ if (!url) {
 const client = postgres(url, { max: 1, onnotice: () => {} })
 
 try {
-  const destino = new URL(url).pathname.slice(1)
-  console.log(`→ migrando ${destino}`)
+  /*
+   * A QUÉ base, con usuario y host, antes de tocar nada. Solo el nombre de la
+   * base no alcanza: la de producción y la local pueden llamarse igual, y
+   * migrar la equivocada no avisa — deja las dos a medias.
+   */
+  console.log(`→ migrando ${describirConexion(url).descripcion}`)
 
   await migrate(drizzle(client), { migrationsFolder: './src/db/migrations' })
 

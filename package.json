@@ -19,7 +19,8 @@
     "db:migrate": "tsx --env-file-if-exists=.env drizzle/migrate.ts",
     "db:migrate:test": "tsx --env-file-if-exists=.env drizzle/migrate.ts --test",
     "db:seed": "tsx --env-file-if-exists=.env drizzle/seed.ts",
-    "db:respaldo": "tsx --env-file-if-exists=.env scripts/respaldo.ts"
+    "db:respaldo": "tsx --env-file-if-exists=.env scripts/respaldo.ts",
+    "db:migrate:prod": "tsx --env-file-if-exists=.env.produccion.local drizzle/migrate.ts"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.2",
