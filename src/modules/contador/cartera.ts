@@ -1,5 +1,6 @@
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
+import { diaEnLaPlanta } from '@/lib/dia'
 import { clientes, cobros, devoluciones, ventas } from '@/db/schema'
 import { aCentavos, aMonto } from '@/modules/ventas/precio'
 
@@ -66,7 +67,9 @@ export async function carteraPorEdad(hoy: string): Promise<CarteraDeCliente[]> {
       documento: clientes.numeroDocumento,
       ventaId: ventas.id,
       total: ventas.total,
-      dias: sql<string>`${hoy}::date - ${ventas.createdAt}::date`,
+      // El día de la venta, visto desde la planta: con la base en UTC, una
+      // venta de la tarde envejecería un día de más (ver `lib/dia.ts`).
+      dias: sql<string>`${hoy}::date - ${diaEnLaPlanta(ventas.createdAt)}`,
     })
     .from(ventas)
     .innerJoin(clientes, eq(clientes.id, ventas.clienteId))

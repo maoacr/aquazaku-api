@@ -1,6 +1,7 @@
 import { and, asc, eq, gte, lte, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { clientes, cobros, compras, devoluciones, proveedores, ventas } from '@/db/schema'
+import { diaEnLaPlanta } from '@/lib/dia'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { aCentavos, aMonto } from '@/modules/ventas/precio'
 
@@ -93,9 +94,13 @@ export async function extracto({ desde, hasta, tipos }: Filtros): Promise<Extrac
    * `<= '2026-08-31'` sobre un timestamp, todo lo del 31 después de medianoche
    * queda afuera: un día entero de operación que nadie extraña hasta que
    * concilia contra el banco.
+   *
+   * Y el día se calcula **en la zona de la planta**, no en la del servidor:
+   * `::date` a secas usa la zona de la sesión, y con la base en UTC toda venta
+   * posterior a las 19:00 caería en el día siguiente (ver `lib/dia.ts`).
    */
   const enRango = (columna: Parameters<typeof gte>[0]) =>
-    and(gte(sql`${columna}::date`, desde), lte(sql`${columna}::date`, hasta))
+    and(gte(diaEnLaPlanta(columna), desde), lte(diaEnLaPlanta(columna), hasta))
 
   const movimientos: Movimiento[] = []
 
