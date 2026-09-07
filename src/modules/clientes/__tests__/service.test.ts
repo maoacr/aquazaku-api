@@ -232,12 +232,36 @@ describe('las direcciones son entidades — RN-CLI-07', () => {
     expect(await direccionesDe(cliente.id)).toHaveLength(2)
   })
 
-  it('sin etiqueta o sin dirección, no entra', async () => {
+  /**
+   * ── Qué es obligatorio, después de M14 ────────────────────────────────────
+   *
+   * Antes lo eran la etiqueta Y la línea de dirección. Ahora la ubicación se
+   * puede dar de cuatro formas —nomenclatura, línea libre, indicaciones o el
+   * pin del mapa— porque Aquazaku reparte en pueblos donde hay direcciones que
+   * no se dejan descomponer.
+   *
+   * Lo que no cambió: **la etiqueta**. Es lo que el operador busca en una lista
+   * cuando tiene que elegir a cuál de los tres locales va.
+   */
+  it('sin etiqueta no entra: es lo que se busca en la lista', async () => {
     const { cliente } = await crearCliente(UNA_CEDULA)
 
     await expect(
       agregarDireccion(cliente.id, { etiqueta: '', direccion: 'Calle 5' }),
-    ).rejects.toMatchObject({ code: 'DIRECCION_INCOMPLETA' })
+    ).rejects.toMatchObject({ code: 'DIRECCION_SIN_ETIQUETA' })
+  })
+
+  /*
+   * Si ningún campo de ubicación es obligatorio por separado, nada impediría
+   * guardar una fila en blanco: una dirección a la que no se le puede entregar
+   * nada, que ocupa lugar en la lista y que alguien va a tratar de usar.
+   */
+  it('con etiqueta pero sin nada que ubique, tampoco', async () => {
+    const { cliente } = await crearCliente(UNA_CEDULA)
+
+    await expect(agregarDireccion(cliente.id, { etiqueta: 'la casa' })).rejects.toMatchObject({
+      code: 'DIRECCION_NO_UBICABLE',
+    })
   })
 
   it('a un cliente que no existe, tampoco', async () => {

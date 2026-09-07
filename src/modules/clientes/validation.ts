@@ -59,8 +59,52 @@ export const esquemaDeReversion = z.object({
     .min(10, 'desmarcar una verificación necesita explicación: alguien había respondido por ese documento'),
 })
 
+/**
+ * Una dirección — M14.
+ *
+ * Valida FORMA. Que la dirección ubique por algo lo decide el servicio: es una
+ * regla de negocio con su propio mensaje, y además la base la garantiza con un
+ * CHECK (`direcciones_ubicable`).
+ *
+ * Todos los campos de ubicación son opcionales a propósito: Aquazaku reparte en
+ * pueblos donde hay direcciones que no se dejan descomponer.
+ */
+const textoCorto = z.string().trim().max(40).optional()
+
 export const esquemaDeDireccion = z.object({
   etiqueta: z.string().trim().min(1, 'la dirección necesita cómo la llaman'),
-  direccion: z.string().trim().min(1, 'la dirección necesita dónde queda'),
-  indicaciones: z.string().trim().optional(),
+
+  viaTipo: textoCorto,
+  viaNumero: textoCorto,
+  viaLetra: textoCorto,
+  placaNumero: textoCorto,
+  placaLetra: textoCorto,
+  placaSegundo: textoCorto,
+  placaLetraFinal: textoCorto,
+  complemento: z.string().trim().max(80).optional(),
+  municipio: z.string().trim().max(80).optional(),
+  departamento: z.string().trim().max(80).optional(),
+
+  direccion: z.string().trim().max(200).optional(),
+  indicaciones: z.string().trim().max(300).optional(),
+
+  /*
+   * Los rangos del planeta. La base los vuelve a exigir con un CHECK; acá el
+   * mensaje explica, que es lo que un constraint no hace.
+   */
+  latitud: z.coerce.number().min(-90).max(90).optional(),
+  longitud: z.coerce.number().min(-180).max(180).optional(),
+})
+
+/**
+ * Un teléfono — M14.
+ *
+ * Siete dígitos es el mínimo de un fijo en Colombia. No se valida el formato
+ * más allá de eso: la gente escribe «300 123 4567», «(605) 8791234» y
+ * «3001234567», y rechazar cualquiera de las tres por prolijidad haría que el
+ * operador no cargue el número — que es el dato que hace falta para cobrar.
+ */
+export const esquemaDeTelefono = z.object({
+  numero: z.string().trim().min(7, 'un teléfono tiene al menos 7 dígitos').max(30),
+  etiqueta: z.string().trim().max(60).optional(),
 })

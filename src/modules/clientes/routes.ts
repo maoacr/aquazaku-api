@@ -5,6 +5,7 @@ import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { configurarCredito } from './credito'
 import { agregarDireccion, desactivarDireccion, direccionesDe } from './direcciones'
+import { agregarTelefono, desactivarTelefono, telefonosDe } from './telefonos'
 import { documentoParaMostrar } from './documento'
 import {
   cambiarEstado,
@@ -17,6 +18,7 @@ import {
   esquemaDeAlta,
   esquemaDeCredito,
   esquemaDeDireccion,
+  esquemaDeTelefono,
   esquemaDeEdicion,
   esquemaDeEstado,
   esquemaDeReversion,
@@ -62,6 +64,12 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
         return {
           ...conDocumento(cliente),
           direcciones: await direccionesDe(id),
+          /*
+           * Los teléfonos viajan con la ficha, no en otra petición: quien abre
+           * un cliente para llamarlo no debería tener que pedir el número
+           * aparte. Es el mismo criterio que las direcciones.
+           */
+          telefonos: await telefonosDe(id),
           /*
            * Los cuatro saldos de RN-CLI-06 todavía no tienen de dónde salir:
            * deuda y cargos son M6, botellones y bases son M7.
@@ -228,6 +236,46 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         return reply.code(201).send(await agregarDireccion(id, datos))
+      } catch (err) {
+        return manejarError(err, req, reply, 'clientes:editar', id)
+      }
+    },
+  )
+
+  /**
+   * Los teléfonos de un cliente — M14.
+   *
+   * Salió de la primera demo: se había construido la cartera por edad para
+   * saber a quién llamar primero, y no había a qué número llamar.
+   */
+  app.post(
+    '/clientes/:id/telefonos',
+    {
+      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string }
+      const datos = validar(esquemaDeTelefono, req.body, reply)
+      if (!datos) return
+
+      try {
+        return reply.code(201).send(await agregarTelefono(id, datos))
+      } catch (err) {
+        return manejarError(err, req, reply, 'clientes:editar', id)
+      }
+    },
+  )
+
+  app.patch(
+    '/telefonos/:id/desactivar',
+    {
+      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string }
+
+      try {
+        return await desactivarTelefono(id)
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:editar', id)
       }
