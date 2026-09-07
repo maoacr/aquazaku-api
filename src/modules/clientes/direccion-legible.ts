@@ -23,6 +23,8 @@
  * pintar un renglón en blanco que se lee como un error de la pantalla.
  */
 
+import { paraMostrar } from '@/modules/geografia/nombres'
+
 export interface PartesDeDireccion {
   viaTipo?: string | null
   viaNumero?: string | null
@@ -68,13 +70,20 @@ export function direccionLegible(d: PartesDeDireccion): string {
   else if (hay(d.direccion)) partes.push(d.direccion.trim())
 
   if (hay(d.complemento)) partes.push(d.complemento.trim())
-  if (hay(d.municipio)) partes.push(d.municipio.trim())
+  /*
+   * Se guardan en minúscula y se muestran con la ortografía del DANE. «Campo de
+   * la Cruz» no se reconstruye desde `campo de la cruz` con una regla: las
+   * preposiciones en minúscula dependen de cuál palabra es, no de su posición.
+   */
+  const municipio = paraMostrar(d.municipio)
+  if (municipio) partes.push(municipio)
   /*
    * El departamento va al final y solo si está: en el 99% de los casos es
    * «Atlántico» y repetirlo alarga la línea sin informar. Cuando aparece es
    * porque alguien lo cargó a propósito, y ahí sí distingue.
    */
-  if (hay(d.departamento)) partes.push(d.departamento.trim())
+  const departamento = paraMostrar(d.departamento)
+  if (departamento) partes.push(departamento)
 
   if (partes.length > 0) return partes.join(', ')
 

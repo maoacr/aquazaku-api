@@ -141,6 +141,97 @@ describe('lo que se rechaza', () => {
   })
 })
 
+/**
+ * ── Minúscula atrás, ortografía del DANE adelante ───────────────────────────
+ *
+ * Dos filas que dicen lo mismo tienen que ser iguales en la base, y buscar
+ * «suan» tiene que encontrar «Suan». Pero «Campo de la Cruz» no se reconstruye
+ * desde `campo de la cruz` con una regla: las preposiciones en minúscula
+ * dependen de cuál palabra es. Por eso hay catálogo.
+ */
+describe('el municipio y el departamento', () => {
+  it('se guardan en minúscula, se muestran bien escritos', async () => {
+    await crearDireccion({
+      etiqueta: 'la casa',
+      direccion: 'la esquina',
+      municipio: 'CAMPO DE LA CRUZ',
+      departamento: 'atlantico',
+    })
+
+    const [d] = (await como({ method: 'GET', url: `/clientes/${clienteId}` })).json().direcciones
+
+    expect(d.municipio).toBe('campo de la cruz')
+    expect(d.departamento).toBe('atlantico')
+    expect(d.legible).toBe('la esquina, Campo de la Cruz, Atlántico')
+  })
+
+  it('escrito sin tildes, se muestra con ellas', async () => {
+    await crearDireccion({ etiqueta: 'x', direccion: 'y', municipio: 'santa lucia' })
+
+    const [d] = (await como({ method: 'GET', url: `/clientes/${clienteId}` })).json().direcciones
+
+    expect(d.legible).toContain('Santa Lucía')
+  })
+
+  /*
+   * El DANE lista municipios, no veredas — y Aquazaku reparte en algunas. No
+   * puede rechazarse lo que no está en el catálogo.
+   */
+  it('una vereda que el DANE no lista se acepta igual', async () => {
+    const res = await crearDireccion({
+      etiqueta: 'la finca',
+      direccion: 'casa de tabla azul',
+      municipio: 'vereda la peña',
+    })
+
+    expect(res.statusCode).toBe(201)
+  })
+})
+
+describe('el catálogo geográfico', () => {
+  it('lista los 33 departamentos', async () => {
+    const res = await como({ method: 'GET', url: '/geografia/departamentos' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveLength(33)
+  })
+
+  it('los municipios se filtran por departamento: son 1122 en total', async () => {
+    const todos = (await como({ method: 'GET', url: '/geografia/municipios' })).json()
+    const atlantico = (
+      await como({ method: 'GET', url: '/geografia/municipios?departamento=08' })
+    ).json()
+
+    expect(todos).toHaveLength(1122)
+    expect(atlantico).toHaveLength(23)
+    expect(atlantico.map((m: { nombre: string }) => m.nombre)).toContain('Campo de la Cruz')
+  })
+
+  /*
+   * Las coordenadas del DANE sirven para centrar el mapa en el municipio
+   * elegido, que es mejor punto de partida que centrarlo en el país.
+   */
+  it('cada municipio trae sus coordenadas', async () => {
+    const [m] = (
+      await como({ method: 'GET', url: '/geografia/municipios?departamento=08' })
+    ).json().filter((x: { codigo: string }) => x.codigo === '08137')
+
+    expect(m.lat).toBeCloseTo(10.378, 2)
+    expect(m.lng).toBeCloseTo(-74.881, 2)
+  })
+
+  /*
+   * Es la división política de Colombia, publicada por el DANE. Exigir un
+   * permiso para leerla sería tratar como secreto algo que está en
+   * datos.gov.co — pero sin sesión no entra nadie.
+   */
+  it('sin sesión no se lee', async () => {
+    expect((await app.inject({ method: 'GET', url: '/geografia/departamentos' })).statusCode).toBe(
+      401,
+    )
+  })
+})
+
 describe('los teléfonos', () => {
   const crearTelefono = (payload: Record<string, unknown>) =>
     como({ method: 'POST', url: `/clientes/${clienteId}/telefonos`, payload })

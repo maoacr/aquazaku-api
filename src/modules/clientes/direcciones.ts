@@ -2,6 +2,7 @@ import { and, eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { type Direccion, direcciones } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { paraGuardar } from '@/modules/geografia/nombres'
 import { direccionLegible } from './direccion-legible'
 import { clientePorId } from './service'
 
@@ -85,7 +86,18 @@ export async function agregarDireccion(
   const limpios: Record<string, string | null> = {}
   for (const campo of TEXTOS) {
     const valor = datos[campo]?.trim()
-    limpios[campo] = valor && valor.length > 0 ? valor : null
+    if (!valor || valor.length === 0) {
+      limpios[campo] = null
+      continue
+    }
+
+    /*
+     * Municipio y departamento van en MINÚSCULA. Así dos filas que dicen lo
+     * mismo son iguales, y buscar «suan» encuentra «Suan». La ortografía buena
+     * se recupera del catálogo del DANE al mostrarlas.
+     */
+    limpios[campo] =
+      campo === 'municipio' || campo === 'departamento' ? paraGuardar(valor) : valor
   }
 
   const ubicable =
