@@ -5,6 +5,7 @@ import { env } from '@/lib/env'
 import { buildLoggerOptions } from '@/lib/logger'
 import { authRoutes } from '@/modules/auth/routes'
 import { leerEstado, resumirLatido } from '@/lib/latido'
+import { alertasRoutes } from '@/modules/alertas/routes'
 import { auditRoutes } from '@/modules/audit/routes'
 import { contadorRoutes } from '@/modules/contador/routes'
 import { productoRoutes } from '@/modules/productos/routes'
@@ -80,6 +81,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(authRoutes)
   await app.register(userRoutes)
   await app.register(auditRoutes)
+  await app.register(alertasRoutes)
   await app.register(productoRoutes)
   await app.register(stockRoutes)
   await app.register(insumosRoutes)

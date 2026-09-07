@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import * as schema from '@/db/schema'
+import { PARAMETROS_INICIALES } from '@/modules/alertas/parametros'
 
 /**
  * Utilidades de base para los tests. Solo se importan desde tests.
@@ -124,6 +125,18 @@ export async function resetDb(): Promise<void> {
   const sql = ownerSql()
   try {
     await sql.unsafe(`TRUNCATE ${TABLAS.join(', ')} RESTART IDENTITY CASCADE`)
+
+    /*
+     * Los umbrales vuelven a su valor inicial.
+     *
+     * `parametros` NO se trunca —no cuelga de nada, así que el CASCADE no la
+     * alcanza— pero un test que mueva un umbral se lo dejaría movido al
+     * siguiente. Un test que pasa o falla según lo que hizo otro es peor que
+     * un test que falta.
+     */
+    for (const p of PARAMETROS_INICIALES) {
+      await sql.unsafe('UPDATE parametros SET valor = $1 WHERE clave = $2', [p.valor, p.clave])
+    }
 
     await sql.unsafe('ALTER TABLE audit_log DISABLE TRIGGER USER')
     await sql.unsafe('TRUNCATE audit_log RESTART IDENTITY')

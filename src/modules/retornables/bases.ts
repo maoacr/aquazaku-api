@@ -10,6 +10,7 @@ import {
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
+import { leerParametro } from '@/modules/alertas/parametros'
 import type { Ejecutor } from '@/modules/stock/saldo'
 import { esCodigoDeBase, proximoCodigo } from './codigo'
 
@@ -81,19 +82,11 @@ export async function darDeAltaBase(
   })
 }
 
-/**
- * Cuánto tarda en llegar un pedido de bases al proveedor.
- *
- * Viaja en la respuesta para que la pantalla no lo copie: el día que el
- * proveedor cambie, un `7` escrito en un componente seguiría avisando tarde sin
- * que nadie lo note. Mismo criterio que las constantes del cierre de producción.
- */
-export const DIAS_DE_ENTREGA = 7
 
 export interface DisponibilidadDeBases {
   /** En bodega, sanas y activas: las que de verdad se pueden prestar hoy. */
   libres: number
-  /** Cuántas se prestaron en los últimos `DIAS_DE_ENTREGA` días. */
+  /** Cuántas se prestaron en la ventana de entrega del proveedor. */
   prestadasEnLaVentana: number
   diasDeEntrega: number
   /** `false` cuando hay que comprar — RN-BAS-13. */
@@ -126,7 +119,13 @@ export interface DisponibilidadDeBases {
  * que no durante una semana.
  */
 export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
-  const desde = new Date(Date.now() - DIAS_DE_ENTREGA * 24 * 60 * 60 * 1000)
+  /*
+   * La demora del proveedor sale de la base, no de una constante: RN-STK-11
+   * pide que estos umbrales se ajusten sin desplegar, y el día que el proveedor
+   * cambie, un `7` escrito acá seguiría avisando tarde sin que nadie lo note.
+   */
+  const diasDeEntrega = await leerParametro('dias_entrega_bases')
+  const desde = new Date(Date.now() - diasDeEntrega * 24 * 60 * 60 * 1000)
 
   const [fila] = await db
     .select({ n: sql<string>`count(*)` })
@@ -144,7 +143,7 @@ export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
   return {
     libres,
     prestadasEnLaVentana,
-    diasDeEntrega: DIAS_DE_ENTREGA,
+    diasDeEntrega,
     /*
      * Cero libres avisa siempre, aunque el ritmo también sea cero: no se puede
      * prestar lo que no hay, y ahí el aviso no depende de ninguna estimación.

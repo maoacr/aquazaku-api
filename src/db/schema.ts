@@ -1701,3 +1701,29 @@ export const lineasDeCompra = pgTable(
 export type Proveedor = typeof proveedores.$inferSelect
 export type Compra = typeof compras.$inferSelect
 export type LineaDeCompra = typeof lineasDeCompra.$inferSelect
+
+/**
+ * Los umbrales de las alertas — M12.
+ *
+ * Viven en la base y no en constantes porque `RN-STK-11` lo pide: el número
+ * correcto depende de la rotación real, y moverlo no puede exigir un despliegue.
+ *
+ * La etiqueta y la ayuda viajan con el dato para que la pantalla no las copie:
+ * un parámetro nuevo aparece en la administración sin tocar `web`.
+ */
+export const parametros = pgTable('parametros', {
+  clave: text('clave').primaryKey(),
+  valor: integer('valor').notNull(),
+  /** Los bordes viven en la base: un umbral en 0 apaga la alerta sin decirlo. */
+  minimo: integer('minimo').notNull(),
+  maximo: integer('maximo').notNull(),
+  etiqueta: text('etiqueta').notNull(),
+  ayuda: text('ayuda').notNull(),
+  unidad: text('unidad').notNull(),
+  /*
+   * No hay `actualizado_por`: quién movió el umbral —y de cuánto a cuánto— lo
+   * guarda `audit_log`, que es el registro autoritativo (ADR-0004). Una FK acá
+   * además haría que un TRUNCATE de `users` se lleve la configuración entera.
+   */
+  actualizadoEn: tstz('actualizado_en').notNull().defaultNow(),
+})

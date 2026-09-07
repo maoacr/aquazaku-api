@@ -3,13 +3,13 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
 import { bases, clientes, direcciones, movimientosBase } from '@/db/schema'
 import {
-  DIAS_DE_ENTREGA,
   comprarBases,
   disponibilidadDeBases,
   prestarBase,
   retornarBase,
 } from '@/modules/retornables/bases'
 import { marcarBaseDanada } from '@/modules/retornables/dano'
+import { cambiarParametro, leerParametro } from '@/modules/alertas/parametros'
 import { resetDb } from '@/test/db'
 
 /**
@@ -68,9 +68,30 @@ async function prestar(cuantas: number): Promise<void> {
   }
 }
 
+/**
+ * ── La ventana ya no es una constante ───────────────────────────────────────
+ *
+ * Era `DIAS_DE_ENTREGA = 7` en este módulo. Ahora sale de `parametros`
+ * (M12): RN-STK-11 pide que estos umbrales se ajusten sin desplegar, porque el
+ * número correcto depende de la rotación real y esa todavía no se midió.
+ *
+ * La constante se BORRÓ, no quedó como default. Un default en el código y una
+ * fila en la base son dos lugares donde configurar lo mismo, y el día que
+ * discrepen nadie va a saber cuál manda.
+ */
 describe('la ventana es la demora del proveedor', () => {
-  it('son 7 días, y el número viaja para que la pantalla no lo copie', () => {
-    expect(DIAS_DE_ENTREGA).toBe(7)
+  it('sale de la base y viaja en la respuesta, para que la pantalla no la copie', async () => {
+    const d = await disponibilidadDeBases()
+
+    expect(d.diasDeEntrega).toBe(await leerParametro('dias_entrega_bases'))
+  })
+
+  it('cambiar el parámetro cambia la ventana, sin desplegar nada', async () => {
+    await cambiarParametro('dias_entrega_bases', 21)
+
+    expect((await disponibilidadDeBases()).diasDeEntrega).toBe(21)
+
+    await cambiarParametro('dias_entrega_bases', 7)
   })
 })
 
