@@ -106,6 +106,13 @@
       "when": 1788808858126,
       "tag": "0014_clientes_ubicables",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1789000000000,
+      "tag": "0015_audit_revoke",
+      "breakpoints": true
     }
   ]
 }
