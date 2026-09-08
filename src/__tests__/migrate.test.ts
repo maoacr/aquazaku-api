@@ -130,7 +130,13 @@ describe('migrate --schema=<nombre>', () => {
    * ya está en migrate.ts.
    */
   const appUrl = process.env.DATABASE_URL
-  const skipSinAppUrl = !appUrl || !appUrl.includes('aquazaku_app')
+  /*
+   * El check es sobre el prefijo del usuario en la URL, no un `includes` sobre
+   * la palabra "aquazaku_app" en cualquier lado: si en el futuro alguien define
+   * `DATABASE_URL` con `search_path=aquazaku_app,...` (u otro caso similar),
+   * `includes` da true sin que haya un rol real para conectarse.
+   */
+  const skipSinAppUrl = !appUrl || !appUrl.startsWith('postgres://aquazaku_app:')
 
   it.skipIf(skipSinAppUrl)(
     'aquazaku_app puede SELECTear tablas del schema destino',

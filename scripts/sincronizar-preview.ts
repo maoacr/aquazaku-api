@@ -62,9 +62,17 @@ if (migrate.status !== 0) {
   process.exit(migrate.status ?? 1)
 }
 
+/*
+ * El primer `spawnSync` (`pnpm db:migrate`) hereda `--env-file-if-exists=.env`
+ * porque ese flag está en el script `db:migrate` de `package.json`. Acá
+ * invocamos `tsx` directamente, así que tenemos que pasarlo explícito: en
+ * Railway no importa (las env vars las inyecta el runner), pero localmente
+ * `DATABASE_URL` no llega al subproceso y el audit falla con "DATABASE_URL
+ * no definida" apenas arranca.
+ */
 const audit = spawnSync(
   'pnpm',
-  ['tsx', 'scripts/auditar-permisos-preview.ts', '--schema=preview'],
+  ['tsx', '--env-file-if-exists=.env', 'scripts/auditar-permisos-preview.ts', '--schema=preview'],
   { stdio: 'inherit' },
 )
 

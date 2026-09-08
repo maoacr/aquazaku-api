@@ -1,6 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { env } from '@/lib/env'
+import { env, type Env } from '@/lib/env'
 import * as schema from './schema'
 
 /**
@@ -8,9 +8,17 @@ import * as schema from './schema'
  * ambiente: `preview` para `AQUAZAKU_ENV=preview`, `public` para los demás.
  * Postgres resuelve cualquier nombre no calificado (`from ventas`) contra
  * este path, así el código de queries no tiene que saber en qué schema está.
+ *
+ * Exportada pura para poder testearla sin abrir un pool real — el contrato
+ * `AQUAZAKU_ENV → search_path` está duplicado en dos archivos (`env.ts` con
+ * el enum, `client.ts` con esta función), y un test es la red de seguridad
+ * barata cuando alguien agregue un valor al enum.
  */
-const searchPath =
-  env.AQUAZAKU_ENV === 'preview' ? 'preview' : 'public'
+export function searchPathFor(ambiente: Env['AQUAZAKU_ENV']): 'preview' | 'public' {
+  return ambiente === 'preview' ? 'preview' : 'public'
+}
+
+const searchPath = searchPathFor(env.AQUAZAKU_ENV)
 
 /**
  * Conexión de la aplicación.
