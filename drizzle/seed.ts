@@ -247,9 +247,17 @@ export interface ProblemaDeEntorno {
 
 /** Valida el entorno del seed. Devuelve el problema, o las opciones si está bien. */
 export function leerEntorno(env: NodeJS.ProcessEnv): ProblemaDeEntorno | OpcionesDeSeed {
-  // En producción hay que pedirlo explícitamente. Un seed que corre solo puede
-  // crear una cuenta con acceso total sin que nadie lo haya decidido.
-  if (env.NODE_ENV === 'production' && env.SEED_CONFIRM !== 'yes') {
+  // Defensa en profundidad: dos switches de seguridad redundantes. `NODE_ENV`
+  // lo setean frameworks y herramientas externas; `AQUAZAKU_ENV` lo controlamos
+  // nosotros. Si alguien corre este script apuntando a producción con
+  // `NODE_ENV=development` por error (o con un override local del `.env`),
+  // `AQUAZAKU_ENV=production` lo frena igual. Un seed que pasa ambos puede
+  // crear una cuenta con acceso total — y por eso, además, exige
+  // `SEED_CONFIRM=yes`.
+  if (
+    (env.NODE_ENV === 'production' || env.AQUAZAKU_ENV === 'production') &&
+    env.SEED_CONFIRM !== 'yes'
+  ) {
     return {
       mensaje:
         'Estás en producción y no pusiste SEED_CONFIRM=yes.\n' +

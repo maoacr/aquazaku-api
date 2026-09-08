@@ -64,7 +64,18 @@ export const auth = betterAuth({
 
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
-  trustedOrigins: [env.WEB_PUBLIC_URL],
+  trustedOrigins: [
+    env.WEB_PUBLIC_URL,
+    // Preview environments de Vercel (`<branch>-git-<usuario>.<team>.vercel.app`).
+    // El subdominio es dinámico por branch/PR, así que el wildcard es la única
+    // forma de cubrirlos sin enumerar uno por uno. Sólo aplica al endpoint de
+    // Better Auth que valida el header `Origin`; un atacante tendría que poder
+    // emitir requests desde un dominio bajo `*.vercel.app`, lo que ya implica
+    // tener control sobre Vercel. Verificado en `better-auth@1.7.1`:
+    // `auth/trusted-origins.mjs` rutea patrones con `*` por `wildcardMatch`
+    // (glob).
+    'https://*.vercel.app',
+  ],
 
   emailAndPassword: {
     enabled: true,

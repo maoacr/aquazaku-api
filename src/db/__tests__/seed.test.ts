@@ -274,6 +274,19 @@ describe('validación del entorno', () => {
     }
   })
 
+  it('AQUAZAKU_ENV=production también exige SEED_CONFIRM=yes — defensa en profundidad', () => {
+    // Aunque `NODE_ENV` diga `development`, si `AQUAZAKU_ENV=production` el seed
+    // sigue creando una cuenta con acceso total contra producción. El segundo
+    // switch es lo que frena el caso "NODE_ENV mal seteado apuntando a prod".
+    expect(
+      leerEntorno({
+        NODE_ENV: 'development',
+        AQUAZAKU_ENV: 'production',
+        SEED_ADMIN_PASSWORD: 'contrasena-larga-123',
+      }),
+    ).toMatchObject({ mensaje: expect.stringContaining('SEED_CONFIRM=yes') })
+  })
+
   it('respeta email y nombre del entorno', () => {
     expect(
       leerEntorno({
