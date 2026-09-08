@@ -12,15 +12,15 @@
 # un par de segundos, una vez. Por eso `tsx` está en `dependencies` y no en
 # `devDependencies`: en producción SE EJECUTA.
 #
-# ── Las migraciones NO corren acá ────────────────────────────────────────────
+# ── Las migraciones SÍ corren acá (con credencial separada) ──────────────────
 #
-# Necesitan `DATABASE_MIGRATION_URL` —el rol dueño del esquema, que puede crear
-# tablas y revocar permisos— y el servidor corre con `DATABASE_URL`, el rol de
-# la aplicación, que tiene `UPDATE`/`DELETE` revocados sobre los libros
-# append-only. Darle al contenedor de runtime la credencial del dueño para
-# «aprovechar y migrar al arrancar» tiraría abajo esa separación.
-#
-# Migrar es un paso aparte y deliberado: `docker compose run --rm migraciones`.
+# El release command corre `pnpm db:migrate` antes de levantar el server. Esa
+# migración usa `DATABASE_MIGRATION_URL` —el rol dueño del esquema, que puede
+# crear tablas y revocar permisos—, mientras que el server runtime usa
+# `DATABASE_URL`, el rol de la aplicación, que tiene `UPDATE`/`DELETE` revocados
+# sobre los libros append-only. La separación se mantiene: la credencial del
+# dueño nunca toca el proceso del server, solo el paso de migración que corre
+# y termina antes de que `pnpm start` arranque.
 
 FROM node:22-alpine
 
@@ -44,6 +44,11 @@ RUN pnpm install --frozen-lockfile --prod
 COPY tsconfig.json ./
 COPY src ./src
 COPY drizzle ./drizzle
+# `scripts/` es donde vive `describir-conexion.ts` y los helpers que importa
+# `drizzle/migrate.ts`. Sin esta copia, el release command (`pnpm db:migrate`)
+# crashea con `Cannot find module` y el server nunca arranca. Encontrado en
+# producción el 8-sep-2026 al activar el release command de migraciones.
+COPY scripts ./scripts
 
 # `node` viene con la imagen y no es root. El proceso no escribe en disco
 # —los logs van a stdout— así que no necesita ser dueño de nada.
