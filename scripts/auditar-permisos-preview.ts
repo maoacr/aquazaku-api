@@ -46,6 +46,11 @@
  *   pnpm tsx scripts/auditar-permisos-preview.ts --schema=preview
  *   AQUAZAKU_ENV=preview pnpm tsx scripts/auditar-permisos-preview.ts
  *
+ * Round 2: el deploy del 8-sep-2026 triggeró este script via `db:sync-preview`
+ * después de mergear preview-environments — el script detectó que `0015_audit_revoke`
+ * no estaba aplicada en `public` de Supabase porque las migraciones previas corrieron
+ * antes de que el archivo existiera. El siguiente deploy la aplica.
+ *
  * Si `--schema` está ausente, default `preview` — es el único caso que nos
  * importa (en `public` la auditoría es trivial porque las migraciones acaban
  * de correr).
