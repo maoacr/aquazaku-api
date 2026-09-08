@@ -108,4 +108,46 @@ describe('migrate --schema=<nombre>', () => {
       await client.end()
     }
   })
+
+  /*
+   * ── El rol de la app tiene que poder LEER las tablas del schema ─────────
+   *
+   * Sin el `GRANT USAGE ON SCHEMA <x> TO aquazaku_app` (y los `ALTER DEFAULT
+   * PRIVILEGES` para tablas/sequences futuras), el pool de runtime entra
+   * con `permission denied for schema <x>` apenas intente la primera SELECT.
+   *
+   * Este test se conecta como `aquazaku_app` (el rol que usa el runtime, no
+   * el dueño) y ejecuta `SELECT 1 FROM ventas LIMIT 0`. El `LIMIT 0` evita
+   * traer filas — solo pedimos el permiso de lectura sobre la tabla. Si el
+   * GRANT falta, postgres tira `permission denied for table ventas`.
+   *
+   * Por qué `ventas`: nace en 0007 y la app la toca constantemente. Si está
+   * legible, las GRANTs de las migraciones se aplicaron al schema correcto
+   * (no se quedaron apuntando a `public`).
+   *
+   * Skip si `DATABASE_URL` no está seteada con credenciales de `aquazaku_app`
+   * (CI puede apuntar a un rol distinto): el test no es bloqueante, el GRANT
+   * ya está en migrate.ts.
+   */
+  const appUrl = process.env.DATABASE_URL
+  const skipSinAppUrl = !appUrl || !appUrl.includes('aquazaku_app')
+
+  it.skipIf(skipSinAppUrl)(
+    'aquazaku_app puede SELECTear tablas del schema destino',
+    async () => {
+      const client = postgres(appUrl!, {
+        // El rol de la app no tiene `search_path` por default — se lo fijamos
+        // explícito para que `ventas` resuelva al schema del `it` anterior.
+        connection: { search_path: `${schema},public` },
+        onnotice: () => {},
+      })
+      try {
+        // `LIMIT 0`: pide el permiso de SELECT y devuelve 0 filas. Si el
+        // GRANT para `aquazaku_app` falta, esto tira `permission denied`.
+        await client.unsafe('SELECT 1 FROM "ventas" LIMIT 0')
+      } finally {
+        await client.end()
+      }
+    },
+  )
 })

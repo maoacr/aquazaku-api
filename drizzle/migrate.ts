@@ -34,7 +34,10 @@ import { describirConexion } from '../scripts/describir-conexion'
  * pone `search_path = preview` (ver `src/db/client.ts`).
  *
  * Lo que hace `--schema`:
- *   1. Crea el schema destino si no existe (y da permisos al rol dueño).
+ *   1. Crea el schema destino si no existe y le da permisos tanto al rol dueño
+ *      (`aquazaku`) como al rol de aplicación (`aquazaku_app`) — sin el GRANT
+ *      a `aquazaku_app`, la app entra con `permission denied for schema <x>`
+ *      apenas intente leer la primera tabla.
  *   2. Copia las migraciones a un tempdir pasándolas por `sed` para reemplazar
  *      cada `"public".` por `"<schema>".` — así las FK y los CREATE TYPE
  *      apuntan al schema correcto.
@@ -182,17 +185,31 @@ try {
 
   if (targetSchema !== 'public') {
     /*
-     * Crear el schema y darle permisos al rol de la app ANTES de cualquier
-     * `CREATE TABLE` (las migraciones no lo hacen — `public` venía pre-creado).
+     * Crear el schema y darle permisos ANTES de cualquier `CREATE TABLE` (las
+     * migraciones no lo hacen — `public` venía pre-creado).
      *
-     * El `GRANT USAGE, CREATE` es lo que permite que el pool de runtime (con
-     * search_path = preview) pueda crear tablas temporales si alguna migración
-     * lo necesitara, y reserve el nombre del schema. Sin esto, el schema existe
-     * pero la app entra con `permission denied for schema preview`.
+     * Tres roles en juego:
+     *   - `aquazaku` (dueño): corre DDL, necesita `USAGE, CREATE` para crear
+     *     objetos y `USAGE` para resolver el nombre desde el search_path.
+     *   - `aquazaku_app` (rol de la app, search_path = <schema>): necesita
+     *     `USAGE` para que el schema siquiera exista en su radar. Sin esto
+     *     tira `permission denied for schema <x>` apenas intente la primera
+     *     SELECT. Los GRANTs de tabla/sequence ya los otorgan las propias
+     *     migraciones (reescritas por el sed), así que acá solo cubrimos
+     *     el schema y los objetos FUTUROS vía DEFAULT PRIVILEGES (defensa
+     *     para cuando alguien cree una tabla fuera del flujo de migración).
      */
     await client.unsafe(
       `CREATE SCHEMA IF NOT EXISTS "${targetSchema}";
-       GRANT USAGE, CREATE ON SCHEMA "${targetSchema}" TO aquazaku;`,
+
+       GRANT USAGE, CREATE ON SCHEMA "${targetSchema}" TO aquazaku;
+       GRANT USAGE ON SCHEMA "${targetSchema}" TO aquazaku_app;
+
+       ALTER DEFAULT PRIVILEGES IN SCHEMA "${targetSchema}"
+         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO aquazaku_app;
+
+       ALTER DEFAULT PRIVILEGES IN SCHEMA "${targetSchema}"
+         GRANT USAGE, SELECT ON SEQUENCES TO aquazaku_app;`,
     )
     tmpMigrationsDir = prepararCarpetaSed(targetSchema)
   }
