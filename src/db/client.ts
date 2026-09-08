@@ -4,6 +4,15 @@ import { env } from '@/lib/env'
 import * as schema from './schema'
 
 /**
+ * El pool arranca cada conexión con el `search_path` correspondiente al
+ * ambiente: `preview` para `AQUAZAKU_ENV=preview`, `public` para los demás.
+ * Postgres resuelve cualquier nombre no calificado (`from ventas`) contra
+ * este path, así el código de queries no tiene que saber en qué schema está.
+ */
+const searchPath =
+  env.AQUAZAKU_ENV === 'preview' ? 'preview' : 'public'
+
+/**
  * Conexión de la aplicación.
  *
  * Usa `DATABASE_URL`, que apunta al rol `aquazaku_app` — sin permisos de DDL y
@@ -15,6 +24,11 @@ const queryClient = postgres(env.DATABASE_URL, {
   // evita dejar sockets colgados entre suites.
   max: env.NODE_ENV === 'test' ? 1 : 10,
   onnotice: env.NODE_ENV === 'test' ? () => {} : undefined,
+  // `postgres.js` no acepta un campo top-level `options` (es libpq-style de
+  // node-postgres). Los parámetros de arranque — incluido `search_path` —
+  // van bajo `connection`, que `StartupMessage()` envía al server como
+  // key/value. Ver `postgres/src/connection.js:996`.
+  connection: { search_path: searchPath },
 })
 
 export const db = drizzle(queryClient, { schema })

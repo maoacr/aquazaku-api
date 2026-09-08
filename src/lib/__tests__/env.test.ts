@@ -90,3 +90,37 @@ describe('contrato de entorno', () => {
     })
   })
 })
+
+describe('AQUAZAKU_ENV', () => {
+  it('default es production', () => {
+    const minimo = {
+      DATABASE_URL: 'postgres://x@y/z',
+      DATABASE_MIGRATION_URL: 'postgres://x@y/z',
+      BETTER_AUTH_SECRET: 'a'.repeat(32),
+      BETTER_AUTH_URL: 'https://api.example.com',
+    }
+    expect(parseEnv(minimo).AQUAZAKU_ENV).toBe('production')
+  })
+
+  it('acepta preview', () => {
+    const minimo = {
+      AQUAZAKU_ENV: 'preview',
+      DATABASE_URL: 'postgres://x@y/z',
+      DATABASE_MIGRATION_URL: 'postgres://x@y/z',
+      BETTER_AUTH_SECRET: 'a'.repeat(32),
+      BETTER_AUTH_URL: 'https://api.example.com',
+    }
+    expect(parseEnv(minimo).AQUAZAKU_ENV).toBe('preview')
+  })
+
+  it('rechaza valores fuera del enum', () => {
+    const minimo = {
+      AQUAZAKU_ENV: 'staging',
+      DATABASE_URL: 'postgres://x@y/z',
+      DATABASE_MIGRATION_URL: 'postgres://x@y/z',
+      BETTER_AUTH_SECRET: 'a'.repeat(32),
+      BETTER_AUTH_URL: 'https://api.example.com',
+    }
+    expect(() => parseEnv(minimo)).toThrow(/AQUAZAKU_ENV/)
+  })
+})

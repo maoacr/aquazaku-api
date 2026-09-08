@@ -12,6 +12,14 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3001),
 
   /**
+   * Identifica el entorno lógico donde corre el proceso. `production` es el
+   * default para no romper deploys existentes que no setean la variable.
+   * `preview` se usa en preview environments y le dice al pool que use el
+   * schema `preview` como search_path; los otros dos van a `public`.
+   */
+  AQUAZAKU_ENV: z.enum(['production', 'preview', 'development']).default('production'),
+
+  /**
    * Conexión de la APLICACIÓN. Usa el rol `aquazaku_app`, que NO es dueño de
    * las tablas y no tiene UPDATE ni DELETE sobre `audit_log`. Esa es la mitad
    * dura de la inmutabilidad del log: aunque un bug o una inyección intenten
