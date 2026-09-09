@@ -20,7 +20,7 @@
     "db:migrate:test": "tsx --env-file-if-exists=.env drizzle/migrate.ts --test",
     "db:seed": "tsx --env-file-if-exists=.env drizzle/seed.ts",
     "db:respaldo": "tsx --env-file-if-exists=.env scripts/respaldo.ts",
-    "db:sync-preview": "tsx scripts/sincronizar-preview.ts",
+    "db:sync-preview": "pnpm db:migrate --schema=preview && pnpm tsx --env-file-if-exists=.env scripts/auditar-permisos-preview.ts --schema=preview",
     "db:migrate:prod": "tsx --env-file-if-exists=.env.produccion.local drizzle/migrate.ts"
   },
   "dependencies": {
