@@ -34,10 +34,12 @@ import { describirConexion } from '../scripts/describir-conexion'
  * pone `search_path = preview` (ver `src/db/client.ts`).
  *
  * Lo que hace `--schema`:
- *   1. Crea el schema destino si no existe y le da permisos tanto al rol dueño
- *      (`aquazaku`) como al rol de aplicación (`aquazaku_app`) — sin el GRANT
- *      a `aquazaku_app`, la app entra con `permission denied for schema <x>`
- *      apenas intente leer la primera tabla.
+ *   1. Crea el schema destino si no existe y le da permisos al rol de
+ *      aplicación (`aquazaku_app`) — sin el GRANT a `aquazaku_app`, la app
+ *      entra con `permission denied for schema <x>` apenas intente leer la
+ *      primera tabla. El rol dueño (`postgres`, el de `DATABASE_MIGRATION_URL`)
+ *      es dueño de la base y crea el schema sin necesidad de GRANT sobre sí
+ *      mismo.
  *   2. Copia las migraciones a un tempdir pasándolas por `sed` para reemplazar
  *      cada `"public".` por `"<schema>".` — así las FK y los CREATE TYPE
  *      apuntan al schema correcto.
@@ -188,9 +190,12 @@ try {
      * Crear el schema y darle permisos ANTES de cualquier `CREATE TABLE` (las
      * migraciones no lo hacen — `public` venía pre-creado).
      *
-     * Tres roles en juego:
-     *   - `aquazaku` (dueño): corre DDL, necesita `USAGE, CREATE` para crear
-     *     objetos y `USAGE` para resolver el nombre desde el search_path.
+     * Dos roles en juego en este proyecto:
+     *   - `postgres` (dueño, vía DATABASE_MIGRATION_URL a través del pooler):
+     *     corre el DDL. Es el owner de la base, así que NO necesita GRANT
+     *     sobre sí mismo — `CREATE SCHEMA` lo hace sin pedir permiso. Es la
+     *     línea de `DATABASE_MIGRATION_URL`, separada de `DATABASE_URL` a
+     *     propósito: el rol dueño nunca toca código de runtime.
      *   - `aquazaku_app` (rol de la app, search_path = <schema>): necesita
      *     `USAGE` para que el schema siquiera exista en su radar. Sin esto
      *     tira `permission denied for schema <x>` apenas intente la primera
@@ -202,7 +207,6 @@ try {
     await client.unsafe(
       `CREATE SCHEMA IF NOT EXISTS "${targetSchema}";
 
-       GRANT USAGE, CREATE ON SCHEMA "${targetSchema}" TO aquazaku;
        GRANT USAGE ON SCHEMA "${targetSchema}" TO aquazaku_app;
 
        ALTER DEFAULT PRIVILEGES IN SCHEMA "${targetSchema}"
