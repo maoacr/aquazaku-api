@@ -117,9 +117,9 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const { cliente, aviso } = await crearCliente(datos)
+        const { cliente, aviso, telefono } = await crearCliente(datos)
 
-        return reply.code(201).send({ ...conDocumento(cliente), aviso })
+        return reply.code(201).send({ ...conDocumento(cliente), aviso, telefono })
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:crear')
       }

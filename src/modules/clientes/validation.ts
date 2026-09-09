@@ -26,6 +26,19 @@ export const esquemaDeAlta = z.object({
   tipo: tipoCliente.optional(),
   tipoDocumento,
   numeroDocumento,
+  /**
+   * Un teléfono en el mismo alta — opcional.
+   *
+   * Reusa `esquemaDeTelefono` en vez de repetir el mínimo de siete dígitos: un
+   * número que este esquema aceptara y el otro rechazara sería el mismo dato
+   * válido por una puerta e inválido por la otra.
+   *
+   * Se declara con `get` porque `esquemaDeTelefono` está definido más abajo en
+   * el archivo, junto al resto de los esquemas de sus recursos.
+   */
+  get telefono() {
+    return esquemaDeTelefono.optional()
+  },
 })
 
 export const esquemaDeEdicion = z

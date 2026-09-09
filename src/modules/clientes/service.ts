@@ -1,6 +1,6 @@
 import { and, eq, like, ne } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { type Cliente, clientes } from '@/db/schema'
+import { type Cliente, type Telefono, clientes, telefonos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import {
   DocumentoInvalido,
@@ -21,6 +21,21 @@ export interface DatosDeAlta {
   tipoDocumento: TipoDeDocumento
   /** Como lo dictaron: con puntos, con guion o pelado. Se normaliza acá. */
   numeroDocumento: string
+  /**
+   * Un teléfono, capturado en el mismo momento del alta.
+   *
+   * ── Por qué acá y no solo en `POST /clientes/:id/telefonos` ───────────────
+   *
+   * Ese endpoint pide `clientes:editar`, y el `pos` **no lo tiene**: puede
+   * crear clientes, no modificarlos. Pero es justo quien registra a alguien que
+   * se lleva un botellón sin devolver el vacío (RN-ENV-09), y sin teléfono ese
+   * registro no sirve para lo único que existe: poder reclamarlo.
+   *
+   * Aceptarlo en el alta lo cubre `clientes:crear`, que el `pos` sí tiene, y no
+   * le da ningún poder nuevo sobre los clientes que ya existen. Cambiar o
+   * quitar teléfonos sigue siendo `editar`.
+   */
+  telefono?: { numero: string; etiqueta?: string }
 }
 
 /**
@@ -40,10 +55,25 @@ export interface AvisoDeCruce {
   mensaje: string
 }
 
-export interface ResultadoDeAlta {
+/**
+ * Lo que devuelve una edición.
+ *
+ * ── Por qué no es el mismo tipo que el alta ─────────────────────────────────
+ *
+ * Compartían forma por casualidad, no por parecido: editar no crea teléfonos.
+ * Con un tipo solo, el `telefono` tendría que ser opcional — y entonces el
+ * compilador dejaría pasar un alta que se olvide de devolverlo, que es
+ * justamente lo que atajó cuando eran dos.
+ */
+export interface ResultadoDeEdicion {
   cliente: Cliente
   /** `null` cuando no hay nada que confirmar. */
   aviso: AvisoDeCruce | null
+}
+
+export interface ResultadoDeAlta extends ResultadoDeEdicion {
+  /** El que vino en el alta, si vino. */
+  telefono: Telefono | null
 }
 
 const OTRO_TIPO: Record<TipoDeDocumento, TipoDeDocumento> = { CC: 'NIT', NIT: 'CC' }
@@ -96,17 +126,42 @@ export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta>
   const numeroDocumento = exigirDocumento(datos.numeroDocumento)
   const aviso = await buscarCruce(datos.tipoDocumento, numeroDocumento)
 
-  const [cliente] = await db
-    .insert(clientes)
-    .values({
-      nombre,
-      tipo: datos.tipo ?? 'residencial',
-      tipoDocumento: datos.tipoDocumento,
-      numeroDocumento,
-    })
-    .returning()
+  /*
+   * Cliente y teléfono en la MISMA transacción.
+   *
+   * Con dos escrituras sueltas, un fallo en la segunda deja un cliente sin
+   * número — y ese es exactamente el registro que no sirve para nada: se
+   * registró a alguien para poder reclamarle un botellón, y no quedó a qué
+   * llamar. O entran los dos o no entra ninguno.
+   */
+  return db.transaction(async (tx) => {
+    const [cliente] = await tx
+      .insert(clientes)
+      .values({
+        nombre,
+        tipo: datos.tipo ?? 'residencial',
+        tipoDocumento: datos.tipoDocumento,
+        numeroDocumento,
+      })
+      .returning()
 
-  return { cliente: cliente!, aviso }
+    if (!datos.telefono) return { cliente: cliente!, aviso, telefono: null }
+
+    /*
+     * No se chequea el número repetido como en `agregarTelefono`: un cliente
+     * que acaba de nacer no tiene ninguno con el cual repetirse.
+     */
+    const [telefono] = await tx
+      .insert(telefonos)
+      .values({
+        clienteId: cliente!.id,
+        numero: datos.telefono.numero.trim(),
+        ...(datos.telefono.etiqueta?.trim() && { etiqueta: datos.telefono.etiqueta.trim() }),
+      })
+      .returning()
+
+    return { cliente: cliente!, aviso, telefono: telefono! }
+  })
 }
 
 export interface DatosDeEdicion {
@@ -120,7 +175,7 @@ export interface DatosDeEdicion {
 export async function editarCliente(
   id: string,
   datos: DatosDeEdicion,
-): Promise<ResultadoDeAlta> {
+): Promise<ResultadoDeEdicion> {
   const actual = await clientePorId(id)
 
   const tipoDocumento = datos.tipoDocumento ?? actual.tipoDocumento
