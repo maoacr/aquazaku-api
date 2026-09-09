@@ -1,23 +1,19 @@
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
-import { env, type Env } from '@/lib/env'
+import { env } from '@/lib/env'
 import * as schema from './schema'
+import { searchPathFor } from './search-path'
 
 /**
- * El pool arranca cada conexión con el `search_path` correspondiente al
- * ambiente: `preview` para `AQUAZAKU_ENV=preview`, `public` para los demás.
- * Postgres resuelve cualquier nombre no calificado (`from ventas`) contra
- * este path, así el código de queries no tiene que saber en qué schema está.
+ * El pool arranca cada conexión con el `search_path` del ambiente.
  *
- * Exportada pura para poder testearla sin abrir un pool real — el contrato
- * `AQUAZAKU_ENV → search_path` está duplicado en dos archivos (`env.ts` con
- * el enum, `client.ts` con esta función), y un test es la red de seguridad
- * barata cuando alguien agregue un valor al enum.
+ * Postgres resuelve cualquier nombre no calificado (`from ventas`) contra este
+ * path, así el código de queries no tiene que saber en qué schema está.
+ *
+ * La decisión vive en `search-path.ts`, compartida con el migrador: antes cada
+ * uno la tomaba por su cuenta, y en staging eso hacía que `pnpm db:migrate`
+ * tocara `public` mientras la app servía `preview`.
  */
-export function searchPathFor(ambiente: Env['AQUAZAKU_ENV']): 'preview' | 'public' {
-  return ambiente === 'preview' ? 'preview' : 'public'
-}
-
 const searchPath = searchPathFor(env.AQUAZAKU_ENV)
 
 /**
@@ -47,3 +43,6 @@ export type DB = typeof db
 export async function closeDb(): Promise<void> {
   await queryClient.end()
 }
+
+/** Reexportada: quien ya la importaba de acá no se entera del movimiento. */
+export { searchPathFor } from './search-path'

@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import postgres from 'postgres'
 import { describirConexion } from '../scripts/describir-conexion'
+import { type Ambiente, searchPathFor } from '../src/db/search-path'
 
 /**
  * Aplica las migraciones pendientes.
@@ -58,11 +59,31 @@ import { describirConexion } from '../scripts/describir-conexion'
 const args = process.argv.slice(2)
 const useTestDb = args.includes('--test')
 const schemaArg = args.find((a) => a.startsWith('--schema='))
-// `schemaArg.split('=')[1]` existe cuando hay un `=` en el flag; sin `=`, el
-// argumento es `--schema` pelado y se ignora (cae al default 'public').
+
+/**
+ * ── Sin flag, migra el schema de SU ambiente ──────────────────────────────
+ *
+ * Antes el default era `'public'` escrito a mano, mientras la app decidía por
+ * `AQUAZAKU_ENV`. En staging eso significaba:
+ *
+ *     pnpm db:migrate  → migraba «public»   ← el schema de PRODUCCIÓN
+ *     pnpm start       → servía «preview»
+ *
+ * El mismo comando apuntaba a schemas distintos según qué pieza lo leyera, y no
+ * fallaba: migraba producción en cada deploy de staging, en silencio.
+ *
+ * Ahora los dos preguntan a la MISMA función. El flag `--schema=` queda para lo
+ * que de verdad es una excepción: que producción sincronice el schema de
+ * preview.
+ *
+ * `schemaArg.split('=')[1]` existe cuando hay un `=`; sin `=`, el argumento es
+ * `--schema` pelado y se ignora, cayendo al schema del ambiente.
+ */
+const schemaDelAmbiente = searchPathFor(process.env.AQUAZAKU_ENV as Ambiente | undefined)
+
 const targetSchema: string = schemaArg?.includes('=')
-  ? (schemaArg.split('=')[1] ?? 'public')
-  : 'public'
+  ? (schemaArg.split('=')[1] ?? schemaDelAmbiente)
+  : schemaDelAmbiente
 
 if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(targetSchema)) {
   console.error(
