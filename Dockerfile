@@ -65,3 +65,24 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
 # (`pnpm db:migrate && pnpm db:sync-preview && pnpm start`). Dejar el `CMD`
 # acá sobreescribe eso y rompe el flujo de migraciones en cada deploy.
 ENTRYPOINT ["/sbin/tini", "--"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Lo que hace este contenedor: levantar el servidor. Nada más.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Estuvo sin CMD entre el 8 y el 9 de septiembre, para que el `startCommand` de
+# Railway tomara el control. El costo fue que el comportamiento del contenedor
+# dejó de estar en el repo: no se podía revisar en un diff, ni probar en una
+# máquina, ni verlo sin abrir el panel.
+#
+# Un cambio en ese panel rompió TODOS los deploys durante un día, en silencio.
+#
+# El `startCommand` sigue pudiendo sobreescribirlo cuando un ambiente necesita
+# otra cosa —staging sincroniza su schema antes de arrancar— pero el default
+# vive acá, es el correcto para producción, y se puede correr localmente con
+# `docker run`.
+#
+# Las migraciones NO van en el arranque (ADR-0009): dos instancias migrando a la
+# vez se pisan, y una migración a medias es peor que un deploy demorado. Se
+# corren a mano con `pnpm db:migrate:prod`, que dice a qué base va.
+CMD ["pnpm", "start"]
