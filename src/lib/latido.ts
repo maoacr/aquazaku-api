@@ -26,16 +26,42 @@ import { type EstadoDeMigraciones, revisarMigraciones } from '@/lib/migraciones'
  */
 
 /**
- * Cada seis horas: 28 latidos en la ventana de siete días.
+ * Cada quince minutos.
  *
- * No se elige por costo —una consulta trivial cuatro veces al día no se nota—
- * sino por MARGEN. Con un latido diario, siete fallos seguidos apagan el
- * proyecto; con este, harían falta veintiocho.
+ * ── Por qué no cada seis horas, que alcanzaría para Supabase ────────────────
+ *
+ * El latido hace DOS cosas: mantener el proyecto despierto —para lo que sobra
+ * con un latido diario— y decir si la base responde. La segunda manda: un
+ * estado que se refresca cada seis horas no sirve para saber si la base está
+ * caída ahora.
+ *
+ * El costo es un `SELECT now()` cada quince minutos. Noventa y seis consultas
+ * triviales por día no se notan en ninguna parte.
  */
-const CADA = 6 * 60 * 60 * 1000
+const CADA = 15 * 60 * 1000
 
-/** A partir de acá, `/health` deja de decir que la base está bien. */
-const SIN_NOTICIAS = 30 * 60 * 1000
+/**
+ * Tres latidos perdidos antes de declarar que no hay contacto.
+ *
+ * ── Este número TIENE que ser mayor que `CADA` ─────────────────────────────
+ *
+ * La primera versión tenía el intervalo en seis horas y el umbral en treinta
+ * minutos: `/health` decía «sin contacto» durante 5,5 de cada 6 horas **con
+ * todo funcionando**. Un aviso que suena el 92% del tiempo enseña a ignorarlo,
+ * que es exactamente lo que dice RN-STK-11 sobre los umbrales.
+ *
+ * Se descubrió mirando producción, no leyendo el código. Hay un test que ahora
+ * fija la relación entre los dos números.
+ */
+const SIN_NOTICIAS = 3 * CADA
+
+/**
+ * Los dos números, expuestos para que un test los pueda atar.
+ *
+ * No son configurables: son una propiedad del latido, no una decisión del
+ * negocio. Lo que sí tiene que quedar fijo es su RELACIÓN.
+ */
+export const RITMO = { cada: CADA, sinNoticias: SIN_NOTICIAS } as const
 
 export interface EstadoDeLatido {
   ultimoContacto: Date | null

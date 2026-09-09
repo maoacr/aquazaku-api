@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { closeDb } from '@/db/client'
-import { type EstadoDeLatido, iniciarLatido, latir, resumirLatido } from '@/lib/latido'
+import { RITMO, type EstadoDeLatido, iniciarLatido, latir, resumirLatido } from '@/lib/latido'
 
 /**
  * El latido que evita que Supabase apague el proyecto.
@@ -48,10 +48,22 @@ describe('lo que /health cuenta de la base', () => {
     expect(r.desdeHaceMs).toBe(5 * 60_000)
   })
 
+  /*
+   * El «hace cuánto» se DERIVA del umbral, no se escribe a mano. Con un número
+   * fijo, cambiar el ritmo del latido rompe este test por una razón que no
+   * tiene nada que ver con lo que prueba — y la tentación es corregir el número
+   * sin mirar si la regla sigue valiendo.
+   */
   it('pasado el umbral, deja de decir que está bien', () => {
-    expect(resumirLatido(estado({ ultimoContacto: haceMinutos(45) }), AHORA).base).toBe(
-      'sin-contacto',
-    )
+    const viejo = new Date(AHORA.getTime() - RITMO.sinNoticias - 60_000)
+
+    expect(resumirLatido(estado({ ultimoContacto: viejo }), AHORA).base).toBe('sin-contacto')
+  })
+
+  it('justo dentro del umbral, sigue diciendo ok', () => {
+    const reciente = new Date(AHORA.getTime() - RITMO.sinNoticias + 60_000)
+
+    expect(resumirLatido(estado({ ultimoContacto: reciente }), AHORA).base).toBe('ok')
   })
 
   /*
@@ -159,5 +171,43 @@ describe('si faltan migraciones', () => {
 
     expect(r.esquema).toBeUndefined()
     expect(r.faltan).toBeUndefined()
+  })
+})
+
+/**
+ * ── El umbral tiene que ser MAYOR que el intervalo ──────────────────────────
+ *
+ * La primera versión latía cada seis horas y declaraba «sin contacto» a los
+ * treinta minutos: `/health` decía que la base estaba caída durante 5,5 de cada
+ * 6 horas, con todo funcionando.
+ *
+ * Un aviso que suena el 92% del tiempo enseña a ignorarlo — que es exactamente
+ * lo que dice RN-STK-11 sobre los umbrales, y lo que este proyecto acababa de
+ * documentar cuando construyó el bug.
+ *
+ * Se descubrió mirando producción, no leyendo el código. Este test lo fija.
+ */
+describe('el ritmo', () => {
+  it('el umbral es mayor que el intervalo: si no, avisa con todo bien', () => {
+    expect(RITMO.sinNoticias).toBeGreaterThan(RITMO.cada)
+  })
+
+  /*
+   * Con margen para más de un latido perdido. Uno solo haría que un reintento
+   * lento —o un redespliegue— dispare el aviso sin que nada esté roto.
+   */
+  it('tolera más de un latido perdido antes de avisar', () => {
+    expect(RITMO.sinNoticias / RITMO.cada).toBeGreaterThanOrEqual(2)
+  })
+
+  /*
+   * El latido también mantiene despierto el proyecto en Supabase, que pausa a
+   * los siete días sin actividad. Cualquier ritmo por debajo de un día sobra,
+   * pero el número no puede quedar suelto sin que nadie lo mire.
+   */
+  it('late muchas veces dentro de la ventana de siete días de Supabase', () => {
+    const enUnaSemana = (7 * 24 * 60 * 60 * 1000) / RITMO.cada
+
+    expect(enUnaSemana).toBeGreaterThan(100)
   })
 })
