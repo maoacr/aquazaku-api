@@ -190,6 +190,15 @@ try {
      * Crear el schema y darle permisos ANTES de cualquier `CREATE TABLE` (las
      * migraciones no lo hacen — `public` venía pre-creado).
      *
+     * ── Por qué esto es defensivo ───────────────────────────────────────────
+     *
+     * En preview environments el schema puede existir de una corrida previa.
+     * `CREATE SCHEMA IF NOT EXISTS` con un schema que YA existe requiere
+     * igualmente `CREATE` sobre la database — Supabase pooler NO se lo da al
+     * rol de migración, así que tira `permission denied` y aborta el `&&`
+     * chain del startCommand. Saltarse el bloque cuando ya existe deja al
+     * migrador aplicar las migraciones pendientes sin tocar DDL.
+     *
      * Dos roles en juego en este proyecto:
      *   - `postgres` (dueño, vía DATABASE_MIGRATION_URL a través del pooler):
      *     corre el DDL. Es el owner de la base, así que NO necesita GRANT
@@ -204,17 +213,51 @@ try {
      *     el schema y los objetos FUTUROS vía DEFAULT PRIVILEGES (defensa
      *     para cuando alguien cree una tabla fuera del flujo de migración).
      */
-    await client.unsafe(
-      `CREATE SCHEMA IF NOT EXISTS "${targetSchema}";
+    try {
+      /*
+       * SELECT primero (sin DDL): si el schema ya existe —porque el usuario lo
+       * creó manualmente en el SQL Editor, o porque es una corrida posterior
+       * del mismo preview— no necesitamos volver a crearlo ni a re-grantear.
+       * El migrador igual aplica las migraciones pendientes con el journal
+       * propio del schema (`__drizzle_migrations_<schema>`).
+       */
+      const [row] = await client<{ exists: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1 FROM information_schema.schemata
+          WHERE schema_name = ${targetSchema}
+        ) AS exists
+      `
+      const schemaExists = row?.exists ?? false
 
-       GRANT USAGE ON SCHEMA "${targetSchema}" TO aquazaku_app;
+      if (!schemaExists) {
+        await client.unsafe(
+          `CREATE SCHEMA IF NOT EXISTS "${targetSchema}";
 
-       ALTER DEFAULT PRIVILEGES IN SCHEMA "${targetSchema}"
-         GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO aquazaku_app;
+           GRANT USAGE ON SCHEMA "${targetSchema}" TO aquazaku_app;
 
-       ALTER DEFAULT PRIVILEGES IN SCHEMA "${targetSchema}"
-         GRANT USAGE, SELECT ON SEQUENCES TO aquazaku_app;`,
-    )
+           ALTER DEFAULT PRIVILEGES IN SCHEMA "${targetSchema}"
+             GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO aquazaku_app;
+
+           ALTER DEFAULT PRIVILEGES IN SCHEMA "${targetSchema}"
+             GRANT USAGE, SELECT ON SEQUENCES TO aquazaku_app;`,
+        )
+        console.log(`✓ schema "${targetSchema}" creado`)
+      } else {
+        console.log(
+          `→ schema "${targetSchema}" ya existe, saltando CREATE/GRANT`,
+        )
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (/permission denied/i.test(msg)) {
+        console.error(
+          `✗ Permission denied en schema "${targetSchema}".\n` +
+            '  El rol de DATABASE_MIGRATION_URL no tiene CREATE sobre la database.\n' +
+            '  Si el schema ya existe, podés aplicarlo desde el SQL Editor del dashboard.',
+        )
+      }
+      throw err
+    }
     tmpMigrationsDir = prepararCarpetaSed(targetSchema)
   }
 
