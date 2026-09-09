@@ -1,4 +1,4 @@
-import { and, eq, ne } from 'drizzle-orm'
+import { and, eq, like, ne } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { type Cliente, clientes } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
@@ -175,6 +175,56 @@ export async function clientePorId(id: string): Promise<Cliente> {
     throw new ErrorDeNegocio('CLIENTE_NO_ENCONTRADO', 404, 'ese cliente no existe')
   }
   return cliente
+}
+
+/**
+ * Buscar por documento — el número es la llave del mostrador.
+ *
+ * ── Por qué por documento y no por nombre ───────────────────────────────────
+ *
+ * En el mostrador el cliente dice su cédula, no deletrea su apellido. Y dos
+ * «María González» son dos personas; dos cédulas iguales, una sola.
+ *
+ * Reemplaza al `<select>` que cargaba todos los clientes: con quinientos, ese
+ * desplegable deja de servir aunque el sistema funcione perfecto — nadie
+ * encuentra a alguien en una lista de quinientos.
+ *
+ * ── Empieza-con, no contiene ────────────────────────────────────────────────
+ *
+ * Una cédula se dicta de izquierda a derecha. Buscar «contiene» traería
+ * coincidencias por el medio del número, que no son las que alguien tipeando
+ * espera — y además impide usar un índice.
+ *
+ * ── El tope no es paginación ────────────────────────────────────────────────
+ *
+ * Si un prefijo corto trae muchos, la respuesta correcta no es una lista larga:
+ * es «seguí escribiendo». Ocho alcanzan para elegir; más es una lista donde hay
+ * que buscar otra vez.
+ */
+export const MAXIMO_COINCIDENCIAS = 8
+
+export async function buscarPorDocumento(
+  prefijo: string,
+  soloActivos = true,
+): Promise<Cliente[]> {
+  const limpio = prefijo.replace(/[^0-9A-Za-z]/g, '')
+
+  /*
+   * Menos de tres caracteres no busca. Con uno o dos, la respuesta serían casi
+   * todos los clientes: ruido que además cuesta una consulta a la base en cada
+   * tecla.
+   */
+  if (limpio.length < 3) return []
+
+  const condiciones = [like(clientes.numeroDocumento, `${limpio}%`)]
+  if (soloActivos) condiciones.push(eq(clientes.activo, true))
+
+  return db
+    .select()
+    .from(clientes)
+    .where(and(...condiciones))
+    .orderBy(clientes.numeroDocumento)
+    .limit(MAXIMO_COINCIDENCIAS)
 }
 
 export async function listarClientes(soloActivos = true): Promise<Cliente[]> {
