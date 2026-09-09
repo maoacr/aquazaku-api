@@ -61,5 +61,7 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
+# Sin `CMD` — Railway usa el `startCommand` configurado en el servicio
+# (`pnpm db:migrate && pnpm db:sync-preview && pnpm start`). Dejar el `CMD`
+# acá sobreescribe eso y rompe el flujo de migraciones en cada deploy.
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["pnpm", "start"]
