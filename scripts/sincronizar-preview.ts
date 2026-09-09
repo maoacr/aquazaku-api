@@ -41,6 +41,8 @@
 
 import { spawnSync } from 'node:child_process'
 
+console.log('→ db:sync-preview: iniciando db:migrate --schema=preview')
+
 /*
  * ── Sin `shell: true` ni quoting mágico ────────────────────────────────────
  *
@@ -52,6 +54,10 @@ const migrate = spawnSync('pnpm', ['db:migrate', '--schema=preview'], {
   stdio: 'inherit',
 })
 
+console.log(
+  `→ db:sync-preview: db:migrate --schema=preview terminó con código ${migrate.status ?? 'null'}`,
+)
+
 /*
  * `migrate.status` es `null` si el subproceso fue terminado por una señal
  * (SIGTERM, OOM kill, etc.) en vez de salir con código. El fallback a `1`
@@ -61,6 +67,8 @@ const migrate = spawnSync('pnpm', ['db:migrate', '--schema=preview'], {
 if (migrate.status !== 0) {
   process.exit(migrate.status ?? 1)
 }
+
+console.log('→ db:sync-preview: iniciando auditoría de permisos en preview')
 
 /*
  * El primer `spawnSync` (`pnpm db:migrate`) hereda `--env-file-if-exists=.env`
@@ -75,5 +83,7 @@ const audit = spawnSync(
   ['tsx', '--env-file-if-exists=.env', 'scripts/auditar-permisos-preview.ts', '--schema=preview'],
   { stdio: 'inherit' },
 )
+
+console.log(`→ db:sync-preview: auditoría terminó con código ${audit.status ?? 'null'}`)
 
 process.exit(audit.status ?? 1)
