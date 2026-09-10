@@ -930,7 +930,37 @@ export const clientes = pgTable(
     /** La identidad es este UUID, no el documento — RN-CLI-01. */
     id: uuid('id').primaryKey().defaultRandom(),
 
-    nombre: text('nombre').notNull(),
+    /**
+     * El nombre que se muestra. Lo calcula LA BASE, no este código.
+     *
+     * Es una columna generada: sale de las partes cuando las hay, y del nombre
+     * libre cuando no. Así no puede discrepar de sus partes — un `UPDATE` a
+     * mano que corrija «apellidos» arrastra el nombre solo. ADR-0006.
+     *
+     * `generatedAlwaysAs` es lo que impide que Drizzle la mande en un INSERT:
+     * Postgres rechaza cualquier escritura sobre una columna generada.
+     */
+    nombre: text('nombre')
+      .notNull()
+      .generatedAlwaysAs(
+        sql`COALESCE(NULLIF(btrim(regexp_replace(COALESCE("primer_nombre", '') || ' ' || COALESCE("segundo_nombre", '') || ' ' || COALESCE("apellidos", ''), '\s+', ' ', 'g')), ''), "nombre_libre")`,
+      ),
+
+    /**
+     * El nombre tal como lo escribieron, cuando no viene partido.
+     *
+     * Es el camino de los negocios —«Panadería del Centro» no tiene primer
+     * nombre ni apellidos— y el de las filas viejas, anteriores a M15.
+     */
+    nombreLibre: text('nombre_libre'),
+
+    /** Las partes, para una persona. Van todas o ninguna — ver los CHECK. */
+    primerNombre: text('primer_nombre'),
+    segundoNombre: text('segundo_nombre'),
+    apellidos: text('apellidos'),
+    /** Como la conocen de verdad en el pueblo. Lo pidió la planta. */
+    apodo: text('apodo'),
+
     tipo: tipoClienteEnum('tipo').notNull().default('residencial'),
 
     tipoDocumento: tipoDocumentoEnum('tipo_documento').notNull(),

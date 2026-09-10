@@ -1,0 +1,48 @@
+meta {
+  name: Cada base dice dónde está
+  type: http
+  seq: 52
+}
+
+get {
+  url: {{baseUrl}}/bases
+  body: none
+}
+
+docs {
+  `GET /bases` devuelve la ubicación **pegada a cada base**, resuelta con un
+  `LEFT JOIN`.
+
+  Antes venían peladas y la pantalla resolvía «dónde está cada una» pidiendo las
+  direcciones de TODOS los clientes: una petición por cliente. Con los cuarenta
+  de hoy pasa desapercibido; con mil son mil una peticiones cada vez que alguien
+  abre Retornables, para mostrar como mucho cuarenta direcciones.
+
+  Es un atributo de la base —dónde está— y no una lista aparte que cada pantalla
+  tenga que cruzar. `null` cuando está en la bodega, que es el caso común.
+}
+
+script:post-response {
+  const libre = res.getBody().find((b) => b.ubicacion === null && b.estado === "sana");
+  if (libre) bru.setVar("stickerLibre", libre.idSticker);
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("las que están en bodega no dicen ninguna dirección", function() {
+    // A esta altura de la carpeta TODAS están en bodega: la que se prestó
+    // volvió en el pedido 30 y la dañada se descartó en el 35. La forma de la
+    // ubicación con datos se comprueba en el pedido 54, después de que la
+    // venta preste una — que es cuando existe una prestada de verdad.
+    const enBodega = res.getBody().find((b) => b.ubicacion === null);
+    expect(enBodega).to.not.be.undefined;
+    expect(enBodega.direccionId).to.equal(null);
+  });
+
+  test("y hay alguna libre para el pedido que sigue", function() {
+    expect(bru.getVar("stickerLibre")).to.be.a("string");
+  });
+}

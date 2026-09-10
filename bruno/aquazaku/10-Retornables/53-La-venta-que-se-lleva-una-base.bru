@@ -1,0 +1,50 @@
+meta {
+  name: La venta que se lleva una base
+  type: http
+  seq: 53
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "clienteId": "{{parqueClienteId}}",
+    "items": [
+      { "productoId": "{{recargaId}}", "cantidad": 1 }
+    ],
+    "base": { "sticker": "{{stickerLibre}}", "direccionId": "{{parqueDireccionId}}" }
+  }
+}
+
+docs {
+  Entregar una base era un segundo acto en otra pantalla: cobrar, y después
+  acordarse de ir a Retornables. El segundo acto es el que se olvida — con la
+  base ya en el auto del cliente nadie vuelve, y queda un activo de la planta
+  afuera sin ninguna fila que lo reclame. Es el mismo problema que RN-ENV-09
+  resolvió con los botellones.
+
+  Se identifica por el **sticker**, no por el id interno: en el mostrador nadie
+  conoce el UUID de una base, conoce el número pegado encima.
+
+  La dirección va aparte porque la base se presta a una DIRECCIÓN y no a un
+  cliente (RN-BAS-03): un comercial con tres locales tiene una en cada uno, y
+  sin saber cuál no hay dónde ir a reclamarla.
+
+  El préstamo entra en la MISMA transacción que la venta. Si falla —la base
+  figura en otra dirección, el cliente no está verificado— la venta tampoco se
+  hace, y está bien: quien atiende todavía no cobró.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("y dice qué base salió, por su sticker", function() {
+    expect(res.getBody().basePrestada.idSticker).to.equal(bru.getVar("stickerLibre"));
+  });
+}

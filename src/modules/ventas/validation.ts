@@ -54,6 +54,24 @@ export const esquemaDeVenta = z.object({
     .int()
     .nonnegative('los botellones que salen sin vacío no pueden ser negativos')
     .optional(),
+
+  /*
+   * Una base que sale con la venta — RN-BAS-03.
+   *
+   * El sticker es el número pegado en la base: en el mostrador nadie conoce el
+   * UUID. La dirección va aparte porque la base se presta a una DIRECCIÓN, no a
+   * un cliente — un comercial con tres locales tiene una en cada uno.
+   *
+   * Que la base exista, que no figure prestada en otro lado, que no esté dañada
+   * y que el cliente esté verificado lo decide el servicio: son cuatro reglas
+   * de negocio con su propio mensaje, y ya viven en `prestarBase`.
+   */
+  base: z
+    .object({
+      sticker: z.string().trim().min(1, 'falta el código de la base'),
+      direccionId: z.string().uuid('esa dirección no es válida'),
+    })
+    .optional(),
 })
 
 /**

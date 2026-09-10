@@ -13,6 +13,7 @@ import {
 import { agregarTelefono, desactivarTelefono, telefonosDe } from './telefonos'
 import { documentoParaMostrar } from './documento'
 import {
+  buscarPorDocumento,
   cambiarEstado,
   clientePorId,
   crearCliente,
@@ -51,7 +52,17 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     '/clientes',
     { preHandler: [requireAuth, requirePermission('clientes', 'ver')] },
     async (req) => {
-      const todos = (req.query as { estado?: string }).estado === 'todos'
+      const { estado, documento } = req.query as { estado?: string; documento?: string }
+      const todos = estado === 'todos'
+
+      /*
+       * Con `?documento=` busca en vez de listar. Es la misma ruta a propósito:
+       * quien pide clientes pide clientes, y el permiso es el mismo. Un
+       * endpoint aparte sería otra puerta que asegurar por la misma razón.
+       */
+      if (documento !== undefined) {
+        return (await buscarPorDocumento(documento, !todos)).map(conDocumento)
+      }
 
       return (await listarClientes(!todos)).map(conDocumento)
     },
@@ -106,9 +117,9 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const { cliente, aviso } = await crearCliente(datos)
+        const { cliente, aviso, telefono } = await crearCliente(datos)
 
-        return reply.code(201).send({ ...conDocumento(cliente), aviso })
+        return reply.code(201).send({ ...conDocumento(cliente), aviso, telefono })
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:crear')
       }

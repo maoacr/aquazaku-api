@@ -23,7 +23,12 @@ afterAll(async () => {
   await closeDb()
 })
 
-const UNA_CEDULA = { nombre: 'Yeimy Rodríguez', tipoDocumento: 'CC' as const, numeroDocumento: '79123456' }
+const UNA_CEDULA = {
+  primerNombre: 'Yeimy',
+  apellidos: 'Rodríguez',
+  tipoDocumento: 'CC' as const,
+  numeroDocumento: '79123456',
+}
 
 /** Crea un cliente ya verificado, que es el punto de partida del crédito. */
 async function clienteVerificado() {
@@ -55,7 +60,9 @@ describe('el alta exige documento — RN-CLI-13', () => {
   })
 
   it('sin nombre, tampoco', async () => {
-    await expect(crearCliente({ ...UNA_CEDULA, nombre: '   ' })).rejects.toMatchObject({
+    await expect(
+      crearCliente({ ...UNA_CEDULA, primerNombre: '   ', apellidos: '   ' }),
+    ).rejects.toMatchObject({
       code: 'NOMBRE_REQUERIDO',
     })
   })
@@ -65,7 +72,7 @@ describe('el mismo número con los dos tipos — RN-CLI-08', () => {
   it('el duplicado REAL no entra: mismo tipo y mismo número', async () => {
     await crearCliente(UNA_CEDULA)
 
-    await expect(crearCliente({ ...UNA_CEDULA, nombre: 'Otro' })).rejects.toThrow()
+    await expect(crearCliente({ ...UNA_CEDULA, primerNombre: 'Otro' })).rejects.toThrow()
   })
 
   /**
@@ -82,7 +89,9 @@ describe('el mismo número con los dos tipos — RN-CLI-08', () => {
     await crearCliente(UNA_CEDULA)
 
     const { cliente, aviso } = await crearCliente({
-      nombre: 'Yeimy Rodríguez SAS',
+      nombreLibre: 'Yeimy Rodríguez SAS',
+      primerNombre: undefined,
+      apellidos: undefined,
       tipoDocumento: 'NIT',
       numeroDocumento: '79123456',
     })
@@ -103,7 +112,7 @@ describe('el mismo número con los dos tipos — RN-CLI-08', () => {
     await crearCliente(UNA_CEDULA)
 
     await expect(
-      crearCliente({ ...UNA_CEDULA, nombre: 'Otro', numeroDocumento: '079123456' }),
+      crearCliente({ ...UNA_CEDULA, primerNombre: 'Otro', numeroDocumento: '079123456' }),
     ).rejects.toThrow()
   })
 })

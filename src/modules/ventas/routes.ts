@@ -5,6 +5,7 @@ import { lineasDeVenta, ventas } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
+import { can } from '@/modules/authz/can'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { scopedCondition } from '@/modules/authz/scoped-query'
 import { anularVenta } from './anulacion'
@@ -85,6 +86,24 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     async (req, reply) => {
       const datos = validar(esquemaDeVenta, req.body, reply)
       if (!datos) return
+
+      /*
+       * ── Llevar una base exige el permiso de prestarla ────────────────────
+       *
+       * Sin esto, este endpoint sería una puerta de atrás a la matriz: el
+       * `seller` tiene `ventas:crear` pero solo `bases:ver`, y prestaría bases
+       * mandando un campo más en el cuerpo de una venta.
+       *
+       * Es RN-ACC-02 en su forma menos obvia. La regla no es «cada ruta valida
+       * su permiso», es «cada ACCIÓN valida el suyo» — y esta ruta hace dos.
+       */
+      if (datos.base && !can(req.user!, 'bases', 'prestar')) {
+        return reply.code(403).send({
+          code: 'SIN_PERMISO',
+          mensaje:
+            'no tiene permiso para prestar bases. Puede registrar la venta sin la base, y que la entregue quien sí lo tenga',
+        })
+      }
 
       try {
         const resultado = await registrarVenta(

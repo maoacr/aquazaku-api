@@ -20,7 +20,7 @@ docs {
 
 script:post-response {
   if (res.getStatus() === 200) {
-    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    const lote = res.getBody().lotes.find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
     if (lote) bru.setVar("saldoAntesDeAnular", lote.saldo);
   }
 }
@@ -31,7 +31,7 @@ tests {
   });
 
   test("el lote de esta carpeta sigue con saldo", function() {
-    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    const lote = res.getBody().lotes.find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
     expect(lote, "el lote de esta carpeta no aparece con saldo").to.not.equal(undefined);
     expect(lote.saldo).to.be.at.least(1);
   });

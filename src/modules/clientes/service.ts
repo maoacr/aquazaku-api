@@ -1,6 +1,6 @@
-import { and, eq, ne } from 'drizzle-orm'
+import { and, eq, like, ne } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { type Cliente, clientes } from '@/db/schema'
+import { type Cliente, type Telefono, clientes, telefonos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import {
   DocumentoInvalido,
@@ -15,12 +15,51 @@ import {
  * de negocio.
  */
 
-export interface DatosDeAlta {
-  nombre: string
+/**
+ * Cómo se nombra a un cliente — RN-CLI-17.
+ *
+ * ── Dos caminos, y solo uno por cliente ─────────────────────────────────────
+ *
+ * Una **persona** se nombra por partes: primer nombre, segundo (que falta
+ * seguido), y apellidos. Un **negocio** no: «Panadería del Centro» no tiene
+ * nombre de pila, y pedirle apellidos sería inventar un dato.
+ *
+ * Los dos caminos desembocan en la misma columna `nombre`, que **la genera la
+ * base**. Este código nunca la escribe: si la compusiera acá, un `UPDATE` a
+ * mano podría dejarla discrepando de sus partes.
+ *
+ * El apodo va aparte y no entra en el nombre. Es cómo se la conoce, no cómo se
+ * llama — y en Campo de la Cruz es lo primero que se dice en el mostrador.
+ */
+export interface NombreDeCliente {
+  /** El de un negocio, o el de alguien cargado sin partir. */
+  nombreLibre?: string
+  primerNombre?: string
+  segundoNombre?: string
+  apellidos?: string
+  apodo?: string
+}
+
+export interface DatosDeAlta extends NombreDeCliente {
   tipo?: 'residencial' | 'comercial'
   tipoDocumento: TipoDeDocumento
   /** Como lo dictaron: con puntos, con guion o pelado. Se normaliza acá. */
   numeroDocumento: string
+  /**
+   * Un teléfono, capturado en el mismo momento del alta.
+   *
+   * ── Por qué acá y no solo en `POST /clientes/:id/telefonos` ───────────────
+   *
+   * Ese endpoint pide `clientes:editar`, y el `pos` **no lo tiene**: puede
+   * crear clientes, no modificarlos. Pero es justo quien registra a alguien que
+   * se lleva un botellón sin devolver el vacío (RN-ENV-09), y sin teléfono ese
+   * registro no sirve para lo único que existe: poder reclamarlo.
+   *
+   * Aceptarlo en el alta lo cubre `clientes:crear`, que el `pos` sí tiene, y no
+   * le da ningún poder nuevo sobre los clientes que ya existen. Cambiar o
+   * quitar teléfonos sigue siendo `editar`.
+   */
+  telefono?: { numero: string; etiqueta?: string }
 }
 
 /**
@@ -40,10 +79,25 @@ export interface AvisoDeCruce {
   mensaje: string
 }
 
-export interface ResultadoDeAlta {
+/**
+ * Lo que devuelve una edición.
+ *
+ * ── Por qué no es el mismo tipo que el alta ─────────────────────────────────
+ *
+ * Compartían forma por casualidad, no por parecido: editar no crea teléfonos.
+ * Con un tipo solo, el `telefono` tendría que ser opcional — y entonces el
+ * compilador dejaría pasar un alta que se olvide de devolverlo, que es
+ * justamente lo que atajó cuando eran dos.
+ */
+export interface ResultadoDeEdicion {
   cliente: Cliente
   /** `null` cuando no hay nada que confirmar. */
   aviso: AvisoDeCruce | null
+}
+
+export interface ResultadoDeAlta extends ResultadoDeEdicion {
+  /** El que vino en el alta, si vino. */
+  telefono: Telefono | null
 }
 
 const OTRO_TIPO: Record<TipoDeDocumento, TipoDeDocumento> = { CC: 'NIT', NIT: 'CC' }
@@ -87,40 +141,136 @@ async function buscarCruce(
   }
 }
 
-export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta> {
-  const nombre = datos.nombre.trim()
-  if (nombre.length === 0) {
-    throw new ErrorDeNegocio('NOMBRE_REQUERIDO', 422, 'el cliente necesita un nombre')
+/** Vacío o solo espacios es lo mismo que no haberlo mandado. */
+function limpio(valor: string | undefined): string | undefined {
+  const podado = valor?.trim()
+  return podado ? podado : undefined
+}
+
+/**
+ * Traduce los invariantes del nombre a mensajes que digan qué hacer.
+ *
+ * ── Por qué existe si la base ya los tiene ──────────────────────────────────
+ *
+ * Los cuatro CHECK de `clientes` garantizan que ninguna fila mala entre, y esa
+ * es la barrera real. Pero sus errores crudos —«null value in column nombre»,
+ * «violates check constraint clientes_nombre_partido_completo»— no le sirven a
+ * quien está llenando un formulario.
+ *
+ * ADR-0006: el invariante vive en la base, el servicio explica. Lo que este
+ * código **no** puede hacer es aceptar algo que la base rechace: si divergen,
+ * la pantalla muestra un 500 en vez de un mensaje. Hay un test que los cruza.
+ */
+export function exigirNombreCoherente(n: NombreDeCliente): NombreDeCliente {
+  const partes = {
+    nombreLibre: limpio(n.nombreLibre),
+    primerNombre: limpio(n.primerNombre),
+    segundoNombre: limpio(n.segundoNombre),
+    apellidos: limpio(n.apellidos),
+    apodo: limpio(n.apodo),
   }
+
+  if (partes.primerNombre && partes.nombreLibre) {
+    throw new ErrorDeNegocio(
+      'NOMBRE_AMBIGUO',
+      422,
+      'llegaron las dos formas de nombrar al cliente: el nombre partido y el nombre libre. Use una sola — las partes para una persona, el nombre libre para un negocio',
+    )
+  }
+
+  if (Boolean(partes.primerNombre) !== Boolean(partes.apellidos)) {
+    throw new ErrorDeNegocio(
+      'NOMBRE_PARTIDO_INCOMPLETO',
+      422,
+      'un nombre de pila sin apellidos no identifica a nadie, y un apellido suelto tampoco. Van los dos, o ninguno y el nombre del negocio en su lugar',
+    )
+  }
+
+  if (!partes.primerNombre && !partes.nombreLibre) {
+    throw new ErrorDeNegocio(
+      'NOMBRE_REQUERIDO',
+      422,
+      'el cliente necesita un nombre: primer nombre y apellidos si es una persona, o el nombre del negocio',
+    )
+  }
+
+  if (partes.segundoNombre && !partes.primerNombre) {
+    throw new ErrorDeNegocio(
+      'SEGUNDO_NOMBRE_SIN_PRIMERO',
+      422,
+      'llegó un segundo nombre sin el primero',
+    )
+  }
+
+  return partes
+}
+
+export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta> {
+  const nombre = exigirNombreCoherente(datos)
 
   const numeroDocumento = exigirDocumento(datos.numeroDocumento)
   const aviso = await buscarCruce(datos.tipoDocumento, numeroDocumento)
 
-  const [cliente] = await db
-    .insert(clientes)
-    .values({
-      nombre,
-      tipo: datos.tipo ?? 'residencial',
-      tipoDocumento: datos.tipoDocumento,
-      numeroDocumento,
-    })
-    .returning()
+  /*
+   * Cliente y teléfono en la MISMA transacción.
+   *
+   * Con dos escrituras sueltas, un fallo en la segunda deja un cliente sin
+   * número — y ese es exactamente el registro que no sirve para nada: se
+   * registró a alguien para poder reclamarle un botellón, y no quedó a qué
+   * llamar. O entran los dos o no entra ninguno.
+   */
+  return db.transaction(async (tx) => {
+    const [cliente] = await tx
+      .insert(clientes)
+      .values({
+        ...nombre,
+        tipo: datos.tipo ?? 'residencial',
+        tipoDocumento: datos.tipoDocumento,
+        numeroDocumento,
+      })
+      .returning()
 
-  return { cliente: cliente!, aviso }
+    if (!datos.telefono) return { cliente: cliente!, aviso, telefono: null }
+
+    /*
+     * No se chequea el número repetido como en `agregarTelefono`: un cliente
+     * que acaba de nacer no tiene ninguno con el cual repetirse.
+     */
+    const [telefono] = await tx
+      .insert(telefonos)
+      .values({
+        clienteId: cliente!.id,
+        numero: datos.telefono.numero.trim(),
+        ...(datos.telefono.etiqueta?.trim() && { etiqueta: datos.telefono.etiqueta.trim() }),
+      })
+      .returning()
+
+    return { cliente: cliente!, aviso, telefono: telefono! }
+  })
 }
 
-export interface DatosDeEdicion {
-  nombre?: string
+export interface DatosDeEdicion extends NombreDeCliente {
   /** RN-CLI-16: un cliente pasa de residencial a comercial cuando abre un negocio. */
   tipo?: 'residencial' | 'comercial'
   tipoDocumento?: TipoDeDocumento
   numeroDocumento?: string
 }
 
+/**
+ * ¿Este pedido está cambiando el nombre?
+ *
+ * Se mira la PRESENCIA de las claves, no su valor: mandar `apodo: undefined`
+ * para borrar el apodo es un cambio de nombre tanto como mandar uno nuevo.
+ */
+function tocaElNombre(datos: DatosDeEdicion): boolean {
+  const campos = ['nombreLibre', 'primerNombre', 'segundoNombre', 'apellidos', 'apodo'] as const
+  return campos.some((campo) => campo in datos)
+}
+
 export async function editarCliente(
   id: string,
   datos: DatosDeEdicion,
-): Promise<ResultadoDeAlta> {
+): Promise<ResultadoDeEdicion> {
   const actual = await clientePorId(id)
 
   const tipoDocumento = datos.tipoDocumento ?? actual.tipoDocumento
@@ -134,10 +284,33 @@ export async function editarCliente(
 
   const aviso = cambioElDocumento ? await buscarCruce(tipoDocumento, numeroDocumento, id) : null
 
+  /*
+   * El nombre se reemplaza ENTERO o no se toca.
+   *
+   * Un cambio parcial no se puede interpretar: si llega solo `apellidos`, ¿el
+   * primer nombre se conserva, o el cliente pasó a llamarse solo por apellido?
+   * Y peor: mandar `primerNombre` sobre un negocio dejaría el nombre partido y
+   * la razón social a la vez, que es justo lo que
+   * `clientes_una_sola_forma_de_nombre` prohíbe.
+   *
+   * Reemplazar entero es la única lectura sin ambigüedad — y como los campos
+   * ausentes viajan en `null`, borrar un segundo nombre o un apodo funciona
+   * omitiéndolo, sin un verbo aparte para «borrar».
+   */
+  const nombre = tocaElNombre(datos)
+    ? exigirNombreCoherente(datos)
+    : undefined
+
   const [cliente] = await db
     .update(clientes)
     .set({
-      ...(datos.nombre !== undefined && { nombre: datos.nombre.trim() }),
+      ...(nombre && {
+        nombreLibre: nombre.nombreLibre ?? null,
+        primerNombre: nombre.primerNombre ?? null,
+        segundoNombre: nombre.segundoNombre ?? null,
+        apellidos: nombre.apellidos ?? null,
+        apodo: nombre.apodo ?? null,
+      }),
       ...(datos.tipo !== undefined && { tipo: datos.tipo }),
       tipoDocumento,
       numeroDocumento,
@@ -175,6 +348,56 @@ export async function clientePorId(id: string): Promise<Cliente> {
     throw new ErrorDeNegocio('CLIENTE_NO_ENCONTRADO', 404, 'ese cliente no existe')
   }
   return cliente
+}
+
+/**
+ * Buscar por documento — el número es la llave del mostrador.
+ *
+ * ── Por qué por documento y no por nombre ───────────────────────────────────
+ *
+ * En el mostrador el cliente dice su cédula, no deletrea su apellido. Y dos
+ * «María González» son dos personas; dos cédulas iguales, una sola.
+ *
+ * Reemplaza al `<select>` que cargaba todos los clientes: con quinientos, ese
+ * desplegable deja de servir aunque el sistema funcione perfecto — nadie
+ * encuentra a alguien en una lista de quinientos.
+ *
+ * ── Empieza-con, no contiene ────────────────────────────────────────────────
+ *
+ * Una cédula se dicta de izquierda a derecha. Buscar «contiene» traería
+ * coincidencias por el medio del número, que no son las que alguien tipeando
+ * espera — y además impide usar un índice.
+ *
+ * ── El tope no es paginación ────────────────────────────────────────────────
+ *
+ * Si un prefijo corto trae muchos, la respuesta correcta no es una lista larga:
+ * es «seguí escribiendo». Ocho alcanzan para elegir; más es una lista donde hay
+ * que buscar otra vez.
+ */
+export const MAXIMO_COINCIDENCIAS = 8
+
+export async function buscarPorDocumento(
+  prefijo: string,
+  soloActivos = true,
+): Promise<Cliente[]> {
+  const limpio = prefijo.replace(/[^0-9A-Za-z]/g, '')
+
+  /*
+   * Menos de tres caracteres no busca. Con uno o dos, la respuesta serían casi
+   * todos los clientes: ruido que además cuesta una consulta a la base en cada
+   * tecla.
+   */
+  if (limpio.length < 3) return []
+
+  const condiciones = [like(clientes.numeroDocumento, `${limpio}%`)]
+  if (soloActivos) condiciones.push(eq(clientes.activo, true))
+
+  return db
+    .select()
+    .from(clientes)
+    .where(and(...condiciones))
+    .orderBy(clientes.numeroDocumento)
+    .limit(MAXIMO_COINCIDENCIAS)
 }
 
 export async function listarClientes(soloActivos = true): Promise<Cliente[]> {

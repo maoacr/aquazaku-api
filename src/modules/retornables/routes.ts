@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { db } from '@/db/client'
-import { bases } from '@/db/schema'
+import { bases, clientes, direcciones } from '@/db/schema'
+import { direccionLegible } from '@/modules/clientes/direccion-legible'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
@@ -195,10 +196,49 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   /* ── Bases ────────────────────────────────────────────────────────────── */
 
+  /**
+   * Las bases, cada una con DÓNDE está.
+   *
+   * ── El N+1 que esto vino a matar ──────────────────────────────────────────
+   *
+   * La pantalla de Retornables resolvía «dónde está cada base» trayéndose las
+   * direcciones de TODOS los clientes: una petición por cliente. Con los 40 de
+   * hoy pasa desapercibido; con mil son **mil una** peticiones cada vez que
+   * alguien abre la pantalla, para mostrar como mucho cuarenta direcciones.
+   *
+   * Acá es un `LEFT JOIN`. La dirección viaja pegada a la base porque es un
+   * atributo de la base —dónde está— y no una lista aparte que la pantalla
+   * tenga que cruzar.
+   */
   app.get(
     '/bases',
     { preHandler: [requireAuth, requirePermission('bases', 'ver')] },
-    async () => db.select().from(bases).where(eq(bases.activa, true)).orderBy(bases.idSticker),
+    async () => {
+      const filas = await db
+        .select({ base: bases, direccion: direcciones, clienteNombre: clientes.nombre })
+        .from(bases)
+        .leftJoin(direcciones, eq(direcciones.id, bases.direccionId))
+        .leftJoin(clientes, eq(clientes.id, direcciones.clienteId))
+        .where(eq(bases.activa, true))
+        .orderBy(bases.idSticker)
+
+      return filas.map(({ base, direccion, clienteNombre }) => ({
+        ...base,
+        // `null` cuando está en la bodega, que es el caso común.
+        ubicacion:
+          direccion === null
+            ? null
+            : {
+                direccionId: direccion.id,
+                etiqueta: direccion.etiqueta,
+                // La compone `api`, como en todos lados: si cada pantalla
+                // armara la nomenclatura, habría tres formatos en tres meses.
+                legible: direccionLegible(direccion),
+                clienteId: direccion.clienteId,
+                clienteNombre: clienteNombre!,
+              },
+      }))
+    },
   )
 
   /**

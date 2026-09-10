@@ -1,0 +1,56 @@
+meta {
+  name: El alta puede traer el teléfono
+  type: http
+  seq: 23
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "primerNombre": "Rosa",
+    "segundoNombre": "Elena",
+    "apellidos": "Padilla Gómez",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "{{documentoConTelefono}}",
+    "telefono": { "numero": "300 123 4567", "etiqueta": "el celular" }
+  }
+}
+
+script:pre-request {
+  // Diez dígitos que no chocan con los documentos fijos de esta carpeta.
+  bru.setVar("documentoConTelefono", String(Date.now()).slice(-10));
+}
+
+docs {
+  `POST /clientes/:id/telefonos` exige `clientes:editar`, y el rol `pos` **no lo
+  tiene**: puede crear clientes, no modificarlos. Pero es justo quien registra en
+  el mostrador a alguien que se lleva un botellón sin devolver el vacío —
+  RN-ENV-09— y sin teléfono ese registro no sirve para lo único que se hizo:
+  poder reclamarlo.
+
+  Aceptarlo en el alta lo cubre `clientes:crear`, que el `pos` sí tiene, y no le
+  da ningún poder nuevo sobre los clientes que ya existen.
+
+  Las dos filas entran en la MISMA transacción. Con escrituras sueltas, un fallo
+  en la segunda deja un cliente sin número — que es exactamente el registro
+  inútil que esto vino a evitar.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el teléfono entró con el cliente, en un solo viaje", function() {
+    expect(res.getBody().telefono.numero).to.equal("300 123 4567");
+    expect(res.getBody().telefono.etiqueta).to.equal("el celular");
+  });
+
+  test("el segundo nombre no deja un hueco doble en el nombre", function() {
+    expect(res.getBody().nombre).to.equal("Rosa Elena Padilla Gómez");
+  });
+}

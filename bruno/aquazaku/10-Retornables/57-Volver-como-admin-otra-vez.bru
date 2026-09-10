@@ -1,0 +1,29 @@
+meta {
+  name: Volver como admin
+  type: http
+  seq: 57
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{adminEmail}}",
+    "password": "{{adminPassword}}"
+  }
+}
+
+docs {
+  La sesión es del corredor entero, así que la carpeta devuelve el rol que
+  encontró. Sin esto, lo que corra después arranca como `seller` y falla por un
+  motivo que no tiene nada que ver con lo que quería probar.
+}
+
+tests {
+  test("volvió", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

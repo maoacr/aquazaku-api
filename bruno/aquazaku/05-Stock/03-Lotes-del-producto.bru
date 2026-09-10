@@ -14,17 +14,25 @@ docs {
 }
 
 tests {
+  test("la respuesta trae los lotes Y el umbral de aviso", function() {
+    // No es un array pelado: desde M12 el umbral de «vence pronto» es un
+    // parámetro configurable, y viaja con los lotes para que la pantalla no
+    // tenga que pedirlo aparte ni copiarse el número.
+    expect(res.getBody()).to.have.property("lotes").that.is.an("array");
+    expect(res.getBody().diasDeAvisoDeVencimiento).to.be.a("number");
+  });
+
   test("responde 200", function() {
     expect(res.getStatus()).to.equal(200);
   });
 
   test("aparece el lote que acaba de crearse", function() {
-    const codigos = res.getBody().map(l => l.codigo);
+    const codigos = res.getBody().lotes.map(l => l.codigo);
     expect(codigos).to.include(bru.getVar("loteCodigo"));
   });
 
   test("vienen ordenados por vencimiento", function() {
-    const fechas = res.getBody().map(l => l.fechaVencimiento);
+    const fechas = res.getBody().lotes.map(l => l.fechaVencimiento);
     const ordenadas = [...fechas].sort();
     expect(fechas).to.eql(ordenadas);
   });

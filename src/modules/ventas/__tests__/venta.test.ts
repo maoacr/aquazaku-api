@@ -84,7 +84,7 @@ beforeEach(async () => {
 
   const [cliente] = await db
     .insert(clientes)
-    .values({ nombre: 'Yeimy', tipoDocumento: 'CC', numeroDocumento: '79123456' })
+    .values({ nombreLibre: 'Yeimy', tipoDocumento: 'CC', numeroDocumento: '79123456' })
     .returning()
   clienteId = cliente!.id
 })

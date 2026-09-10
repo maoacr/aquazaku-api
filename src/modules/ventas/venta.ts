@@ -16,6 +16,8 @@ import { asignarFifo } from '@/modules/stock/asignacion'
 import { descontar } from '@/modules/stock/saldo'
 import { exigirCreditoValido } from './credito'
 import { aCentavos, aMonto, calcularPrecio, totalDeLinea } from './precio'
+import { basePorSticker, prestarBaseEn } from '@/modules/retornables/bases'
+
 import { deudaDe } from './saldo'
 
 /**
@@ -78,6 +80,24 @@ export interface DatosDeVenta {
    */
   botellonesSinVacio?: number
 
+  /**
+   * Una base que sale con esta venta — RN-BAS-03.
+   *
+   * ── Por qué viaja en la venta y no en una llamada aparte ──────────────────
+   *
+   * Por lo mismo que `botellonesSinVacio`: era un segundo acto en otra
+   * pantalla, y el segundo acto es el que se olvida. Con la base ya en el auto
+   * del cliente, nadie vuelve a Retornables a registrarla.
+   *
+   * Se identifica por el **sticker**, no por el id: en el mostrador nadie
+   * conoce el UUID de una base, conoce el `0042` pegado encima.
+   *
+   * La dirección va aparte porque la base se presta a una DIRECCIÓN, no a un
+   * cliente (RN-BAS-03): un comercial con tres locales tiene una base en cada
+   * uno, y sin saber cuál no hay dónde ir a reclamarla.
+   */
+  base?: { sticker: string; direccionId: string }
+
   /** `YYYY-MM-DD`. Se recibe para poder testear el borde del vencimiento. */
   hoy: string
 }
@@ -93,6 +113,8 @@ export interface LineaRegistrada {
 export interface ResultadoDeVenta {
   venta: Venta
   lineas: LineaRegistrada[]
+  /** La base que salió con la venta, si salió alguna. */
+  basePrestada?: { idSticker: string }
   /**
    * `true` si algún descuento se recortó contra el piso — RN-VEN-13.
    *
@@ -347,9 +369,32 @@ export async function registrarVenta(
         .where(eq(codigosDeDescuento.id, codigo.id))
     }
 
+    /*
+     * ── La base sale DENTRO de la misma transacción ─────────────────────────
+     *
+     * Si el préstamo falla —figura en otra dirección, el cliente no está
+     * verificado— la venta entera se cae. Y está bien: quien atiende todavía no
+     * cobró, corrige el número y vuelve a intentar.
+     *
+     * Al revés quedaría lo peor de los dos mundos: una venta registrada y una
+     * base saliendo por la puerta sin ninguna fila que la reclame.
+     */
+    let basePrestada: { idSticker: string } | undefined
+
+    if (datos.base) {
+      const base = await basePorSticker(datos.base.sticker, tx)
+      const prestada = await prestarBaseEn(tx, base.id, datos.base.direccionId, registradoPor)
+      basePrestada = { idSticker: prestada.idSticker }
+    }
+
     const [confirmada] = await tx.select().from(ventas).where(eq(ventas.id, venta!.id))
 
-    return { venta: confirmada!, lineas, descuentoAplicadoParcialmente: huboRecorte }
+    return {
+      venta: confirmada!,
+      lineas,
+      descuentoAplicadoParcialmente: huboRecorte,
+      ...(basePrestada && { basePrestada }),
+    }
   })
 }
 
