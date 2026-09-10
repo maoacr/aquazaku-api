@@ -11,7 +11,7 @@ import {
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { leerParametro } from '@/modules/alertas/parametros'
-import type { Ejecutor } from '@/modules/stock/saldo'
+import type { Ejecutor, Transaccion } from '@/modules/stock/saldo'
 import { esCodigoDeBase, proximoCodigo } from './codigo'
 
 /**
@@ -274,7 +274,31 @@ export async function prestarBase(
   direccionId: string,
   registradoPor: string | null,
 ): Promise<Base> {
-  return db.transaction(async (tx) => {
+  return db.transaction((tx) => prestarBaseEn(tx, baseId, direccionId, registradoPor))
+}
+
+/**
+ * El préstamo, sobre una transacción que abrió otro.
+ *
+ * ── Por qué hace falta esta forma ───────────────────────────────────────────
+ *
+ * Porque una venta puede llevar una base, y las dos cosas tienen que entrar
+ * juntas o no entrar. Es el mismo argumento de RN-ENV-09 con los botellones:
+ * antes eran dos actos separados —cobrar, y después acordarse de registrar la
+ * entrega en otra pantalla— y ese olvido no dejaba ningún rastro.
+ *
+ * Si el préstamo falla —la base figura en otra dirección, el cliente no está
+ * verificado— **la venta no se hace**. Es lo correcto: quien está en el
+ * mostrador todavía no cobró, corrige el número y vuelve a intentar. Al revés
+ * quedaría una venta registrada y una base saliendo por la puerta sin fila.
+ */
+export async function prestarBaseEn(
+  tx: Transaccion,
+  baseId: string,
+  direccionId: string,
+  registradoPor: string | null,
+): Promise<Base> {
+  {
     const base = await baseActiva(tx, baseId)
 
     if (base.direccionId !== null) {
@@ -328,7 +352,7 @@ export async function prestarBase(
     })
 
     return prestada!
-  })
+  }
 }
 
 /** La base vuelve a la bodega. */
@@ -416,6 +440,31 @@ export async function basesEnDireccion(direccionId: string): Promise<Base[]> {
 }
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+/**
+ * Buscar una base por su sticker — el número que la persona tiene delante.
+ *
+ * En el mostrador nadie conoce el UUID de una base: conoce el `0042` pegado
+ * encima. Pedir el id interno significaría buscar la base en otra pantalla,
+ * copiarlo y volver — que es exactamente la fricción que hace que la entrega no
+ * se registre.
+ *
+ * El error dice el código que se buscó, porque el más probable es un dedazo.
+ */
+export async function basePorSticker(sticker: string, ejecutor: Ejecutor = db): Promise<Base> {
+  const codigo = sticker.trim()
+  const [base] = await ejecutor.select().from(bases).where(eq(bases.idSticker, codigo))
+
+  if (!base) {
+    throw new ErrorDeNegocio(
+      'BASE_NO_ENCONTRADA',
+      404,
+      `no hay ninguna base con el código ${codigo}. Revise el número del sticker`,
+    )
+  }
+
+  return base
+}
 
 async function baseActiva(tx: Tx, id: string): Promise<Base> {
   const [base] = await tx.select().from(bases).where(eq(bases.id, id))

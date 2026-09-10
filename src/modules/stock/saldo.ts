@@ -38,7 +38,7 @@ import { type MovimientoStock, lotes, movimientosStock } from '@/db/schema'
  */
 
 /** `db` o una transacción abierta. M6 va a necesitar descontar dentro de la suya. */
-type Transaccion = Parameters<Parameters<DB['transaction']>[0]>[0]
+export type Transaccion = Parameters<Parameters<DB['transaction']>[0]>[0]
 export type Ejecutor = DB | Transaccion
 
 export interface Salida {
