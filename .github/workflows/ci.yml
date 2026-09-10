@@ -173,4 +173,11 @@ jobs:
       # request, que es fácil de confundir con un test que falla.
       - name: Correr la colección
         working-directory: bruno/aquazaku
-        run: bru run . -r --env ci
+        # La contraseña sale de `SEED_ADMIN_PASSWORD`, que es la MISMA con la
+        # que se sembró el admin unas líneas más arriba.
+        #
+        # Antes estaba escrita también en `environments/ci.bru`. Las dos se
+        # separaron —13 caracteres contra 21— y el job quedó en rojo durante un
+        # día entero, fallando en el primer login con un 401 que parecía un
+        # problema de autenticación y era una copia desactualizada.
+        run: bru run . -r --env ci --env-var adminPassword="$SEED_ADMIN_PASSWORD"
