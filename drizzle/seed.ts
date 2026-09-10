@@ -247,17 +247,34 @@ export interface ProblemaDeEntorno {
 
 /** Valida el entorno del seed. Devuelve el problema, o las opciones si está bien. */
 export function leerEntorno(env: NodeJS.ProcessEnv): ProblemaDeEntorno | OpcionesDeSeed {
-  // Defensa en profundidad: dos switches de seguridad redundantes. `NODE_ENV`
-  // lo setean frameworks y herramientas externas; `AQUAZAKU_ENV` lo controlamos
-  // nosotros. Si alguien corre este script apuntando a producción con
-  // `NODE_ENV=development` por error (o con un override local del `.env`),
-  // `AQUAZAKU_ENV=production` lo frena igual. Un seed que pasa ambos puede
-  // crear una cuenta con acceso total — y por eso, además, exige
-  // `SEED_CONFIRM=yes`.
-  if (
-    (env.NODE_ENV === 'production' || env.AQUAZAKU_ENV === 'production') &&
-    env.SEED_CONFIRM !== 'yes'
-  ) {
+  /*
+   * ── `AQUAZAKU_ENV` MANDA sobre `NODE_ENV`, no al revés ────────────────────
+   *
+   * `NODE_ENV=production` no significa «esta es la base de la planta»:
+   * significa «este build está optimizado». **Todo container de Node lo trae**,
+   * staging incluido, y lo pone la plataforma sin preguntar.
+   *
+   * Antes los dos iban con un `OR`, así que staging quedaba frenado por una
+   * variable que no habla de ambientes sino de builds. Y el costo no era un
+   * aviso: el seed corta con `exitCode = 1`, el `&&` del `startCommand` se
+   * rompe, y **`pnpm start` nunca corre**. La api de staging no arrancaba, el
+   * schema `preview` quedaba sin datos, y desde afuera se veía como «no
+   * encuentro la contraseña del preview».
+   *
+   * `AQUAZAKU_ENV` existe justamente para desempatar: lo ponemos nosotros y
+   * dice a qué ambiente apunta el proceso. Si dice `preview` o `development`,
+   * es una respuesta explícita y `NODE_ENV` no la puede vetar.
+   *
+   * La defensa en profundidad se conserva donde de verdad importa: si
+   * `AQUAZAKU_ENV` **no está** —nadie declaró nada— `NODE_ENV=production`
+   * sigue frenando. Lo que se dejó de tratar como sospechoso es una
+   * declaración explícita de que esto NO es producción.
+   */
+  const declarado = env.AQUAZAKU_ENV
+  const apuntaAProduccion =
+    declarado === 'production' || (declarado === undefined && env.NODE_ENV === 'production')
+
+  if (apuntaAProduccion && env.SEED_CONFIRM !== 'yes') {
     return {
       mensaje:
         'Estás en producción y no pusiste SEED_CONFIRM=yes.\n' +
