@@ -27,7 +27,7 @@ tests {
   });
 
   test("quedan 38: la venta descontó del MISMO lote que dice la línea", function() {
-    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    const lote = res.getBody().lotes.find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
     expect(lote, "el lote de esta carpeta no aparece con saldo").to.not.equal(undefined);
     expect(lote.saldo).to.equal(38);
   });

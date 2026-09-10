@@ -25,7 +25,7 @@ docs {
 
 script:post-response {
   if (res.getStatus() === 200) {
-    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    const lote = res.getBody().lotes.find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
     if (lote) bru.setVar("saldoAntesDeDevolver", lote.saldo);
   }
 }
@@ -36,7 +36,7 @@ tests {
   });
 
   test("volvió exactamente 1: lo que la venta anulada había sacado", function() {
-    const lote = res.getBody().find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
+    const lote = res.getBody().lotes.find(l => l.codigo === bru.getVar("ventasLoteCodigo"));
     expect(lote, "el lote de esta carpeta no aparece con saldo").to.not.equal(undefined);
     expect(lote.saldo).to.equal(bru.getVar("saldoAntesDeAnular") + 1);
   });

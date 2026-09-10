@@ -1,0 +1,30 @@
+meta {
+  name: La base quedó en esa dirección
+  type: http
+  seq: 54
+}
+
+get {
+  url: {{baseUrl}}/bases
+  body: none
+}
+
+docs {
+  La venta escribió el préstamo. No hay un segundo paso que alguien pueda
+  olvidar: o quedaron los dos, o no quedó ninguno.
+}
+
+tests {
+  test("ya no está en la bodega", function() {
+    const base = res.getBody().find((b) => b.idSticker === bru.getVar("stickerLibre"));
+    expect(base.ubicacion).to.not.equal(null);
+    expect(base.ubicacion.direccionId).to.equal(bru.getVar("parqueDireccionId"));
+  });
+
+  test("y la ubicación dice a dónde ir a buscarla, y de quién es", function() {
+    const base = res.getBody().find((b) => b.idSticker === bru.getVar("stickerLibre"));
+    expect(base.ubicacion).to.have.property("etiqueta");
+    expect(base.ubicacion).to.have.property("legible");
+    expect(base.ubicacion.clienteNombre).to.be.a("string");
+  });
+}

@@ -1,3 +1,35 @@
+docs {
+  # La colección corre en orden, y sobre una base LIMPIA
+
+  Los pedidos están numerados porque son una narración: uno crea el cliente, el
+  siguiente le vende, el de más allá anula esa venta. Cada uno guarda ids en
+  variables que los que siguen consumen.
+
+  De eso salen dos condiciones que no son opcionales:
+
+  1. **Se corre entera y en orden.** Un pedido suelto puede fallar por una
+     variable que nadie llenó, no por el endpoint que quería probar.
+
+  2. **La base tiene que estar vacía.** Correrla dos veces seguidas sobre la
+     misma base falla: los códigos fijos —insumos, productos— chocan contra el
+     duplicado, la cadena se corta, y los pedidos que siguen viajan con
+     `{{variable}}` literal en la URL. Eso produce una lluvia de 500 que no
+     dice nada sobre el sistema.
+
+  CI la corre así, contra una base recién migrada y sembrada. En local hace
+  falta reproducir esa condición: la base de tests sirve, y se vacía con el
+  mismo helper que usa Vitest.
+
+  ## Un solo administrador
+
+  `02-Usuarios/04-Ultimo-admin` le quita el rol `admin` a quien está logueado y
+  espera un **409**: es la regla que impide dejar el sistema inadministrable.
+
+  Con dos administradores activos esa operación es legítima, el guardián la deja
+  pasar, y la corrida se queda sin permisos a partir de ahí. No es un fallo del
+  sistema — es que el escenario asume un admin y había dos.
+}
+
 headers {
   ~Content-Type: application/json
 }

@@ -1,0 +1,46 @@
+meta {
+  name: La venta NO es una puerta de atrás a los permisos
+  type: http
+  seq: 56
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "clienteId": "{{parqueClienteId}}",
+    "items": [
+      { "productoId": "{{recargaId}}", "cantidad": 1 }
+    ],
+    "base": { "sticker": "0001", "direccionId": "{{parqueDireccionId}}" }
+  }
+}
+
+docs {
+  El `seller` tiene `ventas:crear` y **solo** `bases:ver`. Sin un chequeo propio,
+  este campo nuevo sería una puerta de atrás a la matriz: prestar bases mandando
+  un dato más en el cuerpo de una venta que sí puede hacer.
+
+  Es RN-ACC-02 en su forma menos obvia. La regla no es «cada ruta valida su
+  permiso» — es «cada **acción** valida el suyo», y esta ruta hace dos.
+
+  Si este pedido responde 201, el rol creció sin que nadie lo decidiera, y creció
+  por el peor camino posible: un campo nuevo en un endpoint que ya existía.
+
+  El mensaje además dice qué SÍ puede hacer. Un 403 que solo niega deja a quien
+  atiende sin salida; este le dice que registre la venta sin la base.
+}
+
+tests {
+  test("responde 403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("y explica la salida, no solo la negativa", function() {
+    expect(res.getBody().mensaje).to.match(/sin la base/);
+  });
+}

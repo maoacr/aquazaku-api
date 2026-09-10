@@ -1,0 +1,30 @@
+meta {
+  name: Con dos dígitos no busca nada
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/clientes?documento=79
+  body: none
+}
+
+params:query {
+  documento: 79
+}
+
+docs {
+  Con uno o dos caracteres la respuesta serían casi todos los clientes: ruido
+  que además cuesta una consulta en cada tecla.
+
+  Devuelve lista vacía y **no** un 404: no encontrar a nadie no es un error, es
+  un resultado. Un 404 obligaría a la pantalla a distinguir «no hay» de «se
+  rompió», que son cosas distintas y se ven iguales.
+}
+
+tests {
+  test("responde 200 con la lista vacía", function() {
+    expect(res.getStatus()).to.equal(200);
+    expect(res.getBody()).to.be.an("array").that.is.empty;
+  });
+}

@@ -1,0 +1,42 @@
+meta {
+  name: Un apellido suelto no es un nombre
+  type: http
+  seq: 22
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "apellidos": "Solo Apellidos",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "5550001"
+  }
+}
+
+docs {
+  Un nombre de pila sin apellidos no identifica a nadie en un pueblo donde hay
+  cuatro Rosas, y un apellido suelto tampoco. Van los dos, o ninguno y el nombre
+  del negocio en su lugar.
+
+  **422 y no 400**: la forma de cada campo está bien —son cadenas no vacías—, lo
+  que falla es la regla sobre el conjunto. El 400 de esta casa es para la forma.
+
+  El invariante lo garantiza la base con `clientes_nombre_partido_completo`. El
+  servicio lo valida antes solo para dar un mensaje que sirva: el error crudo de
+  un CHECK no le dice nada a quien está llenando un formulario. Hay un test de
+  `api/` que cruza los dos — si divergieran, el usuario vería un 500.
+}
+
+tests {
+  test("lo rechaza con 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("y el mensaje dice qué le falta", function() {
+    expect(res.getBody().mensaje).to.match(/apellido/i);
+  });
+}

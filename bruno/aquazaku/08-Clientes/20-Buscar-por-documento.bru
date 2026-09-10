@@ -1,0 +1,77 @@
+meta {
+  name: Buscarlo por su documento
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseUrl}}/clientes?documento=791
+  body: none
+}
+
+params:query {
+  documento: 791
+}
+
+docs {
+  El mostrador ubica al cliente por su cédula, no por su nombre: es lo que la
+  persona dicta. Y con quinientos clientes un desplegable deja de servir aunque
+  el sistema funcione perfecto — nadie encuentra a alguien en una lista de
+  quinientos, y menos con gente esperando.
+
+  Va sobre el `GET /clientes` que ya existía, con su mismo permiso. Una búsqueda
+  no es una puerta nueva.
+
+  Busca por **prefijo**, no por «contiene»: una cédula se dicta de izquierda a
+  derecha, y `LIKE '%x%'` no puede usar un índice.
+
+  El tope es de ocho y no hay paginación. Si un prefijo trae muchos, la
+  respuesta correcta no es una lista larga: es «siga escribiendo».
+}
+
+tests {
+  test("encuentra por el principio del número", function() {
+    expect(res.getStatus()).to.equal(200);
+    const documentos = res.getBody().map((c) => c.numeroDocumento);
+    expect(documentos).to.include("79123456");
+  });
+
+  test("nunca devuelve más de ocho", function() {
+    expect(res.getBody().length).to.be.at.most(8);
+  });
+
+  test("el mismo número aparece como CC y como NIT — RN-CLI-08", function() {
+    // No es un duplicado: el NIT de una persona natural se basa en su cédula,
+    // y la unicidad va sobre el PAR (tipo, número). Por eso hay que buscar la
+    // persona por los DOS datos — con el número solo se agarra cualquiera.
+    const conEseNumero = res.getBody().filter((c) => c.numeroDocumento === "79123456");
+    expect(conEseNumero.length).to.equal(2);
+    expect(conEseNumero.map((c) => c.tipoDocumento).sort()).to.eql(["CC", "NIT"]);
+  });
+
+  test("el nombre de la persona lo arma la base con sus partes", function() {
+    const yeimy = res.getBody().find(
+      (c) => c.numeroDocumento === "79123456" && c.tipoDocumento === "CC",
+    );
+    expect(yeimy.nombre).to.equal("Yeimy Rodríguez");
+    expect(yeimy.primerNombre).to.equal("Yeimy");
+    expect(yeimy.apellidos).to.equal("Rodríguez");
+  });
+
+  test("el negocio va por el nombre libre, sin apellidos", function() {
+    const sas = res.getBody().find(
+      (c) => c.numeroDocumento === "79123456" && c.tipoDocumento === "NIT",
+    );
+    expect(sas.nombre).to.equal("Yeimy Rodríguez SAS");
+    expect(sas.nombreLibre).to.equal("Yeimy Rodríguez SAS");
+    expect(sas.apellidos).to.equal(null);
+  });
+
+  test("y el apodo va aparte: no entra en el nombre", function() {
+    const yeimy = res.getBody().find(
+      (c) => c.numeroDocumento === "79123456" && c.tipoDocumento === "CC",
+    );
+    expect(yeimy.apodo).to.equal("La de la esquina");
+    expect(yeimy.nombre).to.not.match(/esquina/);
+  });
+}
