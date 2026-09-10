@@ -42,7 +42,7 @@ beforeEach(async () => {
   const [cliente] = await db
     .insert(clientes)
     .values({
-      nombre: 'Yeimy',
+      nombreLibre: 'Yeimy',
       tipoDocumento: 'CC',
       numeroDocumento: '79123456',
       verificacionEstado: 'verificado',
@@ -156,7 +156,7 @@ describe('la cartera', () => {
     const [otro] = await db
       .insert(clientes)
       .values({
-        nombre: 'Panadería',
+        nombreLibre: 'Panadería',
         tipoDocumento: 'NIT',
         numeroDocumento: '900123456',
         verificacionEstado: 'verificado',

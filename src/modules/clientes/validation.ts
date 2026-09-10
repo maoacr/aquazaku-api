@@ -21,8 +21,26 @@ const tipoCliente = z.enum(['residencial', 'comercial'])
  */
 const numeroDocumento = z.string().min(1, 'el documento es obligatorio')
 
+/**
+ * Las cinco formas de nombrar, todas opcionales acá.
+ *
+ * Que la combinación tenga sentido —partes completas, una sola forma, al menos
+ * un nombre— NO se valida en el esquema: son reglas de negocio con su propio
+ * mensaje, y viven en `exigirNombreCoherente`. El esquema valida FORMA.
+ *
+ * Si se pusieran acá con `.refine()`, habría dos lugares diciendo lo mismo con
+ * palabras distintas, y el día que cambie uno el otro se queda mintiendo.
+ */
+const nombre = {
+  nombreLibre: z.string().trim().min(1).max(120).optional(),
+  primerNombre: z.string().trim().min(1).max(60).optional(),
+  segundoNombre: z.string().trim().min(1).max(60).optional(),
+  apellidos: z.string().trim().min(1).max(80).optional(),
+  apodo: z.string().trim().min(1).max(60).optional(),
+}
+
 export const esquemaDeAlta = z.object({
-  nombre: z.string().trim().min(1, 'el cliente necesita un nombre'),
+  ...nombre,
   tipo: tipoCliente.optional(),
   tipoDocumento,
   numeroDocumento,
@@ -43,7 +61,7 @@ export const esquemaDeAlta = z.object({
 
 export const esquemaDeEdicion = z
   .object({
-    nombre: z.string().trim().min(1).optional(),
+    ...nombre,
     tipo: tipoCliente.optional(),
     tipoDocumento: tipoDocumento.optional(),
     numeroDocumento: numeroDocumento.optional(),

@@ -26,7 +26,7 @@ beforeEach(async () => {
   const [c] = await db
     .insert(clientes)
     .values({
-      nombre: 'Panadería del Centro',
+      nombreLibre: 'Panadería del Centro',
       tipoDocumento: 'NIT',
       numeroDocumento: '900456789',
     })

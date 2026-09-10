@@ -19,7 +19,7 @@ beforeEach(async () => {
 
   const [c] = await db
     .insert(clientes)
-    .values({ nombre: 'Panadería del Centro', tipoDocumento: 'NIT', numeroDocumento: '900456789' })
+    .values({ nombreLibre: 'Panadería del Centro', tipoDocumento: 'NIT', numeroDocumento: '900456789' })
     .returning()
   clienteId = c!.id
 })

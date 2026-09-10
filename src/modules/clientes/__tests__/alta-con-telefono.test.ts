@@ -27,7 +27,9 @@ import { usuarioAutenticado } from '@/test/fixtures'
 let app: FastifyInstance
 
 const alta = {
-  nombre: 'Rosa Elena Padilla',
+  primerNombre: 'Rosa',
+  segundoNombre: 'Elena',
+  apellidos: 'Padilla',
   tipoDocumento: 'CC' as const,
   numeroDocumento: '1.042.857.391',
 }
@@ -73,7 +75,7 @@ describe('el pos registra a quien se lleva un botellón, entero', () => {
     const { cookie } = await usuarioAutenticado('pos')
     const [cliente] = await db
       .insert(clientes)
-      .values({ nombre: 'Ya estaba', tipoDocumento: 'CC', numeroDocumento: '900123456' })
+      .values({ nombreLibre: 'Ya estaba', tipoDocumento: 'CC', numeroDocumento: '900123456' })
       .returning()
 
     const res = await app.inject({

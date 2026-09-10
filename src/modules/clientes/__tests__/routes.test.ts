@@ -32,7 +32,8 @@ const como = async (rol: Role, pedido: Omit<InjectOptions, 'headers'>) => {
 }
 
 const UN_CLIENTE = {
-  nombre: 'Yeimy Rodríguez',
+  primerNombre: 'Yeimy',
+  apellidos: 'Rodríguez',
   tipoDocumento: 'CC',
   numeroDocumento: '79.123.456',
 }
@@ -55,7 +56,7 @@ describe('POST /clientes', () => {
     const res = await comoAdmin({
       method: 'POST',
       url: '/clientes',
-      payload: { nombre: 'Alguien', tipoDocumento: 'CC' },
+      payload: { primerNombre: 'Alguien', apellidos: 'Sin Documento', tipoDocumento: 'CC' },
     })
 
     expect(res.statusCode).toBe(400)
@@ -87,7 +88,7 @@ describe('POST /clientes', () => {
     const res = await comoAdmin({
       method: 'POST',
       url: '/clientes',
-      payload: { nombre: 'Yeimy SAS', tipoDocumento: 'NIT', numeroDocumento: '79123456' },
+      payload: { nombreLibre: 'Yeimy SAS', tipoDocumento: 'NIT', numeroDocumento: '79123456' },
     })
 
     expect(res.statusCode).toBe(201)
@@ -101,7 +102,7 @@ describe('POST /clientes', () => {
 describe('el documento que se muestra', () => {
   it('un NIT llega con su dígito de verificación', async () => {
     const cliente = await crear({
-      nombre: 'Panadería del Centro',
+      nombreLibre: 'Panadería del Centro',
       tipoDocumento: 'NIT',
       numeroDocumento: '900123456',
     })

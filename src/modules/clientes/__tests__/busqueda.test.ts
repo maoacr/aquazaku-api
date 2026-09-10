@@ -24,7 +24,7 @@ import { usuarioAutenticado } from '@/test/fixtures'
 let app: FastifyInstance
 
 const crear = (numeroDocumento: string, nombre = 'Cliente', activo = true) =>
-  db.insert(clientes).values({ nombre, tipoDocumento: 'CC', numeroDocumento, activo })
+  db.insert(clientes).values({ nombreLibre: nombre, tipoDocumento: 'CC', numeroDocumento, activo })
 
 beforeEach(async () => {
   await resetDb()

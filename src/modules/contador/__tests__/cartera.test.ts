@@ -80,7 +80,7 @@ beforeEach(async () => {
   const [c] = await db
     .insert(clientes)
     .values({
-      nombre: 'Panadería del Centro',
+      nombreLibre: 'Panadería del Centro',
       tipoDocumento: 'NIT',
       numeroDocumento: '900456789',
       tipo: 'comercial',
@@ -271,7 +271,7 @@ describe('el orden de la lista', () => {
     const [otro] = await db
       .insert(clientes)
       .values({
-        nombre: 'Tienda La Esquina',
+        nombreLibre: 'Tienda La Esquina',
         tipoDocumento: 'CC',
         numeroDocumento: '1234567',
         verificacionEstado: 'verificado',
