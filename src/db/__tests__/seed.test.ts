@@ -254,6 +254,51 @@ describe('validación del entorno', () => {
     expect(entorno).toMatchObject({ password: 'contrasena-larga-123' })
   })
 
+  /**
+   * ── El caso que dejó staging sin arrancar ─────────────────────────────────
+   *
+   * `NODE_ENV=production` lo pone Railway en **todo** container de Node,
+   * staging incluido: dice «este build está optimizado», no «esta es la base de
+   * la planta».
+   *
+   * Con el `OR` anterior, staging quedaba frenado por esa variable. Y no era un
+   * aviso: el seed corta con `exitCode = 1`, el `&&` del `startCommand` se
+   * rompe y `pnpm start` nunca corre. La api de staging no levantaba, el schema
+   * `preview` quedaba vacío, y desde afuera se veía como «no encuentro la
+   * contraseña del preview».
+   */
+  it('staging pasa: `AQUAZAKU_ENV=preview` le gana a `NODE_ENV=production`', () => {
+    const entorno = leerEntorno({
+      NODE_ENV: 'production',
+      AQUAZAKU_ENV: 'preview',
+      SEED_ADMIN_PASSWORD: 'contrasena-larga-123',
+    })
+
+    expect(entorno).toMatchObject({ password: 'contrasena-larga-123' })
+  })
+
+  /**
+   * Y la defensa en profundidad se conserva donde importa: sin nadie que
+   * declare el ambiente, `NODE_ENV=production` sigue frenando. Lo que dejó de
+   * ser sospechoso es una declaración EXPLÍCITA de que esto no es producción.
+   */
+  it('sin `AQUAZAKU_ENV`, `NODE_ENV=production` sigue frenando', () => {
+    expect(
+      leerEntorno({ NODE_ENV: 'production', SEED_ADMIN_PASSWORD: 'contrasena-larga-123' }),
+    ).toMatchObject({ mensaje: expect.stringContaining('SEED_CONFIRM=yes') })
+  })
+
+  /** Y `AQUAZAKU_ENV=production` frena aunque `NODE_ENV` diga otra cosa. */
+  it('`AQUAZAKU_ENV=production` frena con `NODE_ENV=development`', () => {
+    expect(
+      leerEntorno({
+        NODE_ENV: 'development',
+        AQUAZAKU_ENV: 'production',
+        SEED_ADMIN_PASSWORD: 'contrasena-larga-123',
+      }),
+    ).toMatchObject({ mensaje: expect.stringContaining('SEED_CONFIRM=yes') })
+  })
+
   it('en desarrollo no pide confirmación', () => {
     expect(leerEntorno({ SEED_ADMIN_PASSWORD: 'contrasena-larga-123' })).toMatchObject({
       email: 'admin@aquazaku.com',
