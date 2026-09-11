@@ -33,10 +33,22 @@ import { ErrorDeNegocio } from '@/lib/errors'
 export const PARAMETROS_INICIALES = [
   { clave: 'dias_aviso_vencimiento', valor: 7 },
   { clave: 'dias_entrega_bases', valor: 7 },
+  { clave: 'dias_recompra_aviso', valor: 5 },
+  { clave: 'dias_recompra_urgente', valor: 8 },
 ] as const
 
 /** Las claves que el código conoce. Pedir otra es un error de tipos. */
-export type ClaveDeParametro = 'dias_aviso_vencimiento' | 'dias_entrega_bases'
+export type ClaveDeParametro =
+  | 'dias_aviso_vencimiento'
+  | 'dias_entrega_bases'
+  /*
+   * Los dos de recompra van juntos y en ese orden: `aviso` abre la franja «por
+   * llamar» y `urgente` la corta. Un trigger de la migración 0017 impide que se
+   * crucen — con `aviso >= urgente` no queda ninguna franja intermedia y el
+   * panel muestra a todos como urgentes, que es dejar de priorizar.
+   */
+  | 'dias_recompra_aviso'
+  | 'dias_recompra_urgente'
 
 export interface Parametro {
   clave: string

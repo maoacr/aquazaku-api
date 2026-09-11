@@ -31,7 +31,20 @@ describe('quién configura los umbrales', () => {
     const res = await como('admin', { method: 'GET', url: '/parametros' })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toHaveLength(2)
+
+    /*
+     * Qué parámetros existe lo vigila `parametros.test.ts`, que es su lugar.
+     * Acá lo que se prueba es la RUTA: que contesta, que devuelve la lista
+     * entera y que cada fila trae sus límites —sin ellos el formulario ofrece
+     * números que el servidor va a rechazar—.
+     */
+    const claves = res.json().map((p: { clave: string }) => p.clave)
+    expect(claves).toContain('dias_aviso_vencimiento')
+    expect(claves).toContain('dias_recompra_urgente')
+
+    for (const p of res.json() as { minimo: number; maximo: number }[]) {
+      expect(p.minimo).toBeLessThan(p.maximo)
+    }
   })
 
   it('el admin los cambia', async () => {

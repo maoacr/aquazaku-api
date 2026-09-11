@@ -3,6 +3,7 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
+import { clientesALlamar } from './a-llamar'
 import { configurarCredito } from './credito'
 import {
   agregarDireccion,
@@ -66,6 +67,24 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
 
       return (await listarClientes(!todos)).map(conDocumento)
     },
+  )
+
+  /**
+   * Los clientes a los que hay que llamar — M15.
+   *
+   * Va ANTES de `/clientes/:id` por costumbre de lectura, no por necesidad:
+   * find-my-way prefiere el segmento estático sobre el parámetro, así que
+   * `a-llamar` nunca cae en `:id` aunque se registre después. Está probado en
+   * `__tests__/a-llamar-routes.test.ts` — la clase de cosa que se afirma de
+   * memoria y conviene medir.
+   *
+   * Pide `clientes:ver` y nada más: es una lectura. Quien atiende el mostrador
+   * es justamente quien tiene que ver esta lista.
+   */
+  app.get(
+    '/clientes/a-llamar',
+    { preHandler: [requireAuth, requirePermission('clientes', 'ver')] },
+    async () => clientesALlamar(new Date().toISOString().slice(0, 10)),
   )
 
   app.get(

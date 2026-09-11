@@ -29,6 +29,8 @@ describe('los que existen', () => {
     expect((await listarParametros()).map((p) => p.clave)).toEqual([
       'dias_aviso_vencimiento',
       'dias_entrega_bases',
+      'dias_recompra_aviso',
+      'dias_recompra_urgente',
     ])
   })
 
@@ -91,8 +93,17 @@ describe('cambiar un umbral', () => {
   })
 
   it('una clave que no existe responde 404, no crea una fila', async () => {
+    /*
+     * Se compara contra el conteo ANTERIOR y no contra un número escrito.
+     * Escribirlo hace que este test se ponga rojo cada vez que alguien agrega
+     * un parámetro —por una razón que no tiene nada que ver con lo que
+     * vigila—, y un rojo que miente sobre su causa se aprende a ignorar.
+     */
+    const antes = (await listarParametros()).length
+
     await expect(cambiarParametro('inventado', 5)).rejects.toThrow('no existe el parámetro')
-    expect(await listarParametros()).toHaveLength(2)
+
+    expect(await listarParametros()).toHaveLength(antes)
   })
 
   it('los bordes SÍ se aceptan: el límite es inclusivo', async () => {
