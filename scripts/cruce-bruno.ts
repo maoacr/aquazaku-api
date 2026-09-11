@@ -10,11 +10,24 @@
  * Este script contesta la otra pregunta. Se corre a mano, cuando se agrega o se
  * mueve un endpoint:
  *
- *     pnpm tsx scripts/cruce-bruno.ts
+ *     pnpm bruno:cobertura
  *
- * A propósito NO está en `package.json` ni en el workflow: es una herramienta de
- * diagnóstico, no un portón. Un portón de cobertura que nadie eligió se vuelve
- * el rojo que todos aprenden a ignorar — ya pasó con el de `web`.
+ * ── Es diagnóstico, no portón ───────────────────────────────────────────────
+ *
+ * Está en `package.json` para que sea fácil de correr, y **fuera del workflow a
+ * propósito**. Un portón de cobertura que nadie eligió se vuelve el rojo que
+ * todos aprenden a ignorar: el de `web` lleva cuarenta corridas sin pasar, con
+ * umbrales que se pusieron como meta y quedaron como barrera.
+ *
+ * De ahí sale la regla de este archivo: **nunca falla por lo que encuentra**.
+ * Reporta y sale con 0, haya cero huecos o veinte. Si algún día se decide
+ * convertirlo en portón, que sea una decisión explícita de quien la tome — no
+ * algo que se hereda por haber agregado una línea al `package.json`.
+ *
+ * Sí sale con 1 si no PUEDE correr —falta `fd`—, que es otra cosa: ahí no hay
+ * hallazgo que reportar, y un 0 diría «todo bien» sin haber mirado nada.
+ *
+ * Tampoco escribe, ni abre la base, ni sale a la red: lee archivos y compara.
  *
  * ── Emparejar por SEGMENTOS, no por texto ───────────────────────────────────
  *
@@ -35,8 +48,29 @@ import { fileURLToPath } from 'node:url'
 
 const RAIZ = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const listar = (args: string[]): string[] =>
-  execFileSync('fd', args, { cwd: RAIZ, encoding: 'utf8' }).trim().split('\n').filter(Boolean)
+/**
+ * Los archivos que hay que leer, vía `fd`.
+ *
+ * Si `fd` no está, el `execFileSync` tira un `ENOENT` cuyo stack no menciona a
+ * `fd` por ningún lado, y se persigue como si el script estuviera roto.
+ */
+function listar(args: string[]): string[] {
+  try {
+    return execFileSync('fd', args, { cwd: RAIZ, encoding: 'utf8' })
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      console.error('\n✗ Falta `fd`, que es lo que este script usa para listar archivos.')
+      console.error('  Instalalo con: brew install fd\n')
+      process.exitCode = 1
+      process.exit()
+    }
+
+    throw err
+  }
+}
 
 const segmentos = (p: string): string[] =>
   p.split('?')[0]!.replace(/\/+$/, '').split('/').filter(Boolean)
