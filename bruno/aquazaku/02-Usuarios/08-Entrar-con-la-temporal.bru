@@ -1,0 +1,32 @@
+meta {
+  name: Entrar con la temporal
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailDescartable}}",
+    "password": "{{passwordTemporal}}"
+  }
+}
+
+docs {
+  Cierra el circuito del restablecimiento: la contraseña que devolvió la
+  petición 7 tiene que **servir para entrar**.
+
+  Sin esto, la 7 probaría que el endpoint responde 200 y devuelve una cadena de
+  ocho caracteres. Una cadena de ocho caracteres que no funciona también pasa
+  ese test.
+}
+
+tests {
+  test("la temporal sirve para entrar", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

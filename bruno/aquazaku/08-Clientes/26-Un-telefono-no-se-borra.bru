@@ -1,0 +1,39 @@
+meta {
+  name: Un teléfono no se borra, se apaga
+  type: http
+  seq: 26
+}
+
+patch {
+  url: {{baseUrl}}/telefonos/{{telefonoId}}/desactivar
+  body: none
+}
+
+docs {
+  `PATCH /telefonos/:id/desactivar` exige `clientes:editar`.
+
+  **No hay `DELETE`, y es deliberado.** Un teléfono viejo es la prueba de por
+  dónde se intentó localizar a alguien: si se borra la fila, una gestión de
+  cobro pasada queda sin explicación — «llamamos y no contestó» deja de poder
+  contarse.
+
+  Es la misma regla que gobierna clientes, ventas y productos en esta colección:
+  lo que participó de un hecho no se borra, se apaga.
+
+  Sin cuerpo: desactivar no es editar, no hay nada que elegir.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda apagado, no desaparecido", function() {
+    expect(res.getBody().activo).to.equal(false);
+    expect(res.getBody().id).to.equal(bru.getVar("telefonoId"));
+  });
+
+  test("el número sigue ahí: es la prueba de a dónde se llamó", function() {
+    expect(res.getBody().numero).to.be.a("string").and.not.be.empty;
+  });
+}

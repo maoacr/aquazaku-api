@@ -1,0 +1,44 @@
+meta {
+  name: Un usuario descartable
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailDescartable}}",
+    "name": "Para restablecer y nada más",
+    "password": "contrasena-de-prueba-123",
+    "roles": ["pos"]
+  }
+}
+
+docs {
+  Existe solo para que la petición 7 le restablezca la contraseña.
+
+  No se reutiliza el usuario de la 2 porque `04-Productos` entra con sus
+  credenciales. Restablecerle la contraseña le cambiaría la clave **y le
+  cerraría todas las sesiones**, y esa carpeta fallaría con un 401 sin relación
+  aparente con lo que se estaba probando.
+
+  Un usuario de un solo uso es más barato que rastrear ese fallo.
+}
+
+script:pre-request {
+  bru.setVar("emailDescartable", `descartable-${Date.now()}@aquazaku.com`);
+}
+
+script:post-response {
+  if (res.getStatus() === 201) bru.setVar("usuarioDescartableId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+}

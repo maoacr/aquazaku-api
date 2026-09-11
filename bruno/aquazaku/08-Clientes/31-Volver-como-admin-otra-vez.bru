@@ -1,7 +1,7 @@
 meta {
-  name: Volver como admin
+  name: Volver como admin otra vez
   type: http
-  seq: 21
+  seq: 31
 }
 
 post {
@@ -17,12 +17,12 @@ body:json {
 }
 
 docs {
-  La carpeta deja la sesión como la encontró. `13-Sesion` cierra la colección
-  probando el logout, y necesita entrar con el admin.
+  Deja la colección como la encontró. Sin esto, 09-Ventas arrancaría con la
+  sesión del `pos` y fallaría con 403 que no tienen nada que ver con ventas.
 }
 
 tests {
-  test("vuelve a entrar", function() {
+  test("vuelve a ser admin", function() {
     expect(res.getStatus()).to.equal(200);
   });
 }

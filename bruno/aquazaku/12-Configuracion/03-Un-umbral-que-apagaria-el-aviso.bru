@@ -1,0 +1,43 @@
+meta {
+  name: Un umbral que apagaría el aviso
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{baseUrl}}/parametros/dias_aviso_vencimiento
+  body: json
+}
+
+body:json {
+  {
+    "valor": {{umbralImposible}}
+  }
+}
+
+docs {
+  El rango no es una validación de formulario: es la regla de negocio.
+
+  Un umbral por debajo del mínimo **apaga el aviso**. Uno por encima del máximo
+  **lo deja siempre encendido**. Y el handler dice la parte que importa: las dos
+  formas se ven igual desde afuera —nadie reacciona— así que un aviso roto por
+  configuración es indistinguible de un aviso que no tenía nada que avisar.
+
+  Por eso el rechazo es `422` y no `400`. La petición está bien formada; lo que
+  no se puede es el número que pide.
+}
+
+script:pre-request {
+  bru.setVar("umbralImposible", Number(bru.getVar("umbralMaximo")) + 1000);
+}
+
+tests {
+  test("responde 422: bien formada, imposible igual", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("dice cuál es el rango, no solo que está mal", function() {
+    expect(res.getBody().code).to.equal("PARAMETRO_FUERA_DE_RANGO");
+    expect(res.getBody().mensaje).to.be.a("string").and.not.be.empty;
+  });
+}

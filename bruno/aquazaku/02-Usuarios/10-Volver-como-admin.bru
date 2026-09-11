@@ -1,7 +1,7 @@
 meta {
   name: Volver como admin
   type: http
-  seq: 34
+  seq: 10
 }
 
 post {
@@ -17,10 +17,9 @@ body:json {
 }
 
 docs {
-  Deja la colección como la encontró. Sin esto, `13-Sesion` cerraría la sesión
-  del `contador` en vez de la del admin, y cualquier request suelto que alguien
-  corra después heredaría un 403 que no tiene nada que ver con lo que se estaba
-  probando.
+  Deja la colección como la encontró. Desde la 8 la sesión era del usuario
+  descartable, y sin esto `03-Auditoria` arrancaría con un `pos` y fallaría con
+  403 que no tienen nada que ver con la auditoría.
 }
 
 tests {

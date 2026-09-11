@@ -1,0 +1,49 @@
+meta {
+  name: Un teléfono que llega después
+  type: http
+  seq: 25
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteId}}/telefonos
+  body: json
+}
+
+body:json {
+  {
+    "numero": "605 878 1234",
+    "etiqueta": "el fijo del local"
+  }
+}
+
+docs {
+  `POST /clientes/:id/telefonos` exige `clientes:editar`.
+
+  La petición 23 cubre el teléfono que entra CON el alta, en la misma
+  transacción. Esta cubre el otro caso, que es el común: el cliente ya existe y
+  aparece un segundo número.
+
+  Son dos rutas y dos permisos distintos a propósito. El alta la hace el `pos`
+  con `clientes:crear`; agregar un teléfono a alguien que ya está cargado es
+  modificar su ficha, y eso pide `clientes:editar`. Que el `pos` pueda registrar
+  a quien se lleva un botellón no le da poder sobre los clientes que ya existen.
+}
+
+script:post-response {
+  // La necesita la 26, que lo desactiva.
+  if (res.getStatus() === 201) bru.setVar("telefonoId", res.getBody().id);
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda colgado del cliente", function() {
+    expect(res.getBody().clienteId).to.equal(bru.getVar("clienteId"));
+  });
+
+  test("guarda la etiqueta, que es cómo lo pide quien atiende", function() {
+    expect(res.getBody().etiqueta).to.equal("el fijo del local");
+  });
+}

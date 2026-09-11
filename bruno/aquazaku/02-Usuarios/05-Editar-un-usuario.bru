@@ -1,0 +1,44 @@
+meta {
+  name: Editar un usuario
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/users/{{usuarioCreadoId}}
+  body: json
+}
+
+body:json {
+  {
+    "name": "Usuario de Bruno, renombrado"
+  }
+}
+
+docs {
+  `PATCH /users/:id` exige `usuarios:editar` y audita la ruta con los cambios
+  que se pidieron.
+
+  **Solo se toca `name`, y es a propósito.** El esquema también acepta `status`
+  y `mustChangePassword`, pero este usuario lo reutiliza
+  `04-Productos/10-Login-como-pos` para entrar al sistema. Desactivarlo acá
+  dejaría a esa carpeta con un 401 que parecería un bug de productos.
+
+  Es la trampa de una colección que corre en secuencia y comparte estado: una
+  petición puede romper otra a tres carpetas de distancia, y el error aparece
+  lejos de la causa.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el nombre cambió", function() {
+    expect(res.getBody().name).to.equal("Usuario de Bruno, renombrado");
+  });
+
+  test("sigue activo: no se tocó lo que otra carpeta necesita", function() {
+    expect(res.getBody().status).to.equal("active");
+  });
+}

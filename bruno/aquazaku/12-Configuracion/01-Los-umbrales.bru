@@ -1,0 +1,51 @@
+meta {
+  name: Los umbrales que gobiernan los avisos
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/parametros
+}
+
+docs {
+  `GET /parametros` exige `configuracion:ver`.
+
+  Devuelve cada umbral con su `minimo` y su `maximo`. Eso no es adorno: el
+  formulario de administración los necesita para no ofrecer un número que el
+  servidor va a rechazar, y esta colección los usa para lo mismo.
+
+  Los rangos se leen de acá y no se escriben en el test. Si mañana cambian en la
+  base, la petición 2 sigue mandando un valor válido en vez de romperse — y si
+  se hubieran copiado como constantes, habría que acordarse de venir a tocarlas.
+}
+
+script:post-response {
+  if (res.getStatus() === 200) {
+    const p = res.getBody().find((x) => x.clave === "dias_aviso_vencimiento");
+    if (p) {
+      bru.setVar("umbralOriginal", p.valor);
+      bru.setVar("umbralMinimo", p.minimo);
+      bru.setVar("umbralMaximo", p.maximo);
+    }
+  }
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("trae los dos umbrales que el negocio usa", function() {
+    const claves = res.getBody().map((p) => p.clave);
+    expect(claves).to.include("dias_aviso_vencimiento");
+    expect(claves).to.include("dias_entrega_bases");
+  });
+
+  test("cada uno dice entre qué valores puede moverse", function() {
+    const p = res.getBody().find((x) => x.clave === "dias_aviso_vencimiento");
+    expect(p.minimo).to.be.a("number");
+    expect(p.maximo).to.be.a("number");
+    expect(p.minimo).to.be.below(p.maximo);
+  });
+}

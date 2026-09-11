@@ -1,0 +1,41 @@
+meta {
+  name: Un producto desactivado vuelve
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/productos/{{productoCreadoId}}/reactivar
+  body: none
+}
+
+docs {
+  `POST /productos/:id/reactivar` exige `productos:desactivar` — el mismo
+  permiso que apagarlo, no uno propio.
+
+  Es la vuelta de la petición 7. Y tiene que existir justamente porque un
+  producto **no se borra**: si desactivar fuera un camino de ida, el único
+  arreglo para un clic equivocado sería crear otro producto con el mismo código
+  — que la base rechaza, porque el código es único.
+
+  Va al final de la carpeta a propósito: entre la 7 y acá, el producto tiene que
+  estar apagado para que las peticiones de en medio prueben lo que dicen
+  probar.
+
+  Se corre como admin: la 13 ya devolvió la sesión.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("vuelve a estar activo", function() {
+    expect(res.getBody().activo).to.equal(true);
+  });
+
+  test("es el mismo producto, con el mismo código", function() {
+    expect(res.getBody().id).to.equal(bru.getVar("productoCreadoId"));
+    expect(res.getBody().codigo).to.equal(bru.getVar("productoCreadoCodigo"));
+  });
+}
