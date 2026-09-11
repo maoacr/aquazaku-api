@@ -1,7 +1,7 @@
 meta {
   name: Volver como admin
   type: http
-  seq: 42
+  seq: 10
 }
 
 post {
@@ -17,12 +17,13 @@ body:json {
 }
 
 docs {
-  La carpeta deja la sesión como la encontró. `99-Sesion` cierra la colección
-  probando el logout, y necesita entrar con el admin.
+  Deja la colección como la encontró. Desde la 8 la sesión era del usuario
+  descartable, y sin esto `03-Auditoria` arrancaría con un `pos` y fallaría con
+  403 que no tienen nada que ver con la auditoría.
 }
 
 tests {
-  test("vuelve a entrar", function() {
+  test("vuelve a ser admin", function() {
     expect(res.getStatus()).to.equal(200);
   });
 }

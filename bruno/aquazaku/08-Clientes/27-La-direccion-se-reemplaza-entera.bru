@@ -1,0 +1,60 @@
+meta {
+  name: La dirección se reemplaza entera
+  type: http
+  seq: 27
+}
+
+patch {
+  url: {{baseUrl}}/direcciones/{{direccionId}}
+  body: json
+}
+
+body:json {
+  {
+    "etiqueta": "La casa",
+    "viaTipo": "CL",
+    "viaNumero": "30",
+    "placaNumero": "12",
+    "placaSegundo": "45",
+    "municipio": "Campo de la Cruz",
+    "departamento": "Atlántico"
+  }
+}
+
+docs {
+  `PATCH /direcciones/:id` exige `clientes:editar`.
+
+  **Se reemplaza entera, no campo por campo** — está escrito en el propio
+  handler. El formulario manda todo lo que tiene, y lo que el operador borró
+  llega ausente. Con un merge parcial, vaciar un campo sería imposible: no
+  existiría forma de decir «esto ya no va».
+
+  La 11 creó esta dirección con texto libre (`direccion` e `indicaciones`).
+  Esta la reemplaza por nomenclatura estructurada, así que las dos cosas tienen
+  que pasar a la vez: que aparezca la nomenclatura, y que el texto libre viejo
+  **desaparezca**. Si solo se comprobara lo primero, un merge parcial pasaría
+  el test.
+
+  `legible` la compone `api/`, no el cliente: la función vive acá y `web/` no
+  puede importarla. Si cada pantalla la armara, en tres meses habría tres
+  formatos para la misma dirección.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("la nomenclatura nueva quedó", function() {
+    expect(res.getBody().viaTipo).to.equal("CL");
+    expect(res.getBody().viaNumero).to.equal("30");
+  });
+
+  test("lo que no se mandó se fue: es reemplazo, no merge", function() {
+    expect(res.getBody().indicaciones).to.not.equal("Al lado de la panadería, portón verde");
+  });
+
+  test("api/ compone la forma legible", function() {
+    expect(res.getBody().legible).to.be.a("string").and.not.be.empty;
+  });
+}

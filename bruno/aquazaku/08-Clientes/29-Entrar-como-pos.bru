@@ -1,0 +1,33 @@
+meta {
+  name: Entrar como pos
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailPosProduccion}}",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+docs {
+  Se reutiliza el `pos` que creó 07-Produccion en vez de dar de alta otro: el
+  usuario sigue existiendo aunque aquella carpeta haya vuelto a admin al final.
+
+  El `contador` de la petición 15 no sirve para esta prueba. El contador no
+  puede NADA sobre clientes salvo mirar, así que un 403 suyo no distingue «no
+  puede editar» de «no puede tocar clientes». El `pos` sí: puede crearlos y no
+  puede editarlos, y ese es exactamente el límite que se quiere ver.
+}
+
+tests {
+  test("entra", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}

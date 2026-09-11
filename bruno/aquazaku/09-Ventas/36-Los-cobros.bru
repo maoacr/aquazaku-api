@@ -1,0 +1,47 @@
+meta {
+  name: Sin cliente, /cobros es la cartera
+  type: http
+  seq: 36
+}
+
+get {
+  url: {{baseUrl}}/cobros
+}
+
+docs {
+  `GET /cobros` exige **`cobros:ver`**, un recurso propio y distinto de
+  `ventas:ver`. El alcance cambia con el rol: el admin lo tiene en
+  `scope: 'todo'`, el vendedor en `scope: 'propio'` — ve lo que él cobró, no la
+  caja entera.
+
+  **La misma ruta contesta dos preguntas distintas según `?clienteId`**, y eso
+  sorprende leyendo el nombre:
+
+  | Petición | Devuelve |
+  | --- | --- |
+  | `/cobros` | La **cartera**: cada cliente activo con su deuda |
+  | `/cobros?clienteId=…` | Los **cobros** de ese cliente |
+
+  Esta cubre la primera. La 37 cubre la segunda.
+
+  Se corre como admin: la 34 ya devolvió la sesión, así que se ve el alcance
+  completo.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("es la cartera: cada fila trae cliente y deuda", function() {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody().length).to.be.above(0);
+    expect(res.getBody()[0]).to.have.property("cliente");
+    expect(res.getBody()[0]).to.have.property("deuda");
+  });
+
+  test("solo clientes activos", function() {
+    const inactivos = res.getBody().filter((f) => f.cliente.activo === false);
+    expect(inactivos).to.have.lengthOf(0);
+  });
+}

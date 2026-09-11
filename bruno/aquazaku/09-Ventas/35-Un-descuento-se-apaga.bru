@@ -1,0 +1,37 @@
+meta {
+  name: Un código de descuento se apaga
+  type: http
+  seq: 35
+}
+
+patch {
+  url: {{baseUrl}}/descuentos/{{descuentoDiezId}}/desactivar
+  body: none
+}
+
+docs {
+  `PATCH /descuentos/:id/desactivar` exige **`configuracion:editar`**, no
+  `ventas:*`. Un código de descuento no es una venta: es un parámetro del
+  negocio, y quien vende no lo define.
+
+  **No se borra, se apaga.** Ese código ya viajó en ventas registradas. Borrar
+  la fila dejaría esas ventas con un descuento aplicado que no se puede
+  explicar, y un extracto que nadie puede reconstruir es un extracto que no
+  sirve para discutir con un cliente.
+
+  Se corre como admin: la 34 ya devolvió la sesión.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("queda apagado", function() {
+    expect(res.getBody().activo).to.equal(false);
+  });
+
+  test("es el código que se creó en la 17", function() {
+    expect(res.getBody().id).to.equal(bru.getVar("descuentoDiezId"));
+  });
+}

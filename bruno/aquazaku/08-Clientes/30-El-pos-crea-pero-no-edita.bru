@@ -1,0 +1,45 @@
+meta {
+  name: El pos crea clientes pero no los edita
+  type: http
+  seq: 30
+}
+
+patch {
+  url: {{baseUrl}}/clientes/{{clienteId}}
+  body: json
+}
+
+body:json {
+  {
+    "apellidos": "Apellido Que No Debe Entrar"
+  }
+}
+
+docs {
+  **Esta es la petición que justifica las cinco anteriores.**
+
+  La matriz le da al `pos` `clientes:ver`, `clientes:crear` y
+  `clientes:verificar_documento`. **No le da `clientes:editar`.** Y no es un
+  olvido: quien atiende el mostrador tiene que poder registrar a alguien que se
+  lleva un botellón sin devolver el vacío —RN-ENV-09—, pero no tiene por qué
+  poder cambiarle el nombre, el documento o la dirección a un cliente que ya
+  estaba.
+
+  Esa distinción vive **solo en `api/`**. Que `web/` no dibuje el botón de
+  editar para un `pos` es cosmética (RN-ACC-02): la barrera real es
+  `requirePermission`, y esta petición es la única que la toca.
+
+  Sin este 403, las cinco mutaciones de arriba probarían que funcionan y
+  ninguna probaría quién puede llamarlas.
+}
+
+tests {
+  test("responde 403, no 200 ni 401", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+
+  test("es un problema de permisos, no de sesión", function() {
+    // 401 diría «no sé quién sos». 403 dice «sé quién sos, y no podés».
+    expect(res.getStatus()).to.not.equal(401);
+  });
+}

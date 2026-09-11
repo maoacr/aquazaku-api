@@ -1,0 +1,35 @@
+meta {
+  name: Dejarlo como estaba
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/parametros/dias_aviso_vencimiento
+  body: json
+}
+
+body:json {
+  {
+    "valor": {{umbralOriginal}}
+  }
+}
+
+docs {
+  Devuelve el umbral a donde estaba, igual que las peticiones «Volver como
+  admin» devuelven la sesión.
+
+  Una colección que deja el sistema distinto de como lo encontró hace que la
+  segunda corrida pruebe otra cosa que la primera — y ese es el tipo de fallo
+  que aparece una vez cada diez veces y se persigue durante horas.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("volvió al valor original", function() {
+    expect(res.getBody().valor).to.equal(Number(bru.getVar("umbralOriginal")));
+  });
+}

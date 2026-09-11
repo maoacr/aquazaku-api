@@ -1,0 +1,40 @@
+meta {
+  name: El listado de proveedores
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{baseUrl}}/proveedores
+}
+
+docs {
+  `GET /proveedores` exige `proveedores:ver`.
+
+  Fijate el contraste con la ruta vecina: `/compras/vencidas` pide
+  **`compras:crear`**, no `compras:ver`. No es un descuido — esa lista existe
+  para ir a pagar, y quien no puede registrar una compra no tiene nada que hacer
+  con ella.
+
+  Esta carpeta cargó proveedores y les registró compras. Acá tienen que
+  aparecer, con el NIT que los identifica: es la llave con la que el contador
+  cruza las facturas.
+
+  Se corre como admin: la 21 ya devolvió la sesión.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve una lista con lo que esta carpeta cargó", function() {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody().length).to.be.above(0);
+  });
+
+  test("el proveedor de la 1 está", function() {
+    const ids = res.getBody().map((p) => p.id);
+    expect(ids).to.include(bru.getVar("proveedorId"));
+  });
+}

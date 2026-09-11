@@ -1,0 +1,44 @@
+meta {
+  name: Cambiar la propia contraseña
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/auth/change-password
+  body: json
+}
+
+body:json {
+  {
+    "currentPassword": "{{passwordTemporal}}",
+    "newPassword": "una-contrasena-propia-123"
+  }
+}
+
+docs {
+  `POST /auth/change-password` NO pide permiso de módulo: solo `requireAuth`.
+  Y tiene sentido — cambiar la propia contraseña no es administrar usuarios, es
+  algo que cualquiera puede hacer sobre sí mismo. Por eso no hay `:id` en la
+  ruta: el usuario sale de la sesión, no del cuerpo. Si viniera del cuerpo,
+  sería un endpoint para cambiarle la contraseña a otro.
+
+  **Exige `currentPassword`**, y esa es la parte que protege: una sesión robada
+  no alcanza para quedarse con la cuenta si no se conoce la clave actual.
+
+  Se corre como el usuario descartable —la 8 entró con su temporal—, nunca como
+  admin. Cambiarle la contraseña al admin acá dejaría el resto de la colección,
+  y el `ci.bru`, sin forma de volver a entrar.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("no devuelve ninguna contraseña en la respuesta", function() {
+    const cuerpo = JSON.stringify(res.getBody() ?? {});
+    expect(cuerpo).to.not.include("una-contrasena-propia-123");
+    expect(cuerpo).to.not.include(bru.getVar("passwordTemporal"));
+  });
+}

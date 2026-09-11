@@ -1,0 +1,54 @@
+meta {
+  name: Mover un umbral
+  type: http
+  seq: 2
+}
+
+put {
+  url: {{baseUrl}}/parametros/dias_aviso_vencimiento
+  body: json
+}
+
+body:json {
+  {
+    "valor": {{umbralNuevo}}
+  }
+}
+
+docs {
+  `PUT /parametros/:clave` exige `configuracion:editar` y **audita la ruta**.
+
+  Es `PUT` y no `PATCH` porque es idempotente: se manda el valor que el umbral
+  debe tener, no un incremento.
+
+  La clave viaja en la URL, no un id. Un parámetro se identifica por lo que
+  significa —`dias_aviso_vencimiento`— y no por una fila; así el formulario
+  puede pedirlo por nombre sin cargar la lista antes.
+
+  **Lo que se audita es el antes y el después**, no solo el después. El handler
+  lee el valor previo antes de tocarlo, y el comentario explica por qué: meses
+  después, «lo puso en 3» y «lo bajó de 7 a 3» contestan preguntas distintas
+  cuando alguien investiga por qué un aviso dejó de sonar.
+}
+
+script:pre-request {
+  // Un valor válido derivado de los rangos que devolvió la 1, no una constante
+  // copiada: si los límites cambian en la base, esto se sigue moviendo dentro.
+  const original = Number(bru.getVar("umbralOriginal"));
+  const maximo = Number(bru.getVar("umbralMaximo"));
+  bru.setVar("umbralNuevo", original < maximo ? original + 1 : original - 1);
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el umbral quedó en el valor pedido", function() {
+    expect(res.getBody().valor).to.equal(Number(bru.getVar("umbralNuevo")));
+  });
+
+  test("es el umbral que se pidió, no otro", function() {
+    expect(res.getBody().clave).to.equal("dias_aviso_vencimiento");
+  });
+}

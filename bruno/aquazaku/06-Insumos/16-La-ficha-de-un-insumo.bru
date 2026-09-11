@@ -1,0 +1,38 @@
+meta {
+  name: La ficha de un insumo
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/insumos/{{insumoId}}
+}
+
+docs {
+  `GET /insumos/:id` exige `insumos:ver`.
+
+  La carpeta ya prueba el listado, los movimientos, las entradas, los ajustes y
+  los descartes. Faltaba la ficha: la lectura que hace la pantalla de detalle
+  antes de dejar registrar una entrada.
+
+  Lo que importa es el **saldo**, porque es lo que decide si se puede cerrar una
+  producción: un cierre descuenta tapas y sellos, y no puede descontar lo que no
+  hay. Este insumo llegó acá después de una entrada, un ajuste y un descarte, así
+  que su saldo es el resultado de esa cadena — no un número suelto.
+
+  Se corre como admin: la 15 ya devolvió la sesión.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("es el insumo que se pidió", function() {
+    expect(res.getBody().id).to.equal(bru.getVar("insumoId"));
+  });
+
+  test("trae un saldo, que es para lo que se consulta", function() {
+    expect(res.getBody().saldo).to.not.be.undefined;
+  });
+}

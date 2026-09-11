@@ -1,0 +1,34 @@
+meta {
+  name: Los movimientos de un tanque
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{baseUrl}}/tanques/crudo/movimientos
+}
+
+docs {
+  `GET /tanques/:tanque/movimientos` exige **`tanques:ver`**, que es un permiso
+  propio y no `produccion:ver`. El contador, por ejemplo, ve producción y **no**
+  ve tanques.
+
+  El parámetro no es un id: es el nombre del tanque, y solo hay dos —`crudo`
+  (13.000 L de agua cruda) y `procesado` (4.000 L)—. Están escritos en el tipo
+  `Tanque`, así que la ruta no acepta cualquier cosa.
+
+  Es el libro mayor del agua. El saldo de un tanque es la suma de sus
+  movimientos, y sin poder listarlos una diferencia entre lo calculado y lo que
+  se ve en la varilla no se puede investigar: se sabría que no cuadra y no por
+  dónde empezar a mirar.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve una lista de movimientos", function() {
+    expect(res.getBody()).to.be.an("array");
+  });
+}

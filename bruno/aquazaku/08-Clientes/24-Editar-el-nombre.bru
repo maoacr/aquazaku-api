@@ -1,0 +1,47 @@
+meta {
+  name: El nombre se reemplaza entero
+  type: http
+  seq: 24
+}
+
+patch {
+  url: {{baseUrl}}/clientes/{{clienteId}}
+  body: json
+}
+
+body:json {
+  {
+    "primerNombre": "Rosa",
+    "segundoNombre": "Elena",
+    "apellidos": "Padilla de Gómez"
+  }
+}
+
+docs {
+  `PATCH /clientes/:id` exige `clientes:editar` y audita la ruta.
+
+  **El nombre se reemplaza entero, no campo por campo.** El formulario manda las
+  cuatro partes que tiene, y lo que el operador borró llega ausente — con un
+  merge parcial, vaciar el segundo nombre sería imposible.
+
+  Eso obliga a que el servicio mire la PRESENCIA de la clave, no su valor:
+  `segundoNombre: ""` y `segundoNombre` ausente significan cosas distintas.
+
+  `nombre` no se manda nunca: es una columna GENERATED que la base compone con
+  `||` sobre las partes. Mandarlo sería pedirle a Postgres que escriba en una
+  columna que él calcula.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("el nombre compuesto se recalculó solo", function() {
+    expect(res.getBody().nombre).to.equal("Rosa Elena Padilla de Gómez");
+  });
+
+  test("las partes quedaron guardadas por separado", function() {
+    expect(res.getBody().apellidos).to.equal("Padilla de Gómez");
+  });
+}

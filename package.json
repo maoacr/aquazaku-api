@@ -15,6 +15,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "bruno:cobertura": "tsx scripts/cruce-bruno.ts",
     "db:generate": "node --env-file-if-exists=.env node_modules/drizzle-kit/bin.cjs generate",
     "db:migrate": "tsx --env-file-if-exists=.env drizzle/migrate.ts",
     "db:migrate:test": "tsx --env-file-if-exists=.env drizzle/migrate.ts --test",

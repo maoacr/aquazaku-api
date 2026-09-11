@@ -30,6 +30,11 @@ docs {
   deuda y botellones.
 }
 
+script:post-response {
+  // La necesitan las peticiones 27 y 28, que la editan y la desactivan.
+  if (res.getStatus() === 201) bru.setVar("direccionId", res.getBody().id);
+}
+
 tests {
   test("responde 201", function() {
     expect(res.getStatus()).to.equal(201);

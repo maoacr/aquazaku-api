@@ -1,0 +1,53 @@
+meta {
+  name: Restablecer una contraseña
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/users/{{usuarioDescartableId}}/reset-password
+  body: none
+}
+
+docs {
+  `POST /users/:id/reset-password` exige `usuarios:editar`.
+
+  Devuelve una contraseña **temporal** y cierra todas las sesiones de esa
+  persona. Lo segundo importa tanto como lo primero: si las sesiones siguieran
+  vivas, restablecer la clave no echaría a quien ya estaba adentro, que es
+  justo para lo que se restablece cuando una cuenta se compromete.
+
+  **La bitácora guarda el hecho, nunca el valor.** El comentario del handler lo
+  dice: auditar la contraseña la volvería permanente y legible por más gente que
+  la que la necesita. Lo que queda registrado es que hubo un restablecimiento,
+  quién lo hizo y sobre quién.
+
+  Sin cuerpo: no se elige la contraseña, la genera el servidor. Dejar que el
+  administrador la proponga es la puerta a `Aquazaku2026`.
+}
+
+script:post-response {
+  // Las peticiones 8 y 9 la usan: entrar con ella y cambiarla por una propia.
+  // Es el circuito real de un restablecimiento, no solo el endpoint suelto.
+  if (res.getStatus() === 200) bru.setVar("passwordTemporal", res.getBody().temporal);
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve una temporal, y no es trivial", function() {
+    expect(res.getBody().temporal).to.be.a("string");
+    expect(res.getBody().temporal.length).to.be.at.least(8);
+  });
+
+  test("es la del usuario descartable, no la de otro", function() {
+    expect(res.getBody().usuario.id).to.equal(bru.getVar("usuarioDescartableId"));
+  });
+
+  test("la temporal no viaja dentro del usuario", function() {
+    // El objeto `usuario` no debe arrastrar credenciales de ningún tipo.
+    expect(res.getBody().usuario.password).to.be.undefined;
+  });
+}

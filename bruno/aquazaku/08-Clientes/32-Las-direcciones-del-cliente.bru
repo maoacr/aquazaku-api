@@ -1,0 +1,38 @@
+meta {
+  name: La dirección apagada desaparece de la lista
+  type: http
+  seq: 32
+}
+
+get {
+  url: {{baseUrl}}/clientes/{{clienteId}}/direcciones
+}
+
+docs {
+  `GET /clientes/:id/direcciones` exige `clientes:ver` — no `editar`. Es la
+  lectura que alimenta el desplegable de «¿a qué dirección va la base?».
+
+  **Devuelve solo las activas**, y eso es lo que se comprueba acá. La 11 le creó
+  una dirección a este cliente y la 28 la desactivó; si el filtro no existiera,
+  la dirección apagada seguiría apareciendo en ese desplegable y alguien
+  prestaría una base a un domicilio que ya no vale.
+
+  Por eso esta petición va al final de la carpeta y no junto a la 11: acá el
+  resultado esperado es la lista **vacía**, y eso solo prueba algo después de
+  que la 28 haya corrido.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve una lista", function() {
+    expect(res.getBody()).to.be.an("array");
+  });
+
+  test("la que la 28 apagó ya no está", function() {
+    const ids = res.getBody().map((d) => d.id);
+    expect(ids).to.not.include(bru.getVar("direccionId"));
+  });
+}

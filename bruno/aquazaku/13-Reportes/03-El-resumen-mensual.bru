@@ -1,0 +1,68 @@
+meta {
+  name: El resumen mensual
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/reportes/mensual?desde={{mesDesde}}&hasta={{mesHasta}}
+}
+
+docs {
+  `GET /reportes/mensual` exige `reportes:financieros`. `desde` y `hasta` van
+  como **`YYYY-MM`**, no como fecha completa — el esquema lo rechaza si no.
+
+  RN-CON-07. Contesta «cómo viene el año», que el extracto no contesta sin
+  pedirlo doce veces y sumar a mano.
+
+  Cada mes trae `totales` y `porTipo`, este último **en valor absoluto**: dice
+  cuánto se movió de ventas, cobros, devoluciones y compras, sin el signo. Son
+  dos preguntas distintas —«cuánto entró neto» y «cuánto volumen hubo»— y por eso
+  viajan los dos campos.
+}
+
+script:pre-request {
+  const hoy = new Date();
+  const mes = (d) => d.toISOString().slice(0, 7);
+  const antes = new Date(hoy);
+  antes.setMonth(antes.getMonth() - 2);
+  bru.setVar("mesDesde", mes(antes));
+  bru.setVar("mesHasta", mes(hoy));
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("una fila por mes del rango", function() {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody().length).to.be.above(0);
+  });
+
+  test("los meses vienen como YYYY-MM y dentro del rango", function() {
+    for (const m of res.getBody()) {
+      expect(m.mes).to.match(/^\d{4}-(0[1-9]|1[0-2])$/);
+      expect(m.mes >= bru.getVar("mesDesde")).to.equal(true);
+      expect(m.mes <= bru.getVar("mesHasta")).to.equal(true);
+    }
+  });
+
+  test("cada mes trae totales y el desglose por tipo", function() {
+    const m = res.getBody()[res.getBody().length - 1];
+    expect(m.totales).to.be.an("object");
+    expect(m.porTipo).to.be.an("object");
+  });
+
+  /*
+   * `porTipo` va en valor absoluto. Si alguna vez se colara un signo, el número
+   * seguiría pareciendo razonable y el volumen del mes quedaría subestimado.
+   */
+  test("porTipo va en valor absoluto: nunca negativo", function() {
+    for (const m of res.getBody()) {
+      for (const valor of Object.values(m.porTipo)) {
+        expect(Number(valor)).to.be.at.least(0);
+      }
+    }
+  });
+}
