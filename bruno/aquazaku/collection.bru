@@ -28,6 +28,32 @@ docs {
   Con dos administradores activos esa operación es legítima, el guardián la deja
   pasar, y la corrida se queda sin permisos a partir de ahí. No es un fallo del
   sistema — es que el escenario asume un admin y había dos.
+
+  ## Verde no quiere decir completa
+
+  CI corre esta colección en cada push, pero **verde significa «lo que hay pasa»,
+  no «cubre todo»**. Un endpoint nuevo sin petición no rompe nada: simplemente no
+  se prueba.
+
+  La otra pregunta la contesta un script, a mano:
+
+      pnpm tsx scripts/cruce-bruno.ts
+
+  Cruza las rutas registradas en `api/` contra estas peticiones y reporta dos
+  cosas distintas: endpoints sin ninguna petición (huecos) y peticiones que
+  apuntan a rutas que ya no existen (deriva). Distingue solo las pruebas
+  negativas — un `DELETE` que espera 404 no cuenta como rota.
+
+  No está en `package.json` ni en el workflow a propósito. Es diagnóstico, no
+  portón: un umbral que nadie eligió termina siendo el rojo que todos aprenden a
+  ignorar.
+
+  ## La carpeta 99
+
+  `99-Sesion` cierra la colección probando el logout, y por eso lleva ese número
+  en vez del que siga: cualquier carpeta detrás de ella arranca deslogueada y
+  falla con 401 por una razón que no tiene nada que ver con lo que prueba. Las
+  carpetas nuevas entran por el medio.
 }
 
 headers {
