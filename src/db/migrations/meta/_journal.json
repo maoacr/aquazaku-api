@@ -120,6 +120,13 @@
       "when": 1789002846309,
       "tag": "0016_nombre_partido",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789062000000,
+      "tag": "0017_clientes_a_llamar",
+      "breakpoints": true
     }
   ]
 }
