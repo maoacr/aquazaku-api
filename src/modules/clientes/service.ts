@@ -1,4 +1,5 @@
-import { and, eq, like, ne } from 'drizzle-orm'
+import { type SQL, and, desc, eq, like, ne, or, sql } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { db } from '@/db/client'
 import { type Cliente, type Telefono, clientes, telefonos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
@@ -398,6 +399,90 @@ export async function buscarPorDocumento(
     .where(and(...condiciones))
     .orderBy(clientes.numeroDocumento)
     .limit(MAXIMO_COINCIDENCIAS)
+}
+
+/**
+ * Buscar por cómo se conoce a alguien — M16.
+ *
+ * ── El bug que esto vino a matar ────────────────────────────────────────────
+ *
+ * El filtro vivía en el navegador y hacía `toLowerCase()` sin tocar las tildes.
+ * Medido sobre datos reales: «gomez» NO encontraba a «Rosa Elena Padilla
+ * Gómez», y «panaderia» NO encontraba a «Panadería del Centro». En Colombia eso
+ * es la mitad de los apellidos, y nadie los teclea con tilde.
+ *
+ * ── CONTIENE, al revés que el documento ─────────────────────────────────────
+ *
+ * `buscarPorDocumento` usa empieza-con porque una cédula se dicta de izquierda a
+ * derecha. Un apellido no: se recuerda suelto —«el Gómez ese»— y quien busca no
+ * sabe si va primero o segundo. Por eso acá va `%termino%`.
+ *
+ * El costo de eso es que **no usa índice**: ni el `contains` ni el `translate`
+ * pueden aprovechar `clientes_apellidos_idx`. Con miles de clientes es un scan
+ * de miles de filas cortas, que Postgres resuelve en milisegundos. Si algún día
+ * deja de alcanzar, el arreglo es la extensión `unaccent` más un índice sobre
+ * ella — y eso sí es una migración.
+ */
+const MAXIMO_BUSQUEDA = 12
+
+/** Las vocales acentuadas y la eñe, que es lo que aparece en un nombre acá. */
+const CON_TILDE = 'áéíóúüñÁÉÍÓÚÜÑ'
+const SIN_TILDE = 'aeiouunAEIOUUN'
+
+/** `lower()` más `translate()`: el mismo texto visto sin acentos ni mayúsculas. */
+function sinAcentos(columna: SQL | AnyPgColumn): SQL<string> {
+  return sql<string>`translate(lower(coalesce(${columna}, '')), ${CON_TILDE}, ${SIN_TILDE})`
+}
+
+export async function buscarClientes(termino: string, soloActivos = true): Promise<Cliente[]> {
+  const limpio = termino.trim()
+
+  /*
+   * Mismo criterio que la búsqueda por documento: con uno o dos caracteres la
+   * respuesta serían casi todos los clientes — ruido, y una consulta a la base
+   * en cada tecla.
+   */
+  if (limpio.length < 3) return []
+
+  const patron = `%${limpio.toLowerCase().replace(/[áéíóúüñ]/g, (c) => SIN_TILDE[CON_TILDE.indexOf(c)]!)}%`
+
+  /*
+   * El documento entra en la búsqueda SOLO si el término tiene dígitos.
+   *
+   * Sin esta guarda, buscar «gomez» deja el patrón del documento en `%%` —que
+   * matchea todas las filas— y el `or` devuelve el padrón entero. Lo encontró
+   * el test: pedía un resultado y llegaban dos.
+   */
+  const digitos = limpio.replace(/\D/g, '')
+
+  const coincide = or(
+    // `nombre` es la columna GENERATED: ya trae las partes compuestas.
+    like(sinAcentos(clientes.nombre), patron),
+    like(sinAcentos(clientes.apellidos), patron),
+    // El apodo es como se la conoce en el pueblo — RN-CLI-17.
+    like(sinAcentos(clientes.apodo), patron),
+    ...(digitos.length >= 3 ? [like(clientes.numeroDocumento, `%${digitos}%`)] : []),
+  )
+
+  const condiciones = soloActivos ? and(coincide, eq(clientes.activo, true)) : coincide
+
+  return db.select().from(clientes).where(condiciones).orderBy(clientes.nombre).limit(MAXIMO_BUSQUEDA)
+}
+
+/**
+ * Los últimos registrados — M16.
+ *
+ * Para que la pantalla de clientes no arranque en blanco. Una pantalla vacía se
+ * siente rota, y además esconde el caso más común después de dar de alta a
+ * alguien: volver a mirarlo para corregir un dedazo.
+ *
+ * Ordena por **creación**, no por nombre. La pregunta que contesta es «qué pasó
+ * recién», y esa es la única que se puede contestar sin que nadie busque.
+ */
+export async function clientesRecientes(cuantos: number, soloActivos = true): Promise<Cliente[]> {
+  const consulta = db.select().from(clientes).orderBy(desc(clientes.createdAt)).limit(cuantos)
+
+  return soloActivos ? consulta.where(eq(clientes.activo, true)) : consulta
 }
 
 export async function listarClientes(soloActivos = true): Promise<Cliente[]> {

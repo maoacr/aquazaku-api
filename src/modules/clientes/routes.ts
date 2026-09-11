@@ -19,6 +19,8 @@ import {
   clientePorId,
   crearCliente,
   editarCliente,
+  buscarClientes,
+  clientesRecientes,
   listarClientes,
 } from './service'
 import {
@@ -53,7 +55,12 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     '/clientes',
     { preHandler: [requireAuth, requirePermission('clientes', 'ver')] },
     async (req) => {
-      const { estado, documento } = req.query as { estado?: string; documento?: string }
+      const { estado, documento, buscar, recientes } = req.query as {
+        estado?: string
+        documento?: string
+        buscar?: string
+        recientes?: string
+      }
       const todos = estado === 'todos'
 
       /*
@@ -63,6 +70,34 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
        */
       if (documento !== undefined) {
         return (await buscarPorDocumento(documento, !todos)).map(conDocumento)
+      }
+
+      /*
+       * `?buscar=` es la búsqueda ANCHA: nombre, apellidos, apodo y documento,
+       * sin que las tildes escondan a nadie. Se agregó en M16 para sacar el
+       * filtro del navegador, que obligaba a traer todos los clientes en cada
+       * carga — con cinco mil, cinco mil filas para mostrar veinte.
+       *
+       * Las dos conviven porque contestan preguntas distintas: `documento` es
+       * «este número exacto, empieza-con» para el mostrador, donde se dicta una
+       * cédula. `buscar` es «algo que se parezca a esto».
+       */
+      if (buscar !== undefined) {
+        return (await buscarClientes(buscar, !todos)).map(conDocumento)
+      }
+
+      /*
+       * `?recientes=N` para que la pantalla de clientes no arranque en blanco.
+       * Una pantalla vacía se siente rota, y además esconde el caso más común
+       * después de dar de alta a alguien: volver a mirarlo por un dedazo.
+       *
+       * Se topea en 50: es un atajo para «qué pasó recién», no una puerta para
+       * pedir el padrón entero con otro nombre.
+       */
+      if (recientes !== undefined) {
+        const cuantos = Math.min(Math.max(Number.parseInt(recientes, 10) || 10, 1), 50)
+
+        return (await clientesRecientes(cuantos, !todos)).map(conDocumento)
       }
 
       return (await listarClientes(!todos)).map(conDocumento)
