@@ -1,0 +1,46 @@
+meta {
+  name: El próximo código de base
+  type: http
+  seq: 58
+}
+
+get {
+  url: {{baseUrl}}/bases/proximo-codigo
+}
+
+docs {
+  `GET /bases/proximo-codigo` exige `bases:ver`. Devuelve `{ proximo }`.
+
+  Existe para que **nadie invente el sticker**. El código va pegado físicamente
+  a la base y es cómo se la reclama; si dos bases terminaran con el mismo
+  número, el historial de las dos se mezcla y ninguna se puede ir a buscar.
+
+  Es una **propuesta, no una reserva**: consultarlo no aparta el número. Dos
+  personas dando de alta bases a la vez recibirían el mismo, y quien confirma
+  segundo choca contra el único de la base. Eso está bien — la garantía es el
+  constraint, no esta consulta (ADR-0006).
+
+  Se corre como admin: la 57 ya devolvió la sesión.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("propone un código con la forma del sticker: dígitos con ceros adelante", function() {
+    expect(res.getBody().proximo).to.be.a("string");
+    expect(res.getBody().proximo).to.match(/^\d{4,}$/);
+  });
+
+  /*
+   * Se calcula como «el mayor tomado + 1», así que es estrictamente mayor que
+   * cualquier código en uso. Esta carpeta dio de alta varias bases, de modo que
+   * la comparación no es contra una lista vacía.
+   */
+  test("está por encima de todos los que ya se usaron", function() {
+    const propuesto = Number.parseInt(res.getBody().proximo, 10);
+    const enUso = Number.parseInt(String(bru.getVar("stickerLibre")), 10);
+    expect(propuesto).to.be.above(enUso);
+  });
+}

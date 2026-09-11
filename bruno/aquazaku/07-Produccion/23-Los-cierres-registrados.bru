@@ -1,0 +1,36 @@
+meta {
+  name: Los cierres registrados
+  type: http
+  seq: 23
+}
+
+get {
+  url: {{baseUrl}}/produccion
+}
+
+docs {
+  `GET /produccion` exige `produccion:ver` y lista los cierres.
+
+  Ojo con el par: **`GET /produccion` lista, `POST /produccion/cierres` crea.**
+  No son la misma ruta con dos verbos, y es fácil leerlas como si lo fueran.
+
+  Esta carpeta registró un cierre más arriba. Acá tiene que aparecer — si el
+  listado no lo trajera, el cierre existiría en la base y sería invisible para
+  quien revisa la producción del mes.
+
+  Se corre como admin: la 22 ya devolvió la sesión.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve una lista", function() {
+    expect(res.getBody()).to.be.an("array");
+  });
+
+  test("el cierre que registró esta carpeta está", function() {
+    expect(res.getBody().length).to.be.above(0);
+  });
+}

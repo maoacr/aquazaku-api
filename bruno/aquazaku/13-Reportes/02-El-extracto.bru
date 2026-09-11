@@ -1,0 +1,74 @@
+meta {
+  name: El extracto de un rango
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/reportes/extracto?desde={{extractoDesde}}&hasta={{extractoHasta}}
+}
+
+docs {
+  `GET /reportes/extracto` exige `reportes:financieros`. `desde` y `hasta` son
+  **obligatorios** y van como `YYYY-MM-DD`; `hasta` es inclusivo.
+
+  Los filtros viajan en la query string y no en un cuerpo, porque es un `GET`:
+  el extracto es una consulta, y así la URL se puede guardar y compartir.
+
+  ── Qué se vigila acá ─────────────────────────────────────────────────────────
+
+  Cada movimiento trae `signo`: `+1` cuando entra plata, `−1` cuando sale. Sin
+  ese campo, un cobro y una devolución del mismo monto se verían iguales, y el
+  extracto no cuadraría con la caja.
+
+  Y trae `documentoId` — RN-CON-06: de cualquier fila se llega al documento que
+  la originó. Un extracto donde una cifra no se puede rastrear es un extracto que
+  no sirve para discutir con nadie.
+
+  `contraparte` puede ser `null`, y es legítimo: es la venta de mostrador sin
+  cliente registrado.
+}
+
+script:pre-request {
+  // Un rango que cubre con holgura lo que la colección acaba de generar hoy.
+  const hoy = new Date();
+  const iso = (d) => d.toISOString().slice(0, 10);
+  const antes = new Date(hoy);
+  antes.setDate(antes.getDate() - 40);
+  bru.setVar("extractoDesde", iso(antes));
+  bru.setVar("extractoHasta", iso(hoy));
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve el rango que se pidió", function() {
+    expect(res.getBody().desde).to.equal(bru.getVar("extractoDesde"));
+    expect(res.getBody().hasta).to.equal(bru.getVar("extractoHasta"));
+  });
+
+  test("trae movimientos y totales", function() {
+    expect(res.getBody().movimientos).to.be.an("array");
+    expect(res.getBody().movimientos.length).to.be.above(0);
+    expect(res.getBody().totales).to.be.an("object");
+  });
+
+  test("cada movimiento dice si la plata entra o sale", function() {
+    const signos = [...new Set(res.getBody().movimientos.map((m) => m.signo))];
+    expect(signos.every((s) => s === 1 || s === -1)).to.equal(true);
+  });
+
+  test("RN-CON-06: de cada fila se llega a su documento", function() {
+    const huerfanos = res.getBody().movimientos.filter((m) => !m.documentoId);
+    expect(huerfanos).to.have.lengthOf(0);
+  });
+
+  test("ningún movimiento se sale del rango", function() {
+    const fuera = res.getBody().movimientos.filter(
+      (m) => m.fecha.slice(0, 10) < bru.getVar("extractoDesde") || m.fecha.slice(0, 10) > bru.getVar("extractoHasta"),
+    );
+    expect(fuera).to.have.lengthOf(0);
+  });
+}

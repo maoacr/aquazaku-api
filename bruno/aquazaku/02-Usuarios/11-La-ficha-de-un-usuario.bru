@@ -1,0 +1,49 @@
+meta {
+  name: La ficha de un usuario
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/users/{{usuarioCreadoId}}
+}
+
+docs {
+  `GET /users/:id` exige `usuarios:ver`.
+
+  La 1 lista; esta trae uno solo con sus roles. Son rutas distintas porque el
+  listado no puede cargar los roles de todos sin un N+1.
+
+  **Lo que se vigila acá es lo que NO viene.** Un usuario arrastra credenciales
+  —`password`, tokens de sesión— y esta respuesta alimenta la pantalla de
+  administración. Si alguna de esas columnas se colara en el `select`, nadie lo
+  notaría mirando la UI: quedaría en el JSON, visible en las herramientas del
+  navegador para cualquiera que abra esa pantalla.
+
+  Comprueba además que la edición de la 5 quedó: el nombre nuevo tiene que
+  seguir ahí después de todo lo que pasó en el medio.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("es el usuario que se pidió", function() {
+    expect(res.getBody().id).to.equal(bru.getVar("usuarioCreadoId"));
+  });
+
+  test("el cambio de la 5 sobrevivió", function() {
+    expect(res.getBody().name).to.equal("Usuario de Bruno, renombrado");
+  });
+
+  test("no viaja ninguna credencial", function() {
+    const cuerpo = JSON.stringify(res.getBody());
+    expect(res.getBody().password).to.be.undefined;
+    expect(cuerpo).to.not.include("contrasena-de-prueba-123");
+  });
+
+  test("trae sus roles, que es para lo que existe esta ruta", function() {
+    expect(res.getBody().roles).to.be.an("array");
+  });
+}

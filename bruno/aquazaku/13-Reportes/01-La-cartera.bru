@@ -1,0 +1,66 @@
+meta {
+  name: La cartera por edad
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/reportes/cartera
+}
+
+docs {
+  Los tres reportes de esta carpeta exigen **`reportes:financieros`**, que es un
+  permiso aparte de `reportes:operativos`. Esa separación es la que deja que el
+  jefe de planta vea producción y rendimientos **sin** ver plata.
+
+  Quién los tiene: el admin con `scope: 'todo'`, y el contador con
+  `scope: 'todo', readonly: true`.
+
+  ── Por qué «por edad» y no un total ──────────────────────────────────────────
+
+  Una fila por cliente con su deuda repartida en tramos: `0-30`, `31-60`,
+  `61-90`, `90+` días. Un total solo no sirve para decidir: $200.000 de la semana
+  pasada y $200.000 de hace cuatro meses son el mismo número y dos problemas
+  distintos.
+
+  Los tramos viven en una sola constante (`TRAMOS`) y están marcados como
+  **supuesto pendiente** — pregunta 44 al contador. Si él dice otros, se toca ahí
+  y este test sigue valiendo: comprueba que los tramos existen y suman, no cuáles
+  son.
+
+  La carpeta va al final —después de ventas, cobros, retornables y compras—
+  porque un reporte financiero sobre una base vacía no prueba nada. Para cuando
+  corre esto, la colección ya generó ventas a crédito, cobros parciales y
+  devoluciones.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("una fila por cliente con deuda", function() {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody().length).to.be.above(0);
+  });
+
+  test("cada fila identifica al cliente y trae sus tramos", function() {
+    const fila = res.getBody()[0];
+    expect(fila.clienteId).to.be.a("string");
+    expect(fila.cliente).to.be.a("string");
+    expect(fila.documento).to.be.a("string");
+    expect(fila.tramos).to.be.an("object");
+  });
+
+  /*
+   * Lo que de verdad puede romperse sin que se note: que la plata se caiga
+   * entre los tramos. Si un tramo se calculara mal, el total seguiría estando
+   * bien y la suma de los tramos dejaría de coincidir — y quien llama a cobrar
+   * llamaría a la persona equivocada.
+   */
+  test("los tramos suman el total: no se pierde plata en el reparto", function() {
+    const fila = res.getBody()[0];
+    const suma = Object.values(fila.tramos).reduce((a, v) => a + Number(v), 0);
+    expect(suma).to.be.closeTo(Number(fila.total), 0.01);
+  });
+}

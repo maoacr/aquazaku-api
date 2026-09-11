@@ -1,0 +1,40 @@
+meta {
+  name: La ficha de un producto
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/productos/{{productoCreadoId}}
+}
+
+docs {
+  `GET /productos/:id` exige `productos:ver`.
+
+  Va después de la 14 a propósito: cierra el ciclo completo del producto que
+  esta carpeta viene siguiendo —crear, desactivar, reactivar— y comprueba que
+  al final quedó como corresponde.
+
+  El código es lo que se vigila con más cuidado. Es único en la base y es lo que
+  el mostrador teclea; si cambiara solo por haber pasado por un
+  desactivar/reactivar, el vendedor buscaría un producto que ya no responde a
+  ese número.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("es el producto que se pidió", function() {
+    expect(res.getBody().id).to.equal(bru.getVar("productoCreadoId"));
+  });
+
+  test("el código sobrevivió al desactivar y reactivar", function() {
+    expect(res.getBody().codigo).to.equal(bru.getVar("productoCreadoCodigo"));
+  });
+
+  test("quedó activo, como lo dejó la 14", function() {
+    expect(res.getBody().activo).to.equal(true);
+  });
+}

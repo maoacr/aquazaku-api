@@ -1,0 +1,45 @@
+meta {
+  name: Los municipios de un departamento
+  type: http
+  seq: 34
+}
+
+get {
+  url: {{baseUrl}}/geografia/municipios?departamento=08
+}
+
+docs {
+  `GET /geografia/municipios` acepta `?departamento=<código>` y filtra. Sin el
+  parámetro devuelve los **1122** municipios del país, que es lo que necesita
+  quien busca «Suan» sin acordarse de en qué departamento queda.
+
+  `08` es Atlántico. El filtro va por **código**, no por nombre: el nombre tiene
+  tildes y mayúsculas y no sirve como llave.
+
+  Cada municipio trae `lat` y `lng`. No es adorno: una dirección puede no tener
+  nomenclatura —«Vereda La Peña, casa de tabla azul»— y quedarse solo con el
+  punto en el mapa, que es lo que hace que siga siendo entregable.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("filtra: todos son del 08", function() {
+    expect(res.getBody().length).to.be.above(0);
+    const ajenos = res.getBody().filter((m) => m.departamento !== "08");
+    expect(ajenos).to.have.lengthOf(0);
+  });
+
+  test("está Campo de la Cruz, que es donde está la planta", function() {
+    const nombres = res.getBody().map((m) => m.nombre);
+    expect(nombres).to.include("Campo de la Cruz");
+  });
+
+  test("cada municipio trae su punto en el mapa", function() {
+    const campo = res.getBody().find((m) => m.nombre === "Campo de la Cruz");
+    expect(campo.lat).to.be.a("number");
+    expect(campo.lng).to.be.a("number");
+  });
+}

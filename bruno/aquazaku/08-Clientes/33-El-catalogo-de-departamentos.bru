@@ -1,0 +1,39 @@
+meta {
+  name: El catálogo de departamentos
+  type: http
+  seq: 33
+}
+
+get {
+  url: {{baseUrl}}/geografia/departamentos
+}
+
+docs {
+  `GET /geografia/departamentos` solo exige **estar autenticado**: no pide
+  permiso de módulo. Es un catálogo del DANE, igual para todos, y no dice nada
+  del negocio de Aquazaku.
+
+  Existe para que municipio y departamento no se escriban a mano. Sin catálogo,
+  la misma localidad entra como «Campo de la Cruz», «campo de la cruz» y
+  «Campo la Cruz», y buscar clientes por municipio deja de funcionar sin que
+  nadie entienda por qué.
+
+  Vive en esta carpeta porque su único consumidor es el formulario de
+  direcciones.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("trae departamentos", function() {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody().length).to.be.above(0);
+  });
+
+  test("está Atlántico, que es donde opera la planta", function() {
+    const texto = JSON.stringify(res.getBody()).toLowerCase();
+    expect(texto).to.include("atl");
+  });
+}

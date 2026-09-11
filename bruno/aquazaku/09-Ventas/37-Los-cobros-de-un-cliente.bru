@@ -1,0 +1,37 @@
+meta {
+  name: Con cliente, son sus cobros
+  type: http
+  seq: 37
+}
+
+get {
+  url: {{baseUrl}}/cobros?clienteId={{clienteCreditoId}}
+}
+
+docs {
+  La otra cara de la 36. Con `?clienteId` la misma ruta deja de devolver la
+  cartera y devuelve los **cobros** de esa persona, más nuevos primero.
+
+  Es lo que se muestra cuando alguien discute una deuda en el mostrador: «yo le
+  pagué el martes». Sin este listado, esa conversación se resuelve de memoria.
+
+  Que las dos formas viajen en una sola ruta es una decisión, y por eso está
+  probada dos veces: un cambio que rompa una y deje la otra pasaría inadvertido
+  con un solo test.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve cobros, no filas de cartera", function() {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody()[0]).to.not.have.property("deuda");
+  });
+
+  test("todos son de ese cliente", function() {
+    const ajenos = res.getBody().filter((c) => c.clienteId !== bru.getVar("clienteCreditoId"));
+    expect(ajenos).to.have.lengthOf(0);
+  });
+}
