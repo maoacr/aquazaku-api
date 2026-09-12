@@ -1,7 +1,9 @@
-import { and, eq, like, ne } from 'drizzle-orm'
+import { type SQL, and, desc, eq, like, ne, or, sql } from 'drizzle-orm'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { db } from '@/db/client'
-import { type Cliente, type Telefono, clientes, telefonos } from '@/db/schema'
+import { type Cliente, type Direccion, type Telefono, clientes, telefonos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type DatosDeDireccion, agregarDireccion } from './direcciones'
 import {
   DocumentoInvalido,
   type TipoDeDocumento,
@@ -60,6 +62,43 @@ export interface DatosDeAlta extends NombreDeCliente {
    * quitar teléfonos sigue siendo `editar`.
    */
   telefono?: { numero: string; etiqueta?: string }
+
+  /**
+   * Varios teléfonos, capturados en el mismo alta.
+   *
+   * ── Por qué no alcanza con uno ───────────────────────────────────────────
+   *
+   * Un comercial tiene el celular del dueño y el fijo del local, y son dos
+   * cosas distintas: al primero se le escribe por WhatsApp, al segundo solo se
+   * le llama. El panel «Para llamar» ya está construido sobre esa diferencia.
+   *
+   * Y agregarle el segundo después exige `clientes:editar`, que el `pos` no
+   * tiene: quien atiende el mostrador capturaría uno y perdería el otro.
+   *
+   * Convive con `telefono` en singular, que no se toca: lo usan la colección de
+   * Bruno y el alta anterior. Romper un contrato con consumidores para agregar
+   * una forma nueva sería cobrarle el cambio a quien no lo pidió.
+   */
+  telefonos?: { numero: string; etiqueta?: string }[]
+
+  /**
+   * Una dirección, capturada en el mismo momento del alta.
+   *
+   * ── El mismo argumento que el teléfono, y más fuerte ──────────────────────
+   *
+   * `POST /clientes/:id/direcciones` pide `clientes:editar`, que el `pos` no
+   * tiene. Pero RN-BAS-07 le da autonomía para prestarle una base a un cliente
+   * verificado, y RN-BAS-03 dice que **una base se presta a una DIRECCIÓN**.
+   *
+   * Sin esto, el `pos` puede prestar una base y no puede crear la dirección a la
+   * que se presta: el activo sale de la planta y no queda dónde ir a buscarlo,
+   * que es exactamente lo que RN-BAS-03 existe para evitar.
+   *
+   * Aceptarla en el alta la cubre `clientes:crear`, y no le da ningún poder
+   * nuevo sobre los clientes que ya existen. Editar o desactivar direcciones
+   * sigue siendo `editar`.
+   */
+  direccion?: DatosDeDireccion
 }
 
 /**
@@ -96,8 +135,17 @@ export interface ResultadoDeEdicion {
 }
 
 export interface ResultadoDeAlta extends ResultadoDeEdicion {
-  /** El que vino en el alta, si vino. */
+  /**
+   * El primero de los que vinieron, o `null`.
+   *
+   * Se conserva por los consumidores que ya lo leen —la colección de Bruno y el
+   * alta anterior—. Lo completo está en `telefonos`.
+   */
   telefono: Telefono | null
+  /** Todos los que vinieron, en el orden en que se cargaron. */
+  telefonos: Telefono[]
+  /** La que vino en el alta, si vino. */
+  direccion: Direccion | null
 }
 
 const OTRO_TIPO: Record<TipoDeDocumento, TipoDeDocumento> = { CC: 'NIT', NIT: 'CC' }
@@ -230,22 +278,46 @@ export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta>
       })
       .returning()
 
-    if (!datos.telefono) return { cliente: cliente!, aviso, telefono: null }
-
     /*
      * No se chequea el número repetido como en `agregarTelefono`: un cliente
      * que acaba de nacer no tiene ninguno con el cual repetirse.
      */
-    const [telefono] = await tx
-      .insert(telefonos)
-      .values({
-        clienteId: cliente!.id,
-        numero: datos.telefono.numero.trim(),
-        ...(datos.telefono.etiqueta?.trim() && { etiqueta: datos.telefono.etiqueta.trim() }),
-      })
-      .returning()
+    /*
+     * El singular y el plural se juntan acá, en ese orden. Quien mande los dos
+     * —nadie hoy, pero el tipo lo permite— obtiene los dos, sin que uno pise al
+     * otro en silencio.
+     */
+    const pedidos = [...(datos.telefono ? [datos.telefono] : []), ...(datos.telefonos ?? [])]
 
-    return { cliente: cliente!, aviso, telefono: telefono! }
+    const guardados = pedidos.length
+      ? await tx
+          .insert(telefonos)
+          .values(
+            pedidos.map((t) => ({
+              clienteId: cliente!.id,
+              numero: t.numero.trim(),
+              ...(t.etiqueta?.trim() && { etiqueta: t.etiqueta.trim() }),
+            })),
+          )
+          .returning()
+      : []
+
+    /*
+     * La dirección reusa `agregarDireccion` en vez de insertar a mano, y no es
+     * comodidad: ahí viven la normalización y la invariante de que el conjunto
+     * UBIQUE. Escribiendo el INSERT acá, una dirección que el alta aceptara y el
+     * endpoint rechazara sería el mismo dato válido por una puerta e inválido
+     * por la otra.
+     *
+     * Va dentro de la transacción: si la dirección no pasa, el cliente tampoco
+     * entra. Un cliente a medio cargar es peor que ninguno — quien atiende cree
+     * que quedó registrado y no sabe qué le falta.
+     */
+    const direccion = datos.direccion
+      ? await agregarDireccion(cliente!.id, datos.direccion, tx)
+      : null
+
+    return { cliente: cliente!, aviso, telefono: guardados[0] ?? null, telefonos: guardados, direccion }
   })
 }
 
@@ -398,6 +470,90 @@ export async function buscarPorDocumento(
     .where(and(...condiciones))
     .orderBy(clientes.numeroDocumento)
     .limit(MAXIMO_COINCIDENCIAS)
+}
+
+/**
+ * Buscar por cómo se conoce a alguien — M16.
+ *
+ * ── El bug que esto vino a matar ────────────────────────────────────────────
+ *
+ * El filtro vivía en el navegador y hacía `toLowerCase()` sin tocar las tildes.
+ * Medido sobre datos reales: «gomez» NO encontraba a «Rosa Elena Padilla
+ * Gómez», y «panaderia» NO encontraba a «Panadería del Centro». En Colombia eso
+ * es la mitad de los apellidos, y nadie los teclea con tilde.
+ *
+ * ── CONTIENE, al revés que el documento ─────────────────────────────────────
+ *
+ * `buscarPorDocumento` usa empieza-con porque una cédula se dicta de izquierda a
+ * derecha. Un apellido no: se recuerda suelto —«el Gómez ese»— y quien busca no
+ * sabe si va primero o segundo. Por eso acá va `%termino%`.
+ *
+ * El costo de eso es que **no usa índice**: ni el `contains` ni el `translate`
+ * pueden aprovechar `clientes_apellidos_idx`. Con miles de clientes es un scan
+ * de miles de filas cortas, que Postgres resuelve en milisegundos. Si algún día
+ * deja de alcanzar, el arreglo es la extensión `unaccent` más un índice sobre
+ * ella — y eso sí es una migración.
+ */
+const MAXIMO_BUSQUEDA = 12
+
+/** Las vocales acentuadas y la eñe, que es lo que aparece en un nombre acá. */
+const CON_TILDE = 'áéíóúüñÁÉÍÓÚÜÑ'
+const SIN_TILDE = 'aeiouunAEIOUUN'
+
+/** `lower()` más `translate()`: el mismo texto visto sin acentos ni mayúsculas. */
+function sinAcentos(columna: SQL | AnyPgColumn): SQL<string> {
+  return sql<string>`translate(lower(coalesce(${columna}, '')), ${CON_TILDE}, ${SIN_TILDE})`
+}
+
+export async function buscarClientes(termino: string, soloActivos = true): Promise<Cliente[]> {
+  const limpio = termino.trim()
+
+  /*
+   * Mismo criterio que la búsqueda por documento: con uno o dos caracteres la
+   * respuesta serían casi todos los clientes — ruido, y una consulta a la base
+   * en cada tecla.
+   */
+  if (limpio.length < 3) return []
+
+  const patron = `%${limpio.toLowerCase().replace(/[áéíóúüñ]/g, (c) => SIN_TILDE[CON_TILDE.indexOf(c)]!)}%`
+
+  /*
+   * El documento entra en la búsqueda SOLO si el término tiene dígitos.
+   *
+   * Sin esta guarda, buscar «gomez» deja el patrón del documento en `%%` —que
+   * matchea todas las filas— y el `or` devuelve el padrón entero. Lo encontró
+   * el test: pedía un resultado y llegaban dos.
+   */
+  const digitos = limpio.replace(/\D/g, '')
+
+  const coincide = or(
+    // `nombre` es la columna GENERATED: ya trae las partes compuestas.
+    like(sinAcentos(clientes.nombre), patron),
+    like(sinAcentos(clientes.apellidos), patron),
+    // El apodo es como se la conoce en el pueblo — RN-CLI-17.
+    like(sinAcentos(clientes.apodo), patron),
+    ...(digitos.length >= 3 ? [like(clientes.numeroDocumento, `%${digitos}%`)] : []),
+  )
+
+  const condiciones = soloActivos ? and(coincide, eq(clientes.activo, true)) : coincide
+
+  return db.select().from(clientes).where(condiciones).orderBy(clientes.nombre).limit(MAXIMO_BUSQUEDA)
+}
+
+/**
+ * Los últimos registrados — M16.
+ *
+ * Para que la pantalla de clientes no arranque en blanco. Una pantalla vacía se
+ * siente rota, y además esconde el caso más común después de dar de alta a
+ * alguien: volver a mirarlo para corregir un dedazo.
+ *
+ * Ordena por **creación**, no por nombre. La pregunta que contesta es «qué pasó
+ * recién», y esa es la única que se puede contestar sin que nadie busque.
+ */
+export async function clientesRecientes(cuantos: number, soloActivos = true): Promise<Cliente[]> {
+  const consulta = db.select().from(clientes).orderBy(desc(clientes.createdAt)).limit(cuantos)
+
+  return soloActivos ? consulta.where(eq(clientes.activo, true)) : consulta
 }
 
 export async function listarClientes(soloActivos = true): Promise<Cliente[]> {
