@@ -64,6 +64,24 @@ export interface DatosDeAlta extends NombreDeCliente {
   telefono?: { numero: string; etiqueta?: string }
 
   /**
+   * Varios teléfonos, capturados en el mismo alta.
+   *
+   * ── Por qué no alcanza con uno ───────────────────────────────────────────
+   *
+   * Un comercial tiene el celular del dueño y el fijo del local, y son dos
+   * cosas distintas: al primero se le escribe por WhatsApp, al segundo solo se
+   * le llama. El panel «Para llamar» ya está construido sobre esa diferencia.
+   *
+   * Y agregarle el segundo después exige `clientes:editar`, que el `pos` no
+   * tiene: quien atiende el mostrador capturaría uno y perdería el otro.
+   *
+   * Convive con `telefono` en singular, que no se toca: lo usan la colección de
+   * Bruno y el alta anterior. Romper un contrato con consumidores para agregar
+   * una forma nueva sería cobrarle el cambio a quien no lo pidió.
+   */
+  telefonos?: { numero: string; etiqueta?: string }[]
+
+  /**
    * Una dirección, capturada en el mismo momento del alta.
    *
    * ── El mismo argumento que el teléfono, y más fuerte ──────────────────────
@@ -117,8 +135,15 @@ export interface ResultadoDeEdicion {
 }
 
 export interface ResultadoDeAlta extends ResultadoDeEdicion {
-  /** El que vino en el alta, si vino. */
+  /**
+   * El primero de los que vinieron, o `null`.
+   *
+   * Se conserva por los consumidores que ya lo leen —la colección de Bruno y el
+   * alta anterior—. Lo completo está en `telefonos`.
+   */
   telefono: Telefono | null
+  /** Todos los que vinieron, en el orden en que se cargaron. */
+  telefonos: Telefono[]
   /** La que vino en el alta, si vino. */
   direccion: Direccion | null
 }
@@ -257,14 +282,23 @@ export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta>
      * No se chequea el número repetido como en `agregarTelefono`: un cliente
      * que acaba de nacer no tiene ninguno con el cual repetirse.
      */
-    const [telefono] = datos.telefono
+    /*
+     * El singular y el plural se juntan acá, en ese orden. Quien mande los dos
+     * —nadie hoy, pero el tipo lo permite— obtiene los dos, sin que uno pise al
+     * otro en silencio.
+     */
+    const pedidos = [...(datos.telefono ? [datos.telefono] : []), ...(datos.telefonos ?? [])]
+
+    const guardados = pedidos.length
       ? await tx
           .insert(telefonos)
-          .values({
-            clienteId: cliente!.id,
-            numero: datos.telefono.numero.trim(),
-            ...(datos.telefono.etiqueta?.trim() && { etiqueta: datos.telefono.etiqueta.trim() }),
-          })
+          .values(
+            pedidos.map((t) => ({
+              clienteId: cliente!.id,
+              numero: t.numero.trim(),
+              ...(t.etiqueta?.trim() && { etiqueta: t.etiqueta.trim() }),
+            })),
+          )
           .returning()
       : []
 
@@ -283,7 +317,7 @@ export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta>
       ? await agregarDireccion(cliente!.id, datos.direccion, tx)
       : null
 
-    return { cliente: cliente!, aviso, telefono: telefono ?? null, direccion }
+    return { cliente: cliente!, aviso, telefono: guardados[0] ?? null, telefonos: guardados, direccion }
   })
 }
 

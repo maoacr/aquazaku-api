@@ -59,6 +59,27 @@ export const esquemaDeAlta = z.object({
   },
 
   /**
+   * Y VARIOS teléfonos, también en el mismo alta.
+   *
+   * Un comercial tiene el celular del dueño y el fijo del local, y son dos
+   * cosas distintas: al primero se le escribe por WhatsApp, al segundo solo se
+   * le llama. Ya hay una regla construida sobre esa diferencia —el botón de
+   * WhatsApp no se dibuja sobre un fijo—, así que capturar uno solo pierde
+   * información que el sistema sabe usar.
+   *
+   * Agregarle el segundo después exige `clientes:editar`, que el `pos` no
+   * tiene. O entran acá, o quien atiende el mostrador pierde el que sobra.
+   *
+   * Convive con `telefono` en singular en vez de reemplazarlo: ese contrato ya
+   * tiene consumidores —la colección de Bruno y el alta del mostrador— y
+   * romperlo para agregar el plural sería cambiarles la puerta sin que lo
+   * pidieran. El servicio los junta.
+   */
+  get telefonos() {
+    return esquemaDeTelefono.array().max(5).optional()
+  },
+
+  /**
    * Una dirección en el mismo alta — opcional.
    *
    * Mismo criterio que el teléfono, y reusa `esquemaDeDireccion` por la misma

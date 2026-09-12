@@ -171,9 +171,16 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const { cliente, aviso, telefono, direccion } = await crearCliente(datos)
+        const { cliente, aviso, telefono, telefonos, direccion } = await crearCliente(datos)
 
-        return reply.code(201).send({ ...conDocumento(cliente), aviso, telefono, direccion })
+        /*
+         * `telefono` en singular sigue viajando: es el primero de la lista, y
+         * es lo que leen la colección de Bruno y el alta del mostrador. Sacarlo
+         * al agregar el plural les rompería la respuesta sin aviso.
+         */
+        return reply
+          .code(201)
+          .send({ ...conDocumento(cliente), aviso, telefono, telefonos, direccion })
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:crear')
       }

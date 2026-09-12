@@ -121,3 +121,66 @@ describe('la transacción', () => {
     expect(guardado).toBeDefined()
   })
 })
+
+/**
+ * Varios teléfonos en el mismo alta — M16.
+ *
+ * ── Por qué no alcanza con uno ──────────────────────────────────────────────
+ *
+ * Un comercial tiene el celular del dueño y el fijo del local, y son dos cosas
+ * distintas: al primero se le escribe por WhatsApp, al segundo solo se le
+ * llama. Ya hay una regla construida sobre esa diferencia — el botón de
+ * WhatsApp no se dibuja sobre un fijo.
+ *
+ * Y agregarle el segundo después exige `clientes:editar`, que el `pos` no
+ * tiene. Sin esto, quien atiende el mostrador captura uno y el otro se pierde.
+ */
+describe('varios teléfonos', () => {
+  it('entran todos, en el mismo alta', async () => {
+    const { telefonos: guardados } = await crearCliente({
+      ...BASE,
+      telefonos: [
+        { numero: '300 123 4567', etiqueta: 'el celular' },
+        { numero: '605 878 1234', etiqueta: 'el fijo del local' },
+      ],
+    })
+
+    expect(guardados).toHaveLength(2)
+    expect(guardados.map((t) => t.etiqueta)).toEqual(['el celular', 'el fijo del local'])
+  })
+
+  /*
+   * El singular sigue andando: lo usan la colección de Bruno y el alta vieja.
+   * Romperlo para agregar el plural sería cambiar un contrato que ya tiene
+   * consumidores, sin que ninguno lo pidiera.
+   */
+  it('el `telefono` singular sigue funcionando', async () => {
+    const { telefonos: guardados } = await crearCliente({
+      ...BASE,
+      telefono: { numero: '300 123 4567', etiqueta: 'el celular' },
+    })
+
+    expect(guardados).toHaveLength(1)
+  })
+
+  it('sin teléfonos, la lista viene vacía y no rompe', async () => {
+    const { telefonos: guardados } = await crearCliente(BASE)
+
+    expect(guardados).toEqual([])
+  })
+
+  /*
+   * Todo o nada, igual que la dirección: un teléfono inválido no puede dejar un
+   * cliente cargado con la mitad de sus números.
+   */
+  it('un número inválido no deja medio cliente', async () => {
+    await expect(
+      crearCliente({
+        ...BASE,
+        telefonos: [{ numero: '300 123 4567' }, { numero: '12' }],
+      }),
+    ).rejects.toThrow()
+
+    expect(await db.select().from(clientes)).toHaveLength(0)
+  })
+})
