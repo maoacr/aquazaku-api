@@ -1,0 +1,58 @@
+meta {
+  name: Una dirección sin etiqueta rebota
+  type: http
+  seq: 38
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "primerNombre": "Rosa",
+    "apellidos": "Padilla Gómez",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "{{documentoSinEtiqueta}}",
+    "direccion": {
+      "viaTipo": "CL",
+      "viaNumero": "30",
+      "placaNumero": "12",
+      "municipio": "Campo de la Cruz",
+      "departamento": "Atlántico"
+    }
+  }
+}
+
+script:pre-request {
+  bru.setVar("documentoSinEtiqueta", String(Date.now()).slice(-10));
+}
+
+docs {
+  La dirección está completa salvo por **cómo la llaman**, y eso alcanza para
+  rechazarla. La etiqueta —«la casa», «el local», «la sucursal norte»— es lo
+  que distingue una dirección de otra cuando el cliente tiene tres, y sin ella
+  «a cuál de sus locales voy a buscar la 0913» no tiene respuesta.
+
+  ## Esta petición existe por un defecto real
+
+  El alta en tres pasos de `web` armaba el objeto de la dirección **solo si
+  venía la etiqueta**, y si no, lo descartaba. Quien llenaba vía, placa,
+  municipio y departamento sin ponerle nombre daba «Registrar cliente», veía el
+  alta salir bien, y abría la ficha sin dirección: ocho campos perdidos sin una
+  palabra. Pasó con un cliente real.
+
+  `web` ahora frena y avisa antes de mandar. Esta petición fija **el otro lado
+  del contrato**: que `api` rechace explícitamente el caso, para que el día que
+  alguien toque esa validación en la pantalla se note acá.
+
+  Y rebota el alta ENTERA, no solo la dirección: van en la misma transacción, y
+  media carga en silencio es peor que un error.
+}
+
+tests {
+  test("lo atrapa Zod: la dirección necesita cómo la llaman", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}

@@ -1,0 +1,74 @@
+meta {
+  name: El alta puede traer varios teléfonos
+  type: http
+  seq: 36
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "nombreLibre": "Depósito La Peña",
+    "tipo": "comercial",
+    "tipoDocumento": "NIT",
+    "numeroDocumento": "{{documentoConDosTelefonos}}",
+    "telefonos": [
+      { "numero": "300 123 4567", "etiqueta": "el celular del dueño" },
+      { "numero": "605 878 1234", "etiqueta": "el fijo del local" }
+    ]
+  }
+}
+
+script:pre-request {
+  // Diez dígitos que no chocan con los documentos fijos de esta carpeta.
+  bru.setVar("documentoConDosTelefonos", String(Date.now()).slice(-10));
+}
+
+docs {
+  Un comercial tiene el celular del dueño y el fijo del local, y **son dos cosas
+  distintas**: al primero se le escribe por WhatsApp, al segundo solo se le
+  llama. El panel de «clientes para llamar» está construido sobre esa
+  diferencia — el botón de WhatsApp no se dibuja sobre un fijo.
+
+  Capturar uno solo tira información que el sistema sabe usar, y agregarle el
+  segundo después exige `clientes:editar`, que el `pos` **no tiene**. O entran
+  acá, o quien atiende el mostrador pierde el que sobra.
+
+  ## Por qué `telefono` singular sigue existiendo
+
+  Este mismo endpoint acepta `telefono` en singular, y esa puerta **no se
+  cerró** al abrir la plural: la usan la petición 23 de esta carpeta y el alta
+  del mostrador. Romper un contrato que ya tiene consumidores para agregar uno
+  nuevo sería cambiarles la puerta sin que lo pidieran.
+
+  El servicio los junta y los mete en la MISMA transacción que el cliente: un
+  número inválido no puede dejar un cliente cargado con la mitad de sus
+  teléfonos.
+
+  La validación del número no se repite en el servicio. El CHECK
+  `telefonos_numero_no_vacio` ya exige siete dígitos, y duplicarla sería tener
+  dos definiciones de «número válido» esperando a separarse
+  ([ADR-0006](/decisiones/0006-invariantes-en-la-base/)).
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("los dos entraron, en el mismo viaje y en orden", function() {
+    const guardados = res.getBody().telefonos;
+    expect(guardados).to.have.lengthOf(2);
+    expect(guardados.map(t => t.etiqueta)).to.deep.equal([
+      "el celular del dueño",
+      "el fijo del local",
+    ]);
+  });
+
+  test("`telefono` singular sigue viajando: es el primero de la lista", function() {
+    expect(res.getBody().telefono.numero).to.equal("300 123 4567");
+  });
+}
