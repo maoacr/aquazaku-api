@@ -4,6 +4,7 @@ import { type Direccion, direcciones } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { paraGuardar } from '@/modules/geografia/nombres'
 import { direccionLegible } from './direccion-legible'
+import type { Transaccion } from '@/modules/stock/saldo'
 import { clientePorId } from './service'
 
 /**
@@ -62,15 +63,30 @@ const TEXTOS = [
   'indicaciones',
 ] as const
 
+/**
+ * Agregar una dirección a un cliente.
+ *
+ * ── El `tx` no es una comodidad ─────────────────────────────────────────────
+ *
+ * El alta puede traer la dirección en el mismo pedido, y entonces cliente y
+ * dirección tienen que entrar en una sola transacción: una dirección que no
+ * ubica no puede dejar un cliente a medio cargar. Quien atiende creería que
+ * quedó registrado y no sabría qué le falta.
+ *
+ * Cuando viene un `tx`, el cliente **lo acaba de crear esa misma transacción**
+ * y todavía no es visible desde afuera — por eso no se vuelve a comprobar que
+ * exista. Existe por construcción, y consultarlo con `db` daría «no existe».
+ */
 export async function agregarDireccion(
   clienteId: string,
   datos: DatosDeDireccion,
+  tx?: Transaccion,
 ): Promise<Direccion> {
-  await clientePorId(clienteId)
+  if (!tx) await clientePorId(clienteId)
 
   const { etiqueta, limpios, coordenadas } = normalizar(datos)
 
-  const [creada] = await db
+  const [creada] = await (tx ?? db)
     .insert(direcciones)
     .values({ clienteId, etiqueta, ...limpios, ...coordenadas })
     .returning()

@@ -57,6 +57,22 @@ export const esquemaDeAlta = z.object({
   get telefono() {
     return esquemaDeTelefono.optional()
   },
+
+  /**
+   * Una dirección en el mismo alta — opcional.
+   *
+   * Mismo criterio que el teléfono, y reusa `esquemaDeDireccion` por la misma
+   * razón: una dirección que este esquema aceptara y el otro rechazara sería el
+   * mismo dato válido por una puerta e inválido por la otra.
+   *
+   * Existe porque `POST /clientes/:id/direcciones` pide `clientes:editar`, que
+   * el `pos` no tiene — y RN-BAS-03 dice que una base se presta a una
+   * DIRECCIÓN. Sin esto, quien atiende el mostrador puede prestar una base y no
+   * puede crear la dirección a la que se presta.
+   */
+  get direccion() {
+    return esquemaDeDireccion.optional()
+  },
 })
 
 export const esquemaDeEdicion = z

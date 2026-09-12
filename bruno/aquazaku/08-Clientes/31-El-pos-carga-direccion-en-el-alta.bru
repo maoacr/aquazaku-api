@@ -1,0 +1,74 @@
+meta {
+  name: El pos carga la dirección en el alta
+  type: http
+  seq: 31
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "primerNombre": "Yeimy",
+    "apellidos": "Rodríguez Salas",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "{{documentoDelPos}}",
+    "telefono": { "numero": "300 777 8899", "etiqueta": "el celular" },
+    "direccion": {
+      "etiqueta": "La casa",
+      "viaTipo": "CL",
+      "viaNumero": "30",
+      "placaNumero": "12",
+      "municipio": "Campo de la Cruz",
+      "departamento": "Atlántico"
+    }
+  }
+}
+
+docs {
+  **Esta petición se corre como `pos`** — la 29 cambió de sesión.
+
+  ── Por qué esto tiene que funcionar ──────────────────────────────────────────
+
+  `POST /clientes/:id/direcciones` exige `clientes:editar`, que el `pos` **no
+  tiene**: la petición 30 lo comprueba con un 403.
+
+  Pero RN-BAS-07 le da autonomía para prestarle una base a un cliente verificado,
+  y RN-BAS-03 dice que **una base se presta a una DIRECCIÓN, no a un cliente**.
+  Sin esto, quien atiende el mostrador puede sacar una base de la planta y no
+  puede crear el domicilio a donde hay que ir a buscarla.
+
+  Es el mismo agujero que ya se había tapado con el teléfono, y la misma
+  solución: aceptarla dentro del alta la cubre `clientes:crear`.
+
+  ── Lo que NO le da ───────────────────────────────────────────────────────────
+
+  Ningún poder sobre los clientes que ya existen. El `pos` sigue sin poder
+  agregarle una dirección a alguien cargado antes, ni editar las que hay — eso
+  lo prueba la 30, que tiene que seguir en 403.
+}
+
+script:pre-request {
+  bru.setVar("documentoDelPos", String(Date.now()).slice(-10));
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("el pos pudo cargar la dirección en el mismo acto", function() {
+    expect(res.getBody().direccion).to.not.be.null;
+    expect(res.getBody().direccion.etiqueta).to.equal("La casa");
+  });
+
+  test("quedó colgada del cliente que se acaba de crear", function() {
+    expect(res.getBody().direccion.clienteId).to.equal(res.getBody().id);
+  });
+
+  test("y el teléfono entró en el mismo viaje", function() {
+    expect(res.getBody().telefono.numero).to.equal("300 777 8899");
+  });
+}

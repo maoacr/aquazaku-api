@@ -1,8 +1,9 @@
 import { type SQL, and, desc, eq, like, ne, or, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { db } from '@/db/client'
-import { type Cliente, type Telefono, clientes, telefonos } from '@/db/schema'
+import { type Cliente, type Direccion, type Telefono, clientes, telefonos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type DatosDeDireccion, agregarDireccion } from './direcciones'
 import {
   DocumentoInvalido,
   type TipoDeDocumento,
@@ -61,6 +62,25 @@ export interface DatosDeAlta extends NombreDeCliente {
    * quitar teléfonos sigue siendo `editar`.
    */
   telefono?: { numero: string; etiqueta?: string }
+
+  /**
+   * Una dirección, capturada en el mismo momento del alta.
+   *
+   * ── El mismo argumento que el teléfono, y más fuerte ──────────────────────
+   *
+   * `POST /clientes/:id/direcciones` pide `clientes:editar`, que el `pos` no
+   * tiene. Pero RN-BAS-07 le da autonomía para prestarle una base a un cliente
+   * verificado, y RN-BAS-03 dice que **una base se presta a una DIRECCIÓN**.
+   *
+   * Sin esto, el `pos` puede prestar una base y no puede crear la dirección a la
+   * que se presta: el activo sale de la planta y no queda dónde ir a buscarlo,
+   * que es exactamente lo que RN-BAS-03 existe para evitar.
+   *
+   * Aceptarla en el alta la cubre `clientes:crear`, y no le da ningún poder
+   * nuevo sobre los clientes que ya existen. Editar o desactivar direcciones
+   * sigue siendo `editar`.
+   */
+  direccion?: DatosDeDireccion
 }
 
 /**
@@ -99,6 +119,8 @@ export interface ResultadoDeEdicion {
 export interface ResultadoDeAlta extends ResultadoDeEdicion {
   /** El que vino en el alta, si vino. */
   telefono: Telefono | null
+  /** La que vino en el alta, si vino. */
+  direccion: Direccion | null
 }
 
 const OTRO_TIPO: Record<TipoDeDocumento, TipoDeDocumento> = { CC: 'NIT', NIT: 'CC' }
@@ -231,22 +253,37 @@ export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta>
       })
       .returning()
 
-    if (!datos.telefono) return { cliente: cliente!, aviso, telefono: null }
-
     /*
      * No se chequea el número repetido como en `agregarTelefono`: un cliente
      * que acaba de nacer no tiene ninguno con el cual repetirse.
      */
-    const [telefono] = await tx
-      .insert(telefonos)
-      .values({
-        clienteId: cliente!.id,
-        numero: datos.telefono.numero.trim(),
-        ...(datos.telefono.etiqueta?.trim() && { etiqueta: datos.telefono.etiqueta.trim() }),
-      })
-      .returning()
+    const [telefono] = datos.telefono
+      ? await tx
+          .insert(telefonos)
+          .values({
+            clienteId: cliente!.id,
+            numero: datos.telefono.numero.trim(),
+            ...(datos.telefono.etiqueta?.trim() && { etiqueta: datos.telefono.etiqueta.trim() }),
+          })
+          .returning()
+      : []
 
-    return { cliente: cliente!, aviso, telefono: telefono! }
+    /*
+     * La dirección reusa `agregarDireccion` en vez de insertar a mano, y no es
+     * comodidad: ahí viven la normalización y la invariante de que el conjunto
+     * UBIQUE. Escribiendo el INSERT acá, una dirección que el alta aceptara y el
+     * endpoint rechazara sería el mismo dato válido por una puerta e inválido
+     * por la otra.
+     *
+     * Va dentro de la transacción: si la dirección no pasa, el cliente tampoco
+     * entra. Un cliente a medio cargar es peor que ninguno — quien atiende cree
+     * que quedó registrado y no sabe qué le falta.
+     */
+    const direccion = datos.direccion
+      ? await agregarDireccion(cliente!.id, datos.direccion, tx)
+      : null
+
+    return { cliente: cliente!, aviso, telefono: telefono ?? null, direccion }
   })
 }
 
