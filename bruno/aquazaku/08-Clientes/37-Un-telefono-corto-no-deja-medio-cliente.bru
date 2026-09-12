@@ -1,0 +1,48 @@
+meta {
+  name: Un teléfono corto no deja medio cliente
+  type: http
+  seq: 37
+}
+
+post {
+  url: {{baseUrl}}/clientes
+  body: json
+}
+
+body:json {
+  {
+    "primerNombre": "Rosa",
+    "apellidos": "Padilla Gómez",
+    "tipoDocumento": "CC",
+    "numeroDocumento": "{{documentoQueNoDebeQuedar}}",
+    "telefonos": [
+      { "numero": "300 123 4567" },
+      { "numero": "12" }
+    ]
+  }
+}
+
+script:pre-request {
+  bru.setVar("documentoQueNoDebeQuedar", String(Date.now()).slice(-10));
+}
+
+docs {
+  El segundo número tiene dos dígitos. El alta entera rebota, y **el cliente no
+  queda creado**: cliente y teléfonos van en la misma transacción.
+
+  Es el punto del asunto. Con escrituras sueltas, un número inválido dejaría un
+  cliente a medio cargar y quien atiende no sabría qué quedó guardado — se
+  registró a alguien para poder reclamarle un envase, y el registro quedó
+  incompleto sin avisar.
+
+  Lo rechaza el esquema antes de tocar la base, y si alguna vez ese esquema se
+  aflojara, el CHECK `telefonos_numero_no_vacio` lo vuelve a rechazar adentro de
+  la transacción. Dos redes, y la de abajo es la que manda
+  ([ADR-0006](/decisiones/0006-invariantes-en-la-base/)).
+}
+
+tests {
+  test("lo atrapa Zod: siete dígitos mínimo", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+}
