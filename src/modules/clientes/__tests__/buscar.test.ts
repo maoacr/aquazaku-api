@@ -102,6 +102,23 @@ describe('por dónde se puede buscar', () => {
   it('encuentra el apellido aunque no sea la primera palabra', async () => {
     expect(await buscarClientes('centro')).toHaveLength(1)
   })
+
+  /**
+   * La cédula con puntos, como se dicta y como se escribe.
+   *
+   * ── Por qué este test vale más desde M16 ──────────────────────────────────
+   *
+   * El buscador del mostrador limpiaba los puntos antes de preguntar, así que
+   * esta normalización nunca se ejercitaba desde ahí. Ahora ese buscador usa
+   * esta misma búsqueda ancha y manda el término ENTERO —tiene que hacerlo, o
+   * «Gómez» viajaría como «Gmez»—, y quien saca los dígitos es este lado.
+   *
+   * Sin este test, quitar la extracción de dígitos deja el mostrador sin
+   * encontrar a nadie por cédula y toda la suite en verde.
+   */
+  it('los puntos del dictado no esconden la cédula', async () => {
+    expect(await buscarClientes('79.000.001')).toHaveLength(1)
+  })
 })
 
 describe('lo que NO devuelve', () => {
