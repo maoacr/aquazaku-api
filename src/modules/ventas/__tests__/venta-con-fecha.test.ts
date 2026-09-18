@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/db/client'
-import { lotes, productos, ventas } from '@/db/schema'
+import { auditLog, lotes, productos, ventas } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { registrarVenta } from '@/modules/ventas/venta'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
 
 /**
- * Una venta que ocurrió ANTES de registrarse — RN-VEN-13.
+ * Una venta que ocurrió ANTES de registrarse — RN-VEN-14.
  *
  * ── Por qué hace falta ──────────────────────────────────────────────────────
  *
@@ -170,5 +170,31 @@ describe('las guardas', () => {
     }).format(new Date(Date.now() - 91 * 86_400_000))
 
     await expect(vender({ ocurrioEn: noventaYUno })).rejects.toThrow(/90 días/)
+  })
+})
+
+/**
+ * Fechar hacia atrás deja rastro propio — RN-VEN-14.
+ *
+ * ── Por qué una fila aparte ─────────────────────────────────────────────────
+ *
+ * La venta ya se audita como cualquier otra. Esta existe solo cuando la fecha
+ * NO es hoy, porque registra otra cosa: alguien movió plata de un mes a otro.
+ * RN-VEN-14 acepta a propósito que un reporte ya emitido cambie, y lo único que
+ * acota ese costo es poder reconstruir quién lo hizo.
+ *
+ * Se prueba por la RUTA y no por el servicio: la bitácora la escribe la ruta, y
+ * un test del servicio pasaría con la auditoría borrada.
+ */
+describe('la bitácora de una venta retroactiva', () => {
+  it('una venta de hoy NO deja fila de retroactiva', async () => {
+    await vender()
+
+    const filas = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'ventas:crear_retroactiva'))
+
+    expect(filas).toHaveLength(0)
   })
 })

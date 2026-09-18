@@ -77,6 +77,83 @@ const conProducto = (extra: object = {}) => ({
   ...extra,
 })
 
+/**
+ * Fechar una venta hacia atrás deja rastro propio — RN-VEN-14.
+ *
+ * ── Por qué se prueba acá y no en el servicio ───────────────────────────────
+ *
+ * La bitácora la escribe la RUTA. Un test del servicio pasaría con la auditoría
+ * borrada, y la promesa se perdería sin que nada avise — que es exactamente cómo
+ * se pierden las promesas.
+ *
+ * ── Y por qué importa que exista ────────────────────────────────────────────
+ *
+ * RN-VEN-14 acepta a propósito que un reporte ya emitido cambie. Lo único que
+ * acota ese costo es poder reconstruir quién movió una venta de un mes a otro.
+ * Sin esta fila, un total que no cuadra contra una copia impresa no tiene
+ * explicación.
+ */
+describe('POST /ventas con fecha anterior', () => {
+  const ayer = () =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(
+      new Date(Date.now() - 86_400_000),
+    )
+
+  it('la venta queda fechada ayer', async () => {
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ ocurrioEn: ayer() }),
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(
+      new Date(res.json().venta.createdAt),
+    )
+    expect(dia).toBe(ayer())
+  })
+
+  it('deja una fila de `ventas:crear_retroactiva` con las dos fechas', async () => {
+    await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ ocurrioEn: ayer() }),
+    })
+
+    const [fila] = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'ventas:crear_retroactiva'))
+
+    expect(fila).toBeDefined()
+    expect((fila!.payload as { ocurrioEn: string }).ocurrioEn).toBe(ayer())
+    expect((fila!.payload as { registradaEl: string }).registradaEl).not.toBe(ayer())
+  })
+
+  it('una venta de hoy no deja esa fila: no hay nada excepcional que contar', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+
+    const filas = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'ventas:crear_retroactiva'))
+
+    expect(filas).toHaveLength(0)
+  })
+
+  it('el futuro se rechaza con 422 y dice por qué', async () => {
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ ocurrioEn: '2099-01-01' }),
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(res.json().mensaje).toMatch(/todavía no/i)
+  })
+})
+
 describe('POST /ventas', () => {
   it('el `pos` vende: es quien está en el mostrador', async () => {
     const res = await como('pos', { method: 'POST', url: '/ventas', payload: conProducto() })
