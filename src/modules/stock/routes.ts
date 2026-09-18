@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { hoyEnLaPlanta } from '@/lib/dia'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { leerParametro } from '@/modules/alertas/parametros'
@@ -119,7 +120,7 @@ export async function stockRoutes(app: FastifyInstance): Promise<void> {
  * aunque cruce la medianoche.
  */
 function hoyDe(_req: FastifyRequest): string {
-  return new Date().toISOString().slice(0, 10)
+  return hoyEnLaPlanta()
 }
 
 function contextoDe(req: FastifyRequest) {

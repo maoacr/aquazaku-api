@@ -6,6 +6,7 @@ import { carteraPorEdad } from './cartera'
 import { extracto } from './extracto'
 import { resumenMensual } from './mensual'
 import { esquemaDeExtracto, esquemaDeResumenMensual } from './validation'
+import { hoyEnLaPlanta } from '@/lib/dia'
 
 /**
  * Lo que consulta el contador — M11.
@@ -73,7 +74,7 @@ export async function contadorRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/reportes/cartera',
     { preHandler: [requireAuth, requirePermission('reportes', 'financieros')] },
-    async () => carteraPorEdad(hoyISO()),
+    async () => carteraPorEdad(hoyEnLaPlanta()),
   )
 
   /**
@@ -102,6 +103,3 @@ export async function contadorRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /** Hoy en `YYYY-MM-DD`. El servicio lo recibe para poder testear los bordes. */
-function hoyISO(): string {
-  return new Date().toISOString().slice(0, 10)
-}
