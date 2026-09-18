@@ -432,24 +432,55 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
  * Una venta con `tipo = 'dano_base'` no aparece en el mapa, y es correcto: un
  * recargo por daño NO tiene líneas, hay un trigger que lo impide.
  */
-async function lineasResumidasDe(
-  ventaIds: string[],
-): Promise<Map<string, { productoNombre: string; cantidad: number }[]>> {
+type LineaResumida = {
+  productoNombre: string
+  cantidad: number
+  precioFinal: string
+  precioManual: boolean
+}
+
+async function lineasResumidasDe(ventaIds: string[]): Promise<Map<string, LineaResumida[]>> {
   const lineas = await db
     .select({
       ventaId: lineasDeVenta.ventaId,
       productoNombre: productos.nombre,
       cantidad: sql<number>`sum(${lineasDeVenta.cantidad})::int`,
+      /*
+       * ── El precio va al listado, no solo a la bitácora — RN-VEN-15 ────────
+       *
+       * `ventas:precio_manual` guarda el delta, pero vive en Auditoría: hay que
+       * acordarse de ir. Esta lista es la que alguien mira todos los días, y
+       * hasta acá una venta a $3.800 se dibujaba idéntica a una a $10.000.
+       *
+       * Un control que exige acordarse no es un control.
+       *
+       * ── Por qué entran en el GROUP BY en vez de agregarse ─────────────────
+       *
+       * Dentro de una venta, un producto tiene UN precio: el carrito se indexa
+       * por `productoId`, así que no hay dos entradas del mismo producto a
+       * precios distintos. Agruparlos no parte ninguna fila.
+       *
+       * Y si esa invariante alguna vez se rompiera, agregarlos con un `max()`
+       * lo escondería detrás de un número plausible; agruparlos devuelve DOS
+       * filas y se ve. Entre un error visible y uno callado, visible.
+       */
+      precioFinal: lineasDeVenta.precioFinal,
+      precioManual: lineasDeVenta.precioManual,
     })
     .from(lineasDeVenta)
     .innerJoin(productos, eq(productos.id, lineasDeVenta.productoId))
     .where(inArray(lineasDeVenta.ventaId, ventaIds))
-    .groupBy(lineasDeVenta.ventaId, productos.nombre)
+    .groupBy(
+      lineasDeVenta.ventaId,
+      productos.nombre,
+      lineasDeVenta.precioFinal,
+      lineasDeVenta.precioManual,
+    )
     // Por nombre y no por `id`: los UUID son aleatorios, así que sin esto una
     // venta de tres productos se reordena sola entre dos recargas.
     .orderBy(productos.nombre)
 
-  const porVenta = new Map<string, { productoNombre: string; cantidad: number }[]>()
+  const porVenta = new Map<string, LineaResumida[]>()
 
   for (const { ventaId, ...linea } of lineas) {
     const acumuladas = porVenta.get(ventaId)
