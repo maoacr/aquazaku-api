@@ -203,6 +203,44 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
           })
         }
 
+        /*
+         * ── Un precio escrito a mano deja rastro propio — RN-VEN-15 ─────────
+         *
+         * Fila aparte, y solo cuando alguien escribió un precio. Lo que registra
+         * es otra cosa que la venta: alguien afirmó haber cobrado un número que
+         * el catálogo no dice, y el piso de ese producto no lo frenó porque el
+         * número escrito pasó a ser su propio piso.
+         *
+         * ── Por qué guarda el precio de LISTA al lado ───────────────────────
+         *
+         * Porque es el delta lo que se audita, no el importe. «Se vendió a
+         * 3.800» ya lo dice la venta; «se vendió a 3.800 cuando la lista decía
+         * 10.000» es lo que alguien puede mirar y preguntar.
+         *
+         * Y acá pesa más que en la venta retroactiva: el permiso es
+         * `ventas:crear`, que tienen admin, pos y seller por igual. Esta fila es
+         * el único control que separa cargar una venta vieja de cobrar 10.000 y
+         * registrar 3.800.
+         *
+         * Va con `auditarSinBloquear` por la misma razón que la retroactiva: la
+         * venta ya está escrita y confirmada, y tumbar la respuesta dejaría al
+         * operador creyendo que no vendió, y cobrando de nuevo.
+         */
+        if (resultado.preciosManuales.length > 0) {
+          await auditarSinBloquear(req, {
+            userId: req.user?.id ?? null,
+            rolEjercido: req.user?.roles ?? [],
+            action: 'ventas:precio_manual',
+            resource: 'ventas',
+            result: 'ok',
+            payload: {
+              resourceId: resultado.venta.id,
+              items: resultado.preciosManuales,
+              total: resultado.venta.total,
+            },
+          })
+        }
+
         return reply.code(201).send(resultado)
       } catch (err) {
         return manejarError(err, req, reply, 'ventas', 'ventas:crear')

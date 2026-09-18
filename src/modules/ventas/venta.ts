@@ -56,6 +56,22 @@ import { deudaDe } from './saldo'
 export interface ItemDeVenta {
   productoId: string
   cantidad: number
+
+  /**
+   * El precio que de verdad se cobró, escrito a mano — RN-VEN-15.
+   *
+   * ── Por qué gana sobre el piso ────────────────────────────────────────────
+   *
+   * Ausente es el caso normal: manda el catálogo. Presente, el número escrito
+   * pasa a ser lista Y piso de su línea, con descuento en cero.
+   *
+   * Eso no es un atajo para esquivar el `CHECK`: es lo que el piso significa en
+   * una línea manual. `precio_minimo_aplicado` está congelado EN LA FILA
+   * justamente para que el invariante se pueda evaluar sin ir a buscar el
+   * producto, y acá el mínimo acordado para esta venta ES el precio acordado.
+   * El piso del catálogo sigue cubriendo a las demás líneas.
+   */
+  precioManual?: string | undefined
 }
 
 export interface DatosDeVenta {
@@ -124,9 +140,30 @@ export interface LineaRegistrada {
   aplicadoParcialmente: boolean
 }
 
+/**
+ * Un precio que alguien escribió a mano, listo para la bitácora — RN-VEN-15.
+ *
+ * Va POR ÍTEM y no por línea: FIFO parte un pedido de 120 en dos lotes y escribe
+ * dos líneas, pero el acto humano fue uno —un checkbox y un número—. Auditar por
+ * línea convertiría esa decisión única en dos filas con cantidades que nadie
+ * escribió.
+ *
+ * `precioDeLista` es lo que el sistema HABRÍA cobrado. Sin él no hay delta, y
+ * sin delta la bitácora repite lo que la venta ya dice.
+ */
+export interface PrecioEscritoAMano {
+  productoId: string
+  cantidad: number
+  precioDeLista: string
+  precioCobrado: string
+  subtotal: string
+}
+
 export interface ResultadoDeVenta {
   venta: Venta
   lineas: LineaRegistrada[]
+  /** Vacío en la venta normal. La ruta lo usa para la fila de bitácora. */
+  preciosManuales: PrecioEscritoAMano[]
   /** La base que salió con la venta, si salió alguna. */
   basePrestada?: { idSticker: string }
   /**
@@ -184,6 +221,7 @@ export async function registrarVenta(
 
     let totalCentavos = 0
     let huboRecorte = false
+    const preciosManuales: PrecioEscritoAMano[] = []
 
     for (const item of datos.items) {
       const producto = await productoVendible(tx, item.productoId)
@@ -193,14 +231,53 @@ export async function registrarVenta(
        * venta de mostrador normal— se cobra la lista residencial: es la de
        * quien compra un botellón y se va.
        */
-      const precioLista =
+      const deLista =
         cliente?.tipo === 'comercial' ? producto.precioComercial : producto.precioResidencial
 
-      const precio = calcularPrecio(
-        precioLista,
-        producto.precioMinimo,
-        codigo ? { tipo: codigo.tipo, valor: codigo.valor } : undefined,
-      )
+      /*
+       * ── El precio escrito a mano gana, y es su propio piso — RN-VEN-15 ─────
+       *
+       * Con `lista === mínimo` y sin descuento, `calcularPrecio` devuelve el
+       * número tal cual se escribió. Los dos CHECK de la base se cumplen por
+       * construcción: `final >= mínimo` por igualdad, y `final = lista −
+       * descuento` porque el descuento es cero.
+       *
+       * ── Por qué el código de descuento NO se aplica acá ───────────────────
+       *
+       * El manual es el precio que YA se cobró, no una lista sobre la cual
+       * negociar. Un descuento encima lo movería a un número que nunca ocurrió.
+       *
+       * Y si se aplicara igual, el piso —que ahora vale lo mismo que la lista—
+       * lo recortaría a cero y levantaría un `aplicadoParcialmente: true`: un
+       * aviso de «el descuento no entró del todo» sobre una venta donde nadie
+       * pidió descuento. Un aviso que miente es peor que ninguno.
+       *
+       * El código sigue aplicando a las demás líneas de la misma venta.
+       */
+      const precioLista = item.precioManual ?? deLista
+      const precioMinimo = item.precioManual ?? producto.precioMinimo
+      const descuento = item.precioManual
+        ? undefined
+        : codigo
+          ? { tipo: codigo.tipo, valor: codigo.valor }
+          : undefined
+
+      const precio = calcularPrecio(precioLista, precioMinimo, descuento)
+
+      /*
+       * Se arma acá, con el ítem entero a la vista, y no en el loop de abajo —
+       * que corre por lote y multiplicaría un acto en varias filas.
+       */
+      if (item.precioManual !== undefined) {
+        preciosManuales.push({
+          productoId: producto.id,
+          cantidad: item.cantidad,
+          precioDeLista: aMonto(aCentavos(deLista)),
+          precioCobrado: precio.precioFinal,
+          subtotal: totalDeLinea(precio.precioFinal, item.cantidad),
+        })
+      }
+
       if (precio.aplicadoParcialmente) huboRecorte = true
 
       // Planifica y BLOQUEA los lotes por orden de vencimiento. El bloqueo dura
@@ -333,7 +410,7 @@ export async function registrarVenta(
 
     const lineas: LineaRegistrada[] = []
 
-    for (const { producto, precio, asignaciones } of planificadas) {
+    for (const { item, producto, precio, asignaciones } of planificadas) {
       /*
        * ── Una línea POR LOTE, no por producto ────────────────────────────────
        *
@@ -379,6 +456,12 @@ export async function registrarVenta(
           descuentoMonto: precio.descuentoMonto,
           precioMinimoAplicado: precio.precioMinimo,
           precioFinal: precio.precioFinal,
+          /*
+           * Va en CADA línea del ítem, no en la primera. FIFO parte un pedido de
+           * 120 en dos lotes y escribe dos filas: si la bandera fuera solo de la
+           * primera, la segunda pasaría por una venta a precio de catálogo.
+           */
+          precioManual: item.precioManual !== undefined,
         })
 
         lineas.push({
@@ -421,6 +504,7 @@ export async function registrarVenta(
     return {
       venta: confirmada!,
       lineas,
+      preciosManuales,
       descuentoAplicadoParcialmente: huboRecorte,
       ...(basePrestada && { basePrestada }),
     }
