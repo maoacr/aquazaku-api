@@ -32,9 +32,9 @@ docs {
 script:pre-request {
   // Un rango que cubre con holgura lo que la colección acaba de generar hoy.
   const hoy = new Date();
-  // El día de la PLANTA, no el de UTC: después de las 19:00 de Colombia
-  // `toISOString()` devuelve el día siguiente y la cuenta se corre un día.
-  const iso = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(d);
+  // El día de la PLANTA. Colombia es UTC−5 fijo; `Intl` no existe en el
+  // sandbox de Bruno, así que se resta el offset a mano.
+  const iso = (d) => new Date(d.getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
   const antes = new Date(hoy);
   antes.setDate(antes.getDate() - 40);
   bru.setVar("extractoDesde", iso(antes));

@@ -41,11 +41,11 @@ docs {
 }
 
 script:pre-request {
-  // El día de la PLANTA, no el de UTC. `toISOString()` es UTC siempre, y
-  // después de las 19:00 de Colombia devuelve el día siguiente: el servidor
-  // filtra vigencias con `hoyEnLaPlanta()` y la fecha creada acá le quedaba
-  // un día adelante. Antes pasaba porque los dos erraban igual (RN-VEN-14).
-  bru.setVar("hoyVentas", new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date()));
+  // El día de la PLANTA. Colombia es UTC−5 FIJO (sin horario de verano), así
+  // que restar el offset es exacto — y el sandbox de Bruno no expone `Intl`,
+  // que es lo que usa el código de producción. Sin esto la fecha queda un día
+  // adelante pasadas las 19:00 y el servidor la rechaza (RN-VEN-14).
+  bru.setVar("hoyVentas", new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10));
   bru.setVar("codigoDiez", `BRUNO10-${Date.now()}`);
 }
 
