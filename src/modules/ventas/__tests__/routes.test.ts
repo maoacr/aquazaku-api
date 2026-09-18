@@ -539,3 +539,98 @@ describe('la devolución', () => {
     expect(conDevolucion.devoluciones).toHaveLength(1)
   })
 })
+
+/**
+ * El precio escrito a mano deja rastro propio — RN-VEN-15.
+ *
+ * ── Por qué se prueba acá y no en el servicio ───────────────────────────────
+ *
+ * Por lo mismo que la venta retroactiva: la bitácora la escribe la RUTA, y un
+ * test del servicio pasaría con la auditoría borrada.
+ *
+ * ── Y por qué esta fila carga más peso que la otra ──────────────────────────
+ *
+ * Porque acá el permiso NO discrimina: cualquiera con `ventas:crear` —admin,
+ * pos y seller— puede escribir un precio. Fue una decisión tomada a sabiendas,
+ * y lo que la hace sostenible es que la fila guarde el precio de lista AL LADO
+ * del cobrado. Sin el de lista no hay delta, y sin delta la bitácora dice «se
+ * vendió a 3.800», que es justo lo que ya dice la venta.
+ */
+describe('POST /ventas con precio escrito a mano', () => {
+  const filasDePrecioManual = () =>
+    db.select().from(auditLog).where(eq(auditLog.action, 'ventas:precio_manual'))
+
+  it('deja una fila con el precio de lista y el cobrado', async () => {
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ items: [{ productoId, cantidad: 2, precioManual: '3800' }] }),
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const [fila] = await filasDePrecioManual()
+    const items = (fila!.payload as { items: Record<string, unknown>[] }).items
+
+    expect(items).toEqual([
+      {
+        productoId,
+        cantidad: 2,
+        precioDeLista: '10000.00',
+        precioCobrado: '3800.00',
+        subtotal: '7600.00',
+      },
+    ])
+  })
+
+  it('una venta a precio de lista no deja esa fila', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+
+    expect(await filasDePrecioManual()).toHaveLength(0)
+  })
+
+  /**
+   * FIFO parte un ítem en una línea POR LOTE. La bitácora registra el ACTO
+   * HUMANO, y el acto fue uno: alguien tildó un checkbox y escribió un número.
+   *
+   * Auditar por línea convertiría esa única decisión en dos filas con cantidades
+   * que nadie escribió, y quien lea esto en tres meses concluiría que hubo dos
+   * precios manuales. Una bitácora que multiplica los hechos es peor que ninguna.
+   */
+  it('escribe UNA entrada por ítem aunque FIFO parta la venta en dos lotes', async () => {
+    await crearLoteConEntrada(
+      { productoId, fechaEmpaque: HOY, cantidad: 100, tipo: 'produccion', registradoPor: null },
+      db,
+    )
+
+    await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ items: [{ productoId, cantidad: 120, precioManual: '3800' }] }),
+    })
+
+    const [fila] = await filasDePrecioManual()
+    const items = (fila!.payload as { items: { cantidad: number }[] }).items
+
+    expect(items).toHaveLength(1)
+    expect(items[0]?.cantidad).toBe(120)
+  })
+
+  /**
+   * El permiso es `ventas:crear`, que el seller tiene. Esto no es un descuido:
+   * está acá para que el día que alguien quiera restringirlo, este test se ponga
+   * rojo y la decisión se tome a propósito en vez de por deriva.
+   */
+  it('un seller también puede, y queda con su nombre en la fila', async () => {
+    const res = await como('seller', {
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ items: [{ productoId, cantidad: 1, precioManual: '3500' }] }),
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const [fila] = await filasDePrecioManual()
+    expect(fila?.userId).not.toBeNull()
+  })
+})

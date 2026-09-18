@@ -32,6 +32,25 @@ export const esquemaDeVenta = z.object({
       z.object({
         productoId: z.string().uuid(),
         cantidad: z.number().int().positive('una línea vende al menos una unidad'),
+
+        /**
+         * El precio que de verdad se cobró, escrito a mano — RN-VEN-15.
+         *
+         * Ausente es el caso normal: se cobra la lista del catálogo. Presente
+         * significa que quien registra afirma haber cobrado OTRO número, y ese
+         * número gana sobre la lista y sobre el piso de su línea.
+         *
+         * Usa el mismo `dinero` que el resto del sistema, y eso ya cierra la
+         * puerta al negativo: `^\d+(\.\d{1,2})?$` no tiene signo. Que el
+         * mostrador solo deje escribir pesos enteros es cosa de la pantalla —
+         * ahí el riesgo es que alguien teclee «3.5» leyendo el «$10.000» de la
+         * card y registre $3,50 sin enterarse.
+         *
+         * Un `'0'` se acepta. No es un descuido: bloquearlo sería teatro, porque
+         * quien quisiera abusar escribe `'1'` y consigue lo mismo. Lo que acota
+         * el riesgo es la fila de bitácora con el precio de lista al lado.
+         */
+        precioManual: dinero.optional(),
       }),
     )
     .min(1, 'una venta sin productos no es una venta'),

@@ -1342,6 +1342,16 @@ export const lineasDeVenta = pgTable(
       .default('0.00'),
     precioMinimoAplicado: numeric('precio_minimo_aplicado', { precision: 12, scale: 2 }).notNull(),
     precioFinal: numeric('precio_final', { precision: 12, scale: 2 }).notNull(),
+
+    /**
+     * Alguien escribió este precio a mano — RN-VEN-15.
+     *
+     * Una línea manual queda con `lista = mínimo = final`, que es indistinguible
+     * de un producto cuyo piso iguala su lista — el estado del seed hoy. Sin
+     * esta bandera, los cuatro números congelados pueden significar dos cosas
+     * distintas, y RN-VEN-04 pide que la línea se explique sola.
+     */
+    precioManual: boolean('precio_manual').notNull().default(false),
   },
   (t) => [
     /*
