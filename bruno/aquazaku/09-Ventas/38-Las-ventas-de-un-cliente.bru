@@ -1,0 +1,54 @@
+meta {
+  name: Las ventas de un cliente
+  type: http
+  seq: 38
+}
+
+get {
+  url: {{baseUrl}}/ventas?clienteId={{clienteCreditoId}}
+}
+
+docs {
+  Lo mismo que la 37 hace con `/cobros`: `?clienteId` recorta la lista a una
+  sola persona. Lo pide la ficha del cliente, que abajo muestra sus últimas
+  ventas.
+
+  El recorte tiene que pasar ACÁ y no del otro lado. La lista viaja con las cien
+  últimas del negocio, ordenadas por fecha: filtrar después de ese corte dejaría
+  sin una sola compra a la vista a un cliente que compró la semana pasada, y no
+  fallaría — mostraría una ficha vacía y convincente.
+
+  Las de mostrador no aparecen, y no es que se escondan: una venta sin cliente
+  no es de nadie (`clienteId` es nulo por diseño, es el caso normal del que
+  compra y se va).
+
+  Lo que este request NO puede ver desde acá —porque corre como admin, que ve
+  todo— es que el filtro se COMBINA con el alcance del rol en vez de
+  reemplazarlo. Eso lo fija `routes.test.ts`: un `pos` que filtra por cliente
+  sigue viendo lo propio. Si se reemplazara, este parámetro sería una puerta de
+  atrás a la matriz, y se abriría desde la barra de direcciones.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("todas son de ese cliente", function() {
+    const ajenas = res.getBody().filter((v) => v.clienteId !== bru.getVar("clienteCreditoId"));
+    expect(ajenas).to.have.lengthOf(0);
+  });
+
+  test("y las de mostrador no se colaron", function() {
+    const sinCliente = res.getBody().filter((v) => v.clienteId === null);
+    expect(sinCliente, "una venta sin cliente no es de nadie").to.have.lengthOf(0);
+  });
+
+  test("trae la venta a crédito de la 13, con sus líneas", function() {
+    const aCredito = res.getBody().filter((v) => v.medioDePago === "credito");
+    expect(aCredito.length, "la venta a crédito de este cliente no llegó").to.be.at.least(1);
+    expect(aCredito[0].clienteNombre, "el nombre viaja resuelto, no el UUID").to.be.a("string");
+    expect(aCredito[0].lineas[0].productoNombre).to.equal(bru.getVar("ventasProductoNombre"));
+    expect(aCredito[0].lineas[0].cantidad).to.equal(3);
+  });
+}
