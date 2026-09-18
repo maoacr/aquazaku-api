@@ -1,5 +1,6 @@
 import { and, eq, gte, lte, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
+import { hoyEnLaPlanta } from '@/lib/dia'
 import {
   type Cliente,
   type CodigoDeDescuento,
@@ -100,6 +101,19 @@ export interface DatosDeVenta {
 
   /** `YYYY-MM-DD`. Se recibe para poder testear el borde del vencimiento. */
   hoy: string
+
+  /**
+   * Cuándo ocurrió la venta de verdad — RN-VEN-13. Ausente es hoy.
+   *
+   * ── Manda también sobre los vencimientos ──────────────────────────────────
+   *
+   * No es solo una etiqueta en `createdAt`: reemplaza a `hoy` para evaluar
+   * vigencias. Una venta del 31 de agosto tiene que poder salir de un lote que
+   * venció el 2 de septiembre —ese día el producto estaba bueno— y cobrarse con
+   * un código que vencía el 31. Evaluar contra el reloj de quien la carga
+   * convertiría la carga tardía en un rechazo que nadie puede explicar.
+   */
+  ocurrioEn?: string
 }
 
 export interface LineaRegistrada {
@@ -132,10 +146,19 @@ export async function registrarVenta(
     throw new ErrorDeNegocio('VENTA_VACIA', 422, 'una venta sin productos no es una venta')
   }
 
+  const ocurrioEn = exigirFechaRegistrable(datos.ocurrioEn)
+
+  /*
+   * La fecha del hecho reemplaza a `hoy` para TODO lo que se evalúa por fecha:
+   * vigencia del código y vencimiento de los lotes. Ver `ocurrioEn` en
+   * `DatosDeVenta`.
+   */
+  const fechaDeEvaluacion = datos.ocurrioEn ?? datos.hoy
+
   return db.transaction(async (tx) => {
     const cliente = datos.clienteId ? await clienteActivo(tx, datos.clienteId) : null
     const codigo = datos.codigoDescuento
-      ? await codigoVigente(tx, datos.codigoDescuento, datos.hoy)
+      ? await codigoVigente(tx, datos.codigoDescuento, fechaDeEvaluacion)
       : null
 
     /*
@@ -182,7 +205,7 @@ export async function registrarVenta(
 
       // Planifica y BLOQUEA los lotes por orden de vencimiento. El bloqueo dura
       // toda la transacción, así que entre planificar y descontar nadie los vacía.
-      const plan = await asignarFifo(item.productoId, item.cantidad, datos.hoy, tx)
+      const plan = await asignarFifo(item.productoId, item.cantidad, fechaDeEvaluacion, tx)
 
       if (!plan.ok) {
         /*
@@ -274,6 +297,12 @@ export async function registrarVenta(
         codigoDescuentoId: codigo?.id ?? null,
         requiereFacturaElectronica: datos.requiereFacturaElectronica ?? false,
         registradoPor,
+        /*
+         * Sin fecha, `createdAt` lo pone la base con `defaultNow()` y la venta
+         * lleva la hora real: es el caso del mostrador, y ahí la hora sirve.
+         * Con fecha, el instante se ancla al mediodía de la planta.
+         */
+        ...(ocurrioEn && { createdAt: ocurrioEn }),
       })
       .returning()
 
@@ -470,4 +499,59 @@ async function codigoVigente(tx: Tx, codigo: string, hoy: string): Promise<Codig
   }
 
   return encontrado
+}
+
+/** Cuántos días hacia atrás se puede fechar una venta — RN-VEN-13. */
+export const DIAS_MAXIMOS_HACIA_ATRAS = 90
+
+/**
+ * Convierte el día del hecho en el instante que se guarda, o falla diciendo por qué.
+ *
+ * ── Por qué el MEDIODÍA ─────────────────────────────────────────────────────
+ *
+ * Un día sin hora tiene que volverse un instante. La medianoche lo deja a un
+ * minuto del borde: cualquier lectura en otra zona lo corre al día anterior, que
+ * es exactamente la clase de error que `dia.ts` existe para evitar. Al mediodía
+ * sobran doce horas para cada lado.
+ *
+ * Y no se pide la hora: nadie recuerda si vendió a las 14:20 o a las 15:40 de
+ * hace tres días. Un campo más que se llena con un dato inventado es peor que
+ * no tenerlo.
+ *
+ * ── Las dos guardas ─────────────────────────────────────────────────────────
+ *
+ * El futuro no se acepta porque una venta que todavía no pasó no es una venta,
+ * y con el stock descontado sería producto que sale de la bodega por algo que
+ * no ocurrió.
+ *
+ * El tope hacia atrás ataja el dedazo —un año mal tecleado manda la venta a un
+ * ejercicio cerrado— y es una constante y no un parámetro a propósito: una
+ * perilla que nadie va a mover es una perilla que puede quedar mal puesta.
+ */
+function exigirFechaRegistrable(ocurrioEn: string | undefined): Date | null {
+  if (!ocurrioEn) return null
+
+  const hoy = hoyEnLaPlanta()
+
+  if (ocurrioEn > hoy) {
+    throw new ErrorDeNegocio(
+      'VENTA_EN_EL_FUTURO',
+      422,
+      `esa venta todavía no ocurrió: ${ocurrioEn} es posterior a hoy (${hoy})`,
+    )
+  }
+
+  const diasAtras = Math.round(
+    (Date.parse(`${hoy}T12:00:00-05:00`) - Date.parse(`${ocurrioEn}T12:00:00-05:00`)) / 86_400_000,
+  )
+
+  if (diasAtras > DIAS_MAXIMOS_HACIA_ATRAS) {
+    throw new ErrorDeNegocio(
+      'VENTA_DEMASIADO_VIEJA',
+      422,
+      `no se pueden registrar ventas de más de ${DIAS_MAXIMOS_HACIA_ATRAS} días atrás: ${ocurrioEn} quedó a ${diasAtras} días. Si la fecha es correcta, hace falta un ajuste contable, no una venta`,
+    )
+  }
+
+  return new Date(`${ocurrioEn}T12:00:00-05:00`)
 }

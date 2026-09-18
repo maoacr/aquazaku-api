@@ -39,6 +39,23 @@ export const esquemaDeVenta = z.object({
   codigoDescuento: z.string().trim().min(1).optional(),
   requiereFacturaElectronica: z.boolean().optional(),
 
+  /**
+   * Cuándo ocurrió la venta de verdad — RN-VEN-13.
+   *
+   * Opcional: ausente es hoy, que es el caso normal del mostrador. Se acepta
+   * para las ventas que se cargan tarde, que hasta ahora entraban con la fecha
+   * del día en que alguien se acordó — y ahí el reporte de agosto quedaba corto
+   * y el de septiembre inflado.
+   *
+   * Va en `AAAA-MM-DD` como el resto de las fechas del sistema
+   * (`vigenciaDesde`, `vigenciaHasta`): ordena bien y no es ambiguo. Lo que ve
+   * quien la escribe es `DD-MM-AAAA`, que es cosa de la pantalla.
+   *
+   * Que no sea futura y que no pase de 90 días lo decide el servicio: son
+   * reglas de negocio con su propio mensaje, no forma.
+   */
+  ocurrioEn: fecha.optional(),
+
   /*
    * Cuántos botellones salen SIN vacío de contrapartida — RN-ENV-03.
    *
