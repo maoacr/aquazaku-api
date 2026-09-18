@@ -40,7 +40,7 @@ export const esquemaDeVenta = z.object({
   requiereFacturaElectronica: z.boolean().optional(),
 
   /**
-   * Cuándo ocurrió la venta de verdad — RN-VEN-13.
+   * Cuándo ocurrió la venta de verdad — RN-VEN-14.
    *
    * Opcional: ausente es hoy, que es el caso normal del mostrador. Se acepta
    * para las ventas que se cargan tarde, que hasta ahora entraban con la fecha

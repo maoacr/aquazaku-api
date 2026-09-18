@@ -171,6 +171,38 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
           req.user?.id ?? null,
         )
 
+        /*
+         * ── Fechar una venta hacia atrás deja rastro propio — RN-VEN-14 ─────
+         *
+         * La venta ya se audita como cualquier otra por `auditaLaRuta`. Esta
+         * fila es aparte y solo existe cuando la fecha NO es hoy, porque lo que
+         * registra es otra cosa: alguien movió plata de un mes a otro.
+         *
+         * El reporte de agosto cambia después de haberse emitido —RN-VEN-14 lo
+         * acepta a propósito—, y lo único que acota ese costo es poder
+         * reconstruir quién lo hizo y cuándo. Sin esta fila, un total que no
+         * cuadra contra una copia impresa no tiene explicación.
+         *
+         * Va con `auditarSinBloquear`: la venta ya está escrita y confirmada. Si
+         * la bitácora falla, tumbar la respuesta dejaría al operador creyendo
+         * que no vendió, y cobrando de nuevo.
+         */
+        if (datos.ocurrioEn) {
+          await auditarSinBloquear(req, {
+            userId: req.user?.id ?? null,
+            rolEjercido: req.user?.roles ?? [],
+            action: 'ventas:crear_retroactiva',
+            resource: 'ventas',
+            result: 'ok',
+            payload: {
+              resourceId: resultado.venta.id,
+              ocurrioEn: datos.ocurrioEn,
+              registradaEl: hoyEnLaPlanta(),
+              total: resultado.venta.total,
+            },
+          })
+        }
+
         return reply.code(201).send(resultado)
       } catch (err) {
         return manejarError(err, req, reply, 'ventas', 'ventas:crear')

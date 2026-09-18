@@ -103,7 +103,7 @@ export interface DatosDeVenta {
   hoy: string
 
   /**
-   * Cuándo ocurrió la venta de verdad — RN-VEN-13. Ausente es hoy.
+   * Cuándo ocurrió la venta de verdad — RN-VEN-14. Ausente es hoy.
    *
    * ── Manda también sobre los vencimientos ──────────────────────────────────
    *
@@ -501,7 +501,7 @@ async function codigoVigente(tx: Tx, codigo: string, hoy: string): Promise<Codig
   return encontrado
 }
 
-/** Cuántos días hacia atrás se puede fechar una venta — RN-VEN-13. */
+/** Cuántos días hacia atrás se puede fechar una venta — RN-VEN-14. */
 export const DIAS_MAXIMOS_HACIA_ATRAS = 90
 
 /**
