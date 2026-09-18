@@ -3,7 +3,7 @@ import type { FastifyInstance, InjectOptions } from 'fastify'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildApp } from '@/app'
 import { closeDb, db } from '@/db/client'
-import { auditLog, clientes, productos } from '@/db/schema'
+import { auditLog, clientes, productos, ventas } from '@/db/schema'
 import type { Role } from '@/modules/authz/matrix'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
@@ -196,6 +196,150 @@ describe('el alcance de ver y anular', () => {
     })
 
     expect(res.statusCode).toBe(400)
+  })
+})
+
+/**
+ * ── Cada fila de la lista tiene que explicarse sola ─────────────────────────
+ *
+ * La pantalla de ventas promete «qué salió, a quién y cómo se pagó». De las
+ * tres, la fila cruda contesta una: `clienteId` y `registradoPor` son UUIDs, y
+ * las líneas viven en otra tabla.
+ *
+ * Resolverlo desde `web/` costaría una consulta por fila —o traerse la tabla de
+ * clientes entera, que es justo lo que el mostrador dejó de hacer—. Así que los
+ * nombres viajan resueltos, igual que en el libro de movimientos de stock.
+ */
+describe('GET /ventas — cada fila se explica sola', () => {
+  it('trae el nombre del cliente y el de quien la registró', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId }) })
+
+    const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
+
+    expect(fila.clienteNombre).toBe('Yeimy')
+    expect(fila.registradoPorNombre).toBe('Usuario de prueba')
+  })
+
+  /*
+   * El caso NORMAL del mostrador: alguien compra un botellón y se va. `null` no
+   * es un dato que faltó cargar — es la venta sin cliente que la tabla permite
+   * a propósito (ver el comentario de `ventas.clienteId`).
+   */
+  it('una venta sin cliente llega con `clienteNombre` en null', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+
+    const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
+
+    expect(fila.clienteId).toBeNull()
+    expect(fila.clienteNombre).toBeNull()
+  })
+
+  it('trae qué se vendió: el nombre del producto y cuántos', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+
+    const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
+
+    expect(fila.lineas).toEqual([{ productoNombre: 'Recarga de botellón de 20 L', cantidad: 2 }])
+  })
+
+  /*
+   * ── Una línea es un par producto+LOTE, y eso no se muestra ────────────────
+   *
+   * Pedir 150 cuando el primer lote tiene 100 parte la venta en dos líneas del
+   * MISMO producto (FEFO). El lote importa para el stock y para anular; en la
+   * lista sería «100 × Recarga» y «50 × Recarga», dos renglones para una sola
+   * cosa que se pidió una vez.
+   */
+  it('dos lotes del mismo producto son UNA línea en la lista', async () => {
+    await crearLoteConEntrada(
+      { productoId, fechaEmpaque: HOY, cantidad: 100, tipo: 'produccion', registradoPor: null },
+      db,
+    )
+
+    await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ items: [{ productoId, cantidad: 150 }] }),
+    })
+
+    const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
+
+    expect(fila.lineas).toEqual([{ productoNombre: 'Recarga de botellón de 20 L', cantidad: 150 }])
+  })
+
+  /*
+   * Un recargo por daño es una venta con `tipo = 'dano_base'` y SIN líneas —hay
+   * un trigger que lo impide, migración 0009—. Sin el `tipo` en la respuesta, la
+   * pantalla lo dibujaría como una venta a la que se le perdieron los productos.
+   */
+  it('un recargo por daño llega con su tipo y sin líneas', async () => {
+    await db
+      .insert(ventas)
+      .values({ clienteId, medioDePago: 'efectivo', tipo: 'dano_base', total: '35000.00' })
+
+    const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
+
+    expect(fila.tipo).toBe('dano_base')
+    expect(fila.lineas).toEqual([])
+  })
+})
+
+/**
+ * ── Las ventas de UN cliente — `?clienteId` ────────────────────────────────
+ *
+ * La ficha de un cliente muestra sus últimas ventas, y la única forma de
+ * armarla sin este filtro sería traerse las cien últimas del negocio y
+ * descartar en `web/` las que no son suyas: un cliente que compró la semana
+ * pasada quedaría sin una sola venta a la vista porque el corte de cien se lo
+ * comió.
+ *
+ * El filtro es el MISMO parámetro que ya usa `GET /cobros?clienteId`. No es un
+ * endpoint nuevo: es la misma lista, recortada.
+ */
+describe('GET /ventas?clienteId — las ventas de un cliente', () => {
+  const otroCliente = async () => {
+    const [otro] = await db
+      .insert(clientes)
+      .values({ nombreLibre: 'Wilmer', tipoDocumento: 'CC', numeroDocumento: '1098765432' })
+      .returning()
+
+    return otro!.id
+  }
+
+  it('trae solo las de ese cliente', async () => {
+    const otroId = await otroCliente()
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId }) })
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId: otroId }) })
+    // La de mostrador: sin cliente, y no es de nadie.
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+
+    const filas = (await comoAdmin({ method: 'GET', url: `/ventas?clienteId=${clienteId}` })).json()
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0].clienteNombre).toBe('Yeimy')
+    expect(filas[0].lineas).toEqual([{ productoNombre: 'Recarga de botellón de 20 L', cantidad: 2 }])
+  })
+
+  /*
+   * El filtro RECORTA, no reemplaza: un `pos` filtrando por cliente sigue
+   * viendo lo propio. Si las dos condiciones no se combinaran, este parámetro
+   * sería una puerta de atrás a la matriz (RN-ACC-03) — y se abriría desde la
+   * barra de direcciones.
+   */
+  it('el alcance del rol sigue mandando', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId }) })
+
+    const res = await como('pos', { method: 'GET', url: `/ventas?clienteId=${clienteId}` })
+
+    expect(res.json()).toHaveLength(0)
+  })
+
+  it('sin el parámetro siguen llegando todas', async () => {
+    const otroId = await otroCliente()
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId }) })
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId: otroId }) })
+
+    expect((await comoAdmin({ method: 'GET', url: '/ventas' })).json()).toHaveLength(2)
   })
 })
 

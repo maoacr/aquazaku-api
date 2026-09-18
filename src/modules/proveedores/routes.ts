@@ -6,6 +6,7 @@ import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { comprasVencidas, marcarPagada, registrarCompra } from './compras'
 import { cambiarEstado, crearProveedor, listarProveedores } from './service'
 import { esquemaDeCompra, esquemaDeEstado, esquemaDeProveedor } from './validation'
+import { hoyEnLaPlanta } from '@/lib/dia'
 
 /**
  * Proveedores y compras — M9.
@@ -96,7 +97,7 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/compras/vencidas',
     { preHandler: [requireAuth, requirePermission('compras', 'crear')] },
-    async () => comprasVencidas(hoyISO()),
+    async () => comprasVencidas(hoyEnLaPlanta()),
   )
 
   app.post(
@@ -112,17 +113,6 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
       }
     },
   )
-}
-
-/**
- * Hoy en `YYYY-MM-DD`.
- *
- * El servicio lo recibe por parámetro para poder testear el borde del
- * vencimiento sin esperar a mañana. La ruta es el único lugar donde corresponde
- * leer el reloj.
- */
-function hoyISO(): string {
-  return new Date().toISOString().slice(0, 10)
 }
 
 async function manejarError(

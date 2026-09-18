@@ -33,6 +33,7 @@ import {
   esquemaDeReversion,
 } from './validation'
 import { revertirVerificacion, verificarDocumento } from './verificacion'
+import { hoyEnLaPlanta } from '@/lib/dia'
 
 /**
  * Clientes — M5.
@@ -119,7 +120,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/clientes/a-llamar',
     { preHandler: [requireAuth, requirePermission('clientes', 'ver')] },
-    async () => clientesALlamar(new Date().toISOString().slice(0, 10)),
+    async () => clientesALlamar(hoyEnLaPlanta()),
   )
 
   app.get(

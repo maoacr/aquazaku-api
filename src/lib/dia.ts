@@ -47,3 +47,34 @@ export const ZONA_DE_LA_PLANTA = 'America/Bogota'
 export function diaEnLaPlanta(columna: unknown): SQL {
   return sql`((${columna}) AT TIME ZONE 'America/Bogota')::date`
 }
+
+/**
+ * Qué día es HOY, visto desde la planta — el gemelo en JS de `diaEnLaPlanta`.
+ *
+ * ── El bug que esto evita ───────────────────────────────────────────────────
+ *
+ * Cinco rutas leían el reloj con `new Date().toISOString().slice(0, 10)`.
+ * `toISOString()` es UTC **siempre**, sin importar en qué zona corra el proceso:
+ *
+ * | A las 19:30 del 31-ago en la planta | Devolvía |
+ * | --- | --- |
+ * | `new Date().toISOString().slice(0, 10)` | **2026-09-01** ✗ |
+ * | El día que es en Campo de la Cruz       | 2026-08-31 ✓ |
+ *
+ * Y ese string no se muestra: se COMPARA. Decide si un código de descuento
+ * sigue vigente, si un lote ya venció, y cuántos días lleva un cliente sin
+ * comprar. Un código que vencía el 31 se rechazaba desde las 19:00 del 31, con
+ * el cliente en el mostrador y el cupón en la mano.
+ *
+ * Es el mismo error que `diaEnLaPlanta` corrigió del lado de SQL, en el lado
+ * que faltaba: el reloj.
+ *
+ * ── Por qué `en-CA` ─────────────────────────────────────────────────────────
+ *
+ * Es el locale que formatea en `AAAA-MM-DD`, que es como se compara contra un
+ * `date` de Postgres. Armarlo a mano con `getFullYear` y amigos daría la fecha
+ * del PROCESO, que es justo lo que este helper existe para no usar.
+ */
+export function hoyEnLaPlanta(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: ZONA_DE_LA_PLANTA }).format(new Date())
+}

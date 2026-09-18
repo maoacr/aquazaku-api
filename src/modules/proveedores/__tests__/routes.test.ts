@@ -193,7 +193,18 @@ describe('las compras', () => {
   })
 
   it('las vencidas se consultan con los días de atraso', async () => {
-    const ayer = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    /*
+     * La fecha se arma en la zona de la PLANTA, no con `toISOString()`.
+     *
+     * Esa forma es UTC, y después de las 19:00 de Colombia devuelve el día
+     * siguiente. El test pasaba porque el servidor tenía el mismo error: los dos
+     * erraban igual y la resta cerraba. Con el servidor contando los días desde
+     * el día de la planta, un vencimiento armado en UTC da un día de atraso de
+     * más — que es este test quedándose con el bug adentro.
+     */
+    const ayer = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(
+      new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+    )
 
     await comoAdmin({
       method: 'POST',

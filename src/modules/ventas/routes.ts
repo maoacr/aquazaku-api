@@ -1,7 +1,7 @@
-import { desc, eq } from 'drizzle-orm'
+import { and, desc, eq, inArray, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { db } from '@/db/client'
-import { lineasDeVenta, ventas } from '@/db/schema'
+import { clientes, lineasDeVenta, productos, users, ventas } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
@@ -21,6 +21,7 @@ import {
   esquemaDeVenta,
 } from './validation'
 import { registrarVenta } from './venta'
+import { hoyEnLaPlanta } from '@/lib/dia'
 
 /**
  * Ventas, cobros, devoluciones y descuentos — M6.
@@ -55,9 +56,68 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
         createdBy: ventas.registradoPor,
       })
 
-      const consulta = db.select().from(ventas).orderBy(desc(ventas.createdAt)).limit(100)
+      /*
+       * ── `?clienteId`: la misma lista, recortada a un cliente ─────────────
+       *
+       * Lo pide la ficha del cliente, que muestra sus últimas ventas. Filtrar
+       * del otro lado no serviría: lo que viaja son las cien últimas del
+       * negocio, y un cliente que compró la semana pasada quedaría sin una sola
+       * venta a la vista porque ese corte se lo comió. El recorte tiene que
+       * pasar donde está el `ORDER BY`.
+       *
+       * Es el mismo parámetro que ya usa `GET /cobros?clienteId`, y se COMBINA
+       * con el alcance en vez de reemplazarlo: un `pos` que filtra por cliente
+       * sigue viendo lo propio. Si se reemplazara, este parámetro sería una
+       * puerta de atrás a la matriz (RN-ACC-03) —y se abriría desde la barra de
+       * direcciones—.
+       */
+      const { clienteId } = req.query as { clienteId?: string }
+      const condicion = clienteId ? and(alcance, eq(ventas.clienteId, clienteId)) : alcance
 
-      return alcance ? consulta.where(alcance) : consulta
+      /*
+       * Los nombres viajan RESUELTOS, no los ids.
+       *
+       * `clienteId` y `registradoPor` son UUIDs: una lista de cien ventas con
+       * cien UUIDs no se lee, y resolverlos del otro lado costaría cien
+       * consultas —o traerse la tabla de clientes entera, que es justo lo que
+       * el mostrador dejó de hacer—.
+       *
+       * Los dos son `leftJoin` porque las dos columnas son nulas por diseño: la
+       * venta de mostrador no tiene cliente, y borrar una cuenta deja la venta
+       * en pie con su autor en `null`.
+       */
+      const consulta = db
+        .select({
+          id: ventas.id,
+          clienteId: ventas.clienteId,
+          clienteNombre: clientes.nombre,
+          tipoClienteAlMomento: ventas.tipoClienteAlMomento,
+          medioDePago: ventas.medioDePago,
+          canal: ventas.canal,
+          tipo: ventas.tipo,
+          estado: ventas.estado,
+          total: ventas.total,
+          codigoDescuentoId: ventas.codigoDescuentoId,
+          requiereFacturaElectronica: ventas.requiereFacturaElectronica,
+          registradoPor: ventas.registradoPor,
+          registradoPorNombre: users.name,
+          createdAt: ventas.createdAt,
+          anuladaPor: ventas.anuladaPor,
+          anuladaEn: ventas.anuladaEn,
+          motivoAnulacion: ventas.motivoAnulacion,
+        })
+        .from(ventas)
+        .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
+        .leftJoin(users, eq(users.id, ventas.registradoPor))
+        .orderBy(desc(ventas.createdAt))
+        .limit(100)
+
+      const filas = await (condicion ? consulta.where(condicion) : consulta)
+      if (filas.length === 0) return filas
+
+      const porVenta = await lineasResumidasDe(filas.map((venta) => venta.id))
+
+      return filas.map((venta) => ({ ...venta, lineas: porVenta.get(venta.id) ?? [] }))
     },
   )
 
@@ -107,7 +167,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         const resultado = await registrarVenta(
-          { ...datos, hoy: hoyISO() },
+          { ...datos, hoy: hoyEnLaPlanta() },
           req.user?.id ?? null,
         )
 
@@ -225,7 +285,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     async (req) => {
       const soloVigentes = (req.query as { vigentes?: string }).vigentes === 'si'
 
-      return listarCodigos(soloVigentes, hoyISO())
+      return listarCodigos(soloVigentes, hoyEnLaPlanta())
     },
   )
 
@@ -274,14 +334,60 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 }
 
 /**
- * Hoy en `YYYY-MM-DD`.
+ * Qué salió en cada venta, para una lista — no para un comprobante.
  *
- * Los servicios lo reciben por parámetro para poder testear el borde del
- * vencimiento sin esperar a mañana. La ruta es el único lugar donde
- * corresponde leer el reloj.
+ * ── Una consulta, no una por fila ───────────────────────────────────────────
+ *
+ * Con cien ventas, pedir las líneas venta por venta son cien viajes a la base
+ * para pintar una pantalla. `inArray` las trae todas juntas y el agrupado se
+ * hace acá, en memoria, sobre datos que ya están.
+ *
+ * ── Agrupadas por producto, no por línea ────────────────────────────────────
+ *
+ * Una línea es un par producto+LOTE: pedir diez botellones cuando el primer
+ * lote tiene seis genera dos líneas del mismo producto (FEFO, RN-STK-06). El
+ * lote importa para el stock y para anular —cada uno vuelve al suyo— pero en la
+ * lista aparecería como «6 × Recarga» y «4 × Recarga», dos renglones para una
+ * sola cosa que se pidió una vez.
+ *
+ * Quien mira la pantalla pidió diez. El `GROUP BY` lo dice así.
+ *
+ * ── Por qué solo el nombre y la cantidad ────────────────────────────────────
+ *
+ * La línea completa tiene los cuatro precios congelados (RN-VEN-04). Esos son
+ * para el comprobante —`GET /ventas/:id`, que los devuelve enteros— y en una
+ * lista solo serían ruido: nadie audita un descuento de reojo mientras busca la
+ * venta de las tres de la tarde.
+ *
+ * Una venta con `tipo = 'dano_base'` no aparece en el mapa, y es correcto: un
+ * recargo por daño NO tiene líneas, hay un trigger que lo impide.
  */
-function hoyISO(): string {
-  return new Date().toISOString().slice(0, 10)
+async function lineasResumidasDe(
+  ventaIds: string[],
+): Promise<Map<string, { productoNombre: string; cantidad: number }[]>> {
+  const lineas = await db
+    .select({
+      ventaId: lineasDeVenta.ventaId,
+      productoNombre: productos.nombre,
+      cantidad: sql<number>`sum(${lineasDeVenta.cantidad})::int`,
+    })
+    .from(lineasDeVenta)
+    .innerJoin(productos, eq(productos.id, lineasDeVenta.productoId))
+    .where(inArray(lineasDeVenta.ventaId, ventaIds))
+    .groupBy(lineasDeVenta.ventaId, productos.nombre)
+    // Por nombre y no por `id`: los UUID son aleatorios, así que sin esto una
+    // venta de tres productos se reordena sola entre dos recargas.
+    .orderBy(productos.nombre)
+
+  const porVenta = new Map<string, { productoNombre: string; cantidad: number }[]>()
+
+  for (const { ventaId, ...linea } of lineas) {
+    const acumuladas = porVenta.get(ventaId)
+    if (acumuladas) acumuladas.push(linea)
+    else porVenta.set(ventaId, [linea])
+  }
+
+  return porVenta
 }
 
 /**
