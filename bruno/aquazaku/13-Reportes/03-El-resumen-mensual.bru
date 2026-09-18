@@ -23,7 +23,9 @@ docs {
 
 script:pre-request {
   const hoy = new Date();
-  const mes = (d) => d.toISOString().slice(0, 7);
+  // El día de la PLANTA, no el de UTC: después de las 19:00 de Colombia
+  // `toISOString()` devuelve el día siguiente y la cuenta se corre un día.
+  const mes = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(d).slice(0, 7);
   const antes = new Date(hoy);
   antes.setMonth(antes.getMonth() - 2);
   bru.setVar("mesDesde", mes(antes));
