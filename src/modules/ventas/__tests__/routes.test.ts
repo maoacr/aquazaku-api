@@ -316,7 +316,14 @@ describe('GET /ventas — cada fila se explica sola', () => {
 
     const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
 
-    expect(fila.lineas).toEqual([{ productoNombre: 'Recarga de botellón de 20 L', cantidad: 2 }])
+    expect(fila.lineas).toEqual([
+      {
+        productoNombre: 'Recarga de botellón de 20 L',
+        cantidad: 2,
+        precioFinal: '10000.00',
+        precioManual: false,
+      },
+    ])
   })
 
   /*
@@ -341,7 +348,14 @@ describe('GET /ventas — cada fila se explica sola', () => {
 
     const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
 
-    expect(fila.lineas).toEqual([{ productoNombre: 'Recarga de botellón de 20 L', cantidad: 150 }])
+    expect(fila.lineas).toEqual([
+      {
+        productoNombre: 'Recarga de botellón de 20 L',
+        cantidad: 150,
+        precioFinal: '10000.00',
+        precioManual: false,
+      },
+    ])
   })
 
   /*
@@ -394,7 +408,14 @@ describe('GET /ventas?clienteId — las ventas de un cliente', () => {
 
     expect(filas).toHaveLength(1)
     expect(filas[0].clienteNombre).toBe('Yeimy')
-    expect(filas[0].lineas).toEqual([{ productoNombre: 'Recarga de botellón de 20 L', cantidad: 2 }])
+    expect(filas[0].lineas).toEqual([
+      {
+        productoNombre: 'Recarga de botellón de 20 L',
+        cantidad: 2,
+        precioFinal: '10000.00',
+        precioManual: false,
+      },
+    ])
   })
 
   /*
@@ -632,5 +653,77 @@ describe('POST /ventas con precio escrito a mano', () => {
 
     const [fila] = await filasDePrecioManual()
     expect(fila?.userId).not.toBeNull()
+  })
+})
+
+/**
+ * El listado dice qué líneas llevaron precio escrito a mano — RN-VEN-15.
+ *
+ * ── Por qué no alcanza con la bitácora ──────────────────────────────────────
+ *
+ * `ventas:precio_manual` guarda el delta, pero vive en Auditoría: hay que
+ * acordarse de ir. La lista de últimas ventas es la pantalla que alguien mira
+ * de verdad, todos los días, y hasta acá una venta a $3.800 se dibujaba
+ * idéntica a una a $10.000.
+ *
+ * Un control que exige acordarse no es un control. Y son ventas como cualquier
+ * otra —suman al total, al reporte y al arqueo—, así que esconder que se
+ * cobraron distinto es esconderlo en el único lugar donde se iba a ver.
+ */
+describe('GET /ventas marca las líneas con precio escrito a mano', () => {
+  const listar = async () => {
+    const res = await comoAdmin({ method: 'GET', url: '/ventas' })
+    return res.json() as {
+      id: string
+      lineas: { productoNombre: string; cantidad: number; precioFinal: string; precioManual: boolean }[]
+    }[]
+  }
+
+  it('devuelve `precioManual` y el precio cobrado', async () => {
+    await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ items: [{ productoId, cantidad: 2, precioManual: '3800' }] }),
+    })
+
+    const [venta] = await listar()
+
+    expect(venta?.lineas[0]).toMatchObject({
+      cantidad: 2,
+      precioFinal: '3800.00',
+      precioManual: true,
+    })
+  })
+
+  it('una venta a precio de lista viene con `precioManual` en false', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+
+    const [venta] = await listar()
+
+    expect(venta?.lineas[0]).toMatchObject({ precioFinal: '10000.00', precioManual: false })
+  })
+
+  /**
+   * FIFO parte un ítem en una línea POR LOTE, y el listado las agrupa por
+   * producto. Las dos mitades llevan el mismo precio, así que la agrupación
+   * tiene que devolver UNA fila con la cantidad completa — no dos con la misma
+   * etiqueta, que se leerían como dos precios distintos.
+   */
+  it('agrupa las dos mitades de un ítem partido por FIFO en una sola línea', async () => {
+    await crearLoteConEntrada(
+      { productoId, fechaEmpaque: HOY, cantidad: 100, tipo: 'produccion', registradoPor: null },
+      db,
+    )
+
+    await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: conProducto({ items: [{ productoId, cantidad: 120, precioManual: '3800' }] }),
+    })
+
+    const [venta] = await listar()
+
+    expect(venta?.lineas).toHaveLength(1)
+    expect(venta?.lineas[0]).toMatchObject({ cantidad: 120, precioManual: true })
   })
 })
