@@ -385,7 +385,24 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
             totalNuevo: resultado.venta.total,
             clienteAnterior: resultado.reemplazada.clienteId,
             clienteNuevo: resultado.venta.clienteId,
-            ocurrioEn: resultado.venta.createdAt,
+            /*
+             * RN-VEN-16-AUDIT — la corrección registra **ambas** fechas, no una.
+             *
+             * La clave singular `ocurrioEn` desaparece del payload de
+             * `ventas:corregir`: servía cuando la nueva siempre heredaba el
+             * instante exacto de la vieja y un solo campo bastaba. Ahora la
+             * nueva puede tener otra fecha (override válido del admin) y la
+             * auditoría necesita reconstruir qué cambió sin cruzar dos filas de
+             * `ventas`.
+             *
+             * Se serializan como `Date` —el serializer estándar de Fastify
+             * produce ISO 8601 con `Z` (UTC), equivalente al `-05:00` del
+             * mediodía de Bogotá. Eso es lo que ya hacía la clave singular
+             * antes y es lo que la UI de auditoría hoy renderiza con
+             * `JSON.stringify`; el formato no cambia.
+             */
+            ocurrioEnAnterior: resultado.reemplazada.createdAt,
+            ocurrioEnNuevo: resultado.venta.createdAt,
           },
         })
 
