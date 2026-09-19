@@ -433,6 +433,9 @@ describe('GET /ventas — cada fila se explica sola', () => {
 
     expect(fila.lineas).toEqual([
       {
+        /* El id viaja además del nombre: es con lo que el modal de corrección
+           vuelve a armar la venta — RN-VEN-16. */
+        productoId,
         productoNombre: 'Recarga de botellón de 20 L',
         cantidad: 2,
         precioFinal: '10000.00',
@@ -465,6 +468,9 @@ describe('GET /ventas — cada fila se explica sola', () => {
 
     expect(fila.lineas).toEqual([
       {
+        /* El id viaja además del nombre: es con lo que el modal de corrección
+           vuelve a armar la venta — RN-VEN-16. */
+        productoId,
         productoNombre: 'Recarga de botellón de 20 L',
         cantidad: 150,
         precioFinal: '10000.00',
@@ -525,6 +531,9 @@ describe('GET /ventas?clienteId — las ventas de un cliente', () => {
     expect(filas[0].clienteNombre).toBe('Yeimy')
     expect(filas[0].lineas).toEqual([
       {
+        /* El id viaja además del nombre: es con lo que el modal de corrección
+           vuelve a armar la venta — RN-VEN-16. */
+        productoId,
         productoNombre: 'Recarga de botellón de 20 L',
         cantidad: 2,
         precioFinal: '10000.00',

@@ -136,7 +136,21 @@ export const esquemaDeAnulacion = z.object({ motivo })
  * corrección hereda el instante exacto de la venta que reemplaza. Aceptarlo
  * sería dejar mover una venta de mes disfrazando el traslado de corrección.
  */
-export const esquemaDeCorreccion = esquemaDeVenta.omit({ ocurrioEn: true }).extend({ motivo })
+export const esquemaDeCorreccion = esquemaDeVenta
+  .omit({ ocurrioEn: true })
+  .extend({ motivo })
+  /*
+   * ── `.strict()` porque `.omit()` DESCARTA, no rechaza ─────────────────────
+   *
+   * Un `z.object` en modo `strip` —el default— saca las claves que no conoce y
+   * sigue. Así, un cuerpo con `ocurrioEn` devolvía 201 y la fecha se ignoraba
+   * en silencio: quien la mandó se queda creyendo que movió la venta de día.
+   *
+   * En efecto no la movía —la corrección hereda el instante de la original y
+   * eso gana en el INSERT— pero un dato que se acepta y no hace nada es peor
+   * que uno rechazado. Con `.strict()` el 400 dice qué clave sobra.
+   */
+  .strict()
 
 export const esquemaDeCobro = z.object({
   clienteId: z.string().uuid(),
