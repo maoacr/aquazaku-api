@@ -165,7 +165,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/clientes',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'crear', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'crear')],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeAlta, req.body, reply)
@@ -191,7 +191,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.patch(
     '/clientes/:id',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
@@ -211,7 +211,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.patch(
     '/clientes/:id/estado',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
@@ -238,7 +238,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('clientes', 'verificar_documento', { auditaLaRuta: true }),
+        requirePermission('clientes', 'verificar_documento'),
       ],
     },
     async (req, reply) => {
@@ -259,7 +259,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('clientes', 'verificar_documento', { auditaLaRuta: true }),
+        requirePermission('clientes', 'verificar_documento'),
       ],
     },
     async (req, reply) => {
@@ -280,7 +280,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('clientes', 'habilitar_credito', { auditaLaRuta: true }),
+        requirePermission('clientes', 'habilitar_credito'),
       ],
     },
     async (req, reply) => {
@@ -305,7 +305,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/clientes/:id/direcciones',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
@@ -329,7 +329,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/clientes/:id/telefonos',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
@@ -347,7 +347,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.patch(
     '/telefonos/:id/desactivar',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
@@ -370,7 +370,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.patch(
     '/direcciones/:id',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
@@ -388,7 +388,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.patch(
     '/direcciones/:id/desactivar',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }

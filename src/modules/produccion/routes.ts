@@ -87,7 +87,7 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('produccion', 'registrar_cierre', { auditaLaRuta: true }),
+        requirePermission('produccion', 'registrar_cierre'),
       ],
     },
     async (req, reply) => {
@@ -145,7 +145,7 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('tanques', 'registrar_reposicion', { auditaLaRuta: true }),
+        requirePermission('tanques', 'registrar_reposicion'),
       ],
     },
     async (req, reply) => {
@@ -161,7 +161,7 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/tanques/ajuste',
     {
-      preHandler: [requireAuth, requirePermission('tanques', 'ajustar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('tanques', 'ajustar')],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeAjusteDeAgua, req.body, reply)

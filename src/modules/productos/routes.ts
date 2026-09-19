@@ -75,7 +75,7 @@ export async function productoRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch(
     '/productos/:id',
-    { preHandler: [requireAuth, requirePermission('productos', 'editar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('productos', 'editar')] },
     async (req, reply) => {
       const id = idDe(req)
       const datos = validar(esquemaEdicionDeProducto, req.body, reply)

@@ -86,7 +86,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'registrar', { auditaLaRuta: true }),
+        requirePermission('botellones', 'registrar'),
       ],
     },
     async (req, reply) => {
@@ -110,7 +110,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/botellones/entrega',
     {
-      preHandler: [requireAuth, requirePermission('botellones', 'entregar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('botellones', 'entregar')],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeTransferencia, req.body, reply)
@@ -131,7 +131,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'recibir_retorno', { auditaLaRuta: true }),
+        requirePermission('botellones', 'recibir_retorno'),
       ],
     },
     async (req, reply) => {
@@ -153,7 +153,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'descartar', { auditaLaRuta: true }),
+        requirePermission('botellones', 'descartar'),
       ],
     },
     async (req, reply) => {
@@ -175,7 +175,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'registrar', { auditaLaRuta: true }),
+        requirePermission('botellones', 'registrar'),
       ],
     },
     async (req, reply) => {
@@ -296,7 +296,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases',
-    { preHandler: [requireAuth, requirePermission('bases', 'registrar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('bases', 'registrar')] },
     async (req, reply) => {
       const datos = validar(esquemaDeAltaDeBase, req.body, reply)
       if (!datos) return
@@ -322,7 +322,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/bases/compra',
-    { preHandler: [requireAuth, requirePermission('bases', 'registrar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('bases', 'registrar')] },
     async (req, reply) => {
       const datos = validar(esquemaDeCompraDeBases, req.body, reply)
       if (!datos) return
@@ -337,7 +337,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases/:id/prestamo',
-    { preHandler: [requireAuth, requirePermission('bases', 'prestar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('bases', 'prestar')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDePrestamo, req.body, reply)
@@ -353,7 +353,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases/:id/retorno',
-    { preHandler: [requireAuth, requirePermission('bases', 'retirar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('bases', 'retirar')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
 
@@ -384,7 +384,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/bases/:id/dano',
-    { preHandler: [requireAuth, requirePermission('bases', 'descartar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('bases', 'descartar')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDeDano, req.body, reply)
@@ -402,7 +402,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases/:id/descarte',
-    { preHandler: [requireAuth, requirePermission('bases', 'descartar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('bases', 'descartar')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDeDescarteDeBase, req.body, reply)

@@ -30,7 +30,7 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/proveedores',
     {
-      preHandler: [requireAuth, requirePermission('proveedores', 'crear', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('proveedores', 'crear')],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeProveedor, req.body, reply)
@@ -55,7 +55,7 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
   app.patch(
     '/proveedores/:id/estado',
     {
-      preHandler: [requireAuth, requirePermission('proveedores', 'editar', { auditaLaRuta: true })],
+      preHandler: [requireAuth, requirePermission('proveedores', 'editar')],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
@@ -72,7 +72,7 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/compras',
-    { preHandler: [requireAuth, requirePermission('compras', 'crear', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('compras', 'crear')] },
     async (req, reply) => {
       const datos = validar(esquemaDeCompra, req.body, reply)
       if (!datos) return
@@ -102,7 +102,7 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/compras/:id/pago',
-    { preHandler: [requireAuth, requirePermission('compras', 'crear', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('compras', 'crear')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
 

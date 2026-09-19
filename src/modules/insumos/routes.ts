@@ -78,7 +78,7 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
     async (req, reply) => {
       const datos = validar(esquemaDeAlta, req.body, reply)
       if (!datos) return
@@ -93,7 +93,7 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch(
     '/insumos/:id',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeEdicion, req.body, reply)
@@ -109,7 +109,7 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos/:id/entrada',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeEntrada, req.body, reply)
@@ -125,7 +125,7 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos/:id/ajuste',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeAjuste, req.body, reply)
@@ -141,7 +141,7 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos/:id/descarte',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeDescarte, req.body, reply)
