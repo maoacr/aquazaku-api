@@ -669,8 +669,16 @@ export const DIAS_MAXIMOS_HACIA_ATRAS = 90
  * El tope hacia atrás ataja el dedazo —un año mal tecleado manda la venta a un
  * ejercicio cerrado— y es una constante y no un parámetro a propósito: una
  * perilla que nadie va a mover es una perilla que puede quedar mal puesta.
+ *
+ * ── Visibilidad pública ────────────────────────────────────────────────────
+ *
+ * `@public` para `correccion.ts` (RN-VEN-16 fecha corregible): la corrección
+ * necesita validar el override de `ocurrioEn` **antes** de abrir la transacción,
+ * para que un 422 corto-circuite sin tocar la fila vieja. Era el único caller
+ * interno y se mantiene único caller: widening no rompe nada y mantiene a
+ * `correccion.ts` libre de duplicar la matemática de la fecha.
  */
-function exigirFechaRegistrable(ocurrioEn: string | undefined): Date | null {
+export function exigirFechaRegistrable(ocurrioEn: string | undefined): Date | null {
   if (!ocurrioEn) return null
 
   const hoy = hoyEnLaPlanta()
