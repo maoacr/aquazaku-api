@@ -299,11 +299,14 @@ describe('corregir una venta', () => {
   })
 
   /**
-   * `ocurrioEn` no entra: la corrección hereda el instante de la venta que
-   * reemplaza. Aceptarlo sería mover una venta de mes disfrazando el traslado
-   * de corrección.
+   * `ocurrioEn` opcional en la corrección — RN-VEN-16 fecha corregible.
+   *
+   * Por default la corrección hereda el instante de la venta que reemplaza;
+   * cuando el admin manda un `ocurrioEn` válido, ese día nuevo le gana a la
+   * herencia. Cuando es futuro o a más de 90 días, el piso de RN-VEN-14
+   * corto-circuita con 422 — la original sigue `confirmada`.
    */
-  it('no acepta que le dicten la fecha', async () => {
+  it('acepta una fecha válida distinta a la original y la persiste', async () => {
     const original = (
       await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
     ).json()
@@ -312,12 +315,53 @@ describe('corregir una venta', () => {
       method: 'POST',
       url: `/ventas/${original.venta.id}/correccion`,
       payload: conProducto({
-        motivo: 'se cargó el producto equivocado en el mostrador',
-        ocurrioEn: '2026-01-15',
+        motivo: 'se cargó con la fecha equivocada: era de tres días atrás',
+        ocurrioEn: '2026-08-20',
       }),
     })
 
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(201)
+    /*
+     * 2026-08-20 al mediodía de Bogotá es 2026-08-20T17:00:00.000Z — el helper
+     * ancla a `T12:00:00-05:00`, y la zona se serializa a UTC.
+     */
+    expect(res.json().venta.createdAt).toBe('2026-08-20T17:00:00.000Z')
+  })
+
+  it('rechaza `ocurrioEn` futuro con 422 VENTA_EN_EL_FUTURO', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    const res = await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({
+        motivo: 'intento de fecha futura debe ser rechazado por RN-VEN-14',
+        ocurrioEn: '2099-01-01',
+      }),
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(res.json().code).toBe('VENTA_EN_EL_FUTURO')
+  })
+
+  it('rechaza `ocurrioEn` a más de 90 días con 422 VENTA_DEMASIADO_VIEJA', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    const res = await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({
+        motivo: 'intento de fecha más vieja que el piso de 90 días',
+        ocurrioEn: '2026-01-01',
+      }),
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(res.json().code).toBe('VENTA_DEMASIADO_VIEJA')
   })
 
   it('deja una fila de bitácora con el antes y el después', async () => {
