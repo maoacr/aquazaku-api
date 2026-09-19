@@ -183,20 +183,63 @@ describe('la corrección reemplaza, no edita', () => {
   })
 
   /**
-   * ── El instante se hereda — y es lo que salva al reporte del mes ─────────
+   * ── La fecha del hecho, en la corrección — RN-VEN-16 ─────────────────────
    *
-   * Corregir el lunes una venta del sábado no puede mover esa plata al lunes.
-   * Si la venta salta de día —o peor, de mes— arreglar un tipeo reescribe un
-   * reporte que ya se emitió, que es exactamente el costo que RN-VEN-02 existe
-   * para evitar.
+   * Por **default** la corrección hereda el instante exacto de la venta que
+   * reemplaza. Cuando el admin manda un `ocurrioEn` válido, la venta nueva
+   * queda anclada al mediodía de la planta de ESE día. Cuando manda un día
+   * futuro o a más de 90 días, el rechazo del piso de RN-VEN-14 corto-circuita
+   * antes del INSERT — y la original sigue `confirmada`.
    */
-  it('la venta nueva hereda el instante EXACTO de la vieja', async () => {
+  it('sin `ocurrioEn` hereda el instante exacto de la vieja', async () => {
     const admin = await usuarioAutenticado('admin')
     const { venta } = await vender(admin.usuario.id, { ocurrioEn: '2026-08-20' })
 
     const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']))
 
     expect(nueva.createdAt.getTime()).toBe(venta.createdAt.getTime())
+  })
+
+  it('con `ocurrioEn` válido usa la fecha validada al mediodía de la planta', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id)
+
+    const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']), {
+      ocurrioEn: '2026-08-20',
+    })
+
+    /*
+     * 2026-08-20 al mediodía de Bogotá es 2026-08-20T17:00:00.000Z — el helper
+     * `exigirFechaRegistrable` ancla a `T12:00:00-05:00`, que es la zona de la
+     * planta. La hora UTC sale de sumar 5 horas al mediodía local.
+     */
+    expect(nueva.createdAt.toISOString()).toBe('2026-08-20T17:00:00.000Z')
+    expect(venta.createdAt.getTime()).not.toBe(nueva.createdAt.getTime())
+  })
+
+  it('con `ocurrioEn` futuro rechaza con VENTA_EN_EL_FUTURO sin tocar la original', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id)
+
+    await expect(
+      corregir(venta.id, como(admin.usuario.id, ['admin']), { ocurrioEn: '2099-01-01' }),
+    ).rejects.toMatchObject({ code: 'VENTA_EN_EL_FUTURO' })
+
+    /*
+     * El rechazo corta antes del INSERT — la venta original sigue `confirmada`
+     * y nadie tuvo que tocar nada para verificarlo.
+     */
+    const [sinTocar] = await db.select().from(ventas).where(eq(ventas.id, venta.id))
+    expect(sinTocar?.estado).toBe('confirmada')
+  })
+
+  it('con `ocurrioEn` a más de 90 días rechaza con VENTA_DEMASIADO_VIEJA', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id)
+
+    await expect(
+      corregir(venta.id, como(admin.usuario.id, ['admin']), { ocurrioEn: '2026-01-01' }),
+    ).rejects.toMatchObject({ code: 'VENTA_DEMASIADO_VIEJA' })
   })
 })
 
