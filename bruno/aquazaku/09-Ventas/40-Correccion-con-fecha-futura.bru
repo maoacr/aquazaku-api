@@ -1,0 +1,41 @@
+meta {
+  name: Corrección con fecha futura se rechaza
+  type: http
+  seq: 40
+}
+
+post {
+  url: {{baseUrl}}/ventas/{{ventaContadoId}}/correccion
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "intento de fecha futura debe ser rechazado por RN-VEN-14",
+    "ocurrioEn": "2099-12-31",
+    "medioDePago": "efectivo",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 2 }
+    ]
+  }
+}
+
+docs {
+  El piso de RN-VEN-14 vale dentro de la corrección también: una fecha futura
+  no es una venta todavía, y descontar stock por algo que no ocurrió es el
+  mismo costo que el alta — solo que movido al flujo del admin.
+
+  El 422 corto-circuita antes del INSERT y antes del UPDATE sobre la original,
+  que sigue `confirmada`. Lo verifica la prueba unitaria del handler, pero
+  acá se ve como llega al cable: con el código canónico `VENTA_EN_EL_FUTURO`.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("devuelve el código VENTA_EN_EL_FUTURO", function() {
+    expect(res.getBody().code).to.equal("VENTA_EN_EL_FUTURO");
+  });
+}

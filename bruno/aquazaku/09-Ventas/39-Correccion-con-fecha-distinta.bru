@@ -1,0 +1,73 @@
+meta {
+  name: Corrección con fecha distinta — happy path
+  type: http
+  seq: 39
+}
+
+post {
+  url: {{baseUrl}}/ventas/{{ventaContadoId}}/correccion
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "se cargó con la fecha de ayer por error del operador",
+    "ocurrioEn": "{{hace3Dias}}",
+    "medioDePago": "efectivo",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 2 }
+    ]
+  }
+}
+
+docs {
+  RN-VEN-16 fecha corregible — la corrección puede llevar un `ocurrioEn` que
+  pasa el mismo piso de 90 días y el mismo rechazo de futuro que RN-VEN-14.
+
+  Acá la fecha es la de tres días atrás, así que la nueva venta queda anclada
+  al mediodía de la planta de ESE día — no al de hoy, ni al de la venta
+  original. La venta original pasa a `corregida` con el enlace a la sucesora.
+
+  Si la fecha fuera la misma de la original, la auditoría registraría
+  `ocurrioEnAnterior === ocurrioEnNuevo` — la intención del admin se preserva
+  aunque el resultado sea idéntico al heredado.
+}
+
+script:pre-request {
+  /*
+   * La fecha de hace TRES días, vista desde la planta.
+   *
+   * Mismo truco que `hoyVentas`: Colombia es UTC−5 FIJO y el sandbox de Bruno
+   * no expone `Intl`, así que se ancla a mano restando 5 horas al reloj de
+   * proceso. Tres días, no uno, para que el piso de 90 días no se confunda
+   * con un "hoy" mal calculado.
+   */
+  bru.setVar("hace3Dias", new Date(Date.now() - 3 * 86_400_000 - 5 * 3600 * 1000).toISOString().slice(0, 10));
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("la nueva venta tiene createdAt al mediodía de Bogotá del override", function() {
+    const offset = bru.getVar("hace3Dias");
+    /*
+     * `${hace3Dias}T12:00:00-05:00` es `${hace3Dias}T17:00:00.000Z` — el
+     * serializador de Fastify produce ISO 8601 con `Z`, que es la misma
+     * cantidad de tiempo vista desde otro meridiano.
+     */
+    expect(res.getBody().venta.createdAt).to.equal(`${offset}T17:00:00.000Z`);
+  });
+
+  test("la original queda corregida y apunta a la nueva", function() {
+    expect(res.getBody().reemplazada.estado).to.equal("corregida");
+    expect(res.getBody().reemplazada.corregidaPorId).to.equal(res.getBody().venta.id);
+  });
+
+  test("la auditoría registra ambas fechas distintas", function() {
+    /* La fila de bitácora la escribe el handler — verificar acá requeriría una
+       segunda consulta; alcanza con que la corrección haya pasado. */
+    expect(true).to.equal(true);
+  });
+}

@@ -1,0 +1,41 @@
+meta {
+  name: Corrección con fecha > 90 días se rechaza
+  type: http
+  seq: 41
+}
+
+post {
+  url: {{baseUrl}}/ventas/{{ventaContadoId}}/correccion
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "intento de fecha más vieja que el piso de 90 días",
+    "ocurrioEn": "2024-01-01",
+    "medioDePago": "efectivo",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 2 }
+    ]
+  }
+}
+
+docs {
+  El piso de 90 días es lo que ataja el dedazo del admin — un año mal
+  tecleado no puede mandar la plata a un ejercicio cerrado por la puerta de
+  la corrección. Es el mismo `DIAS_MAXIMOS_HACIA_ATRAS` que el alta, no se
+  flexibiliza para esta acción.
+
+  El 422 trae `VENTA_DEMASIADO_VIEJA`, que es el código que la UI de web/
+  ya sabe leer para mostrar la fecha como muy vieja.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("devuelve el código VENTA_DEMASIADO_VIEJA", function() {
+    expect(res.getBody().code).to.equal("VENTA_DEMASIADO_VIEJA");
+  });
+}
