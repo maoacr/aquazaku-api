@@ -120,8 +120,18 @@ describe('lo que se rechaza', () => {
  * que la bitácora diga quién, cuándo, y **de cuánto a cuánto**.
  */
 describe('la bitácora', () => {
+  /*
+   * El módulo es `configuracion`, no `parametros`.
+   *
+   * `parametros` es el nombre de la TABLA; `configuracion` es el de la matriz
+   * de permisos, y es el prefijo de la acción que se escribe al lado
+   * (`configuracion:editar`). La consulta de la bitácora combina módulo y
+   * acción con AND, así que mientras acá decía `parametros` filtrar por
+   * «Configuración → Editar» devolvía cero filas: el filtro decía que nadie
+   * había tocado un umbral, justo cuando alguien lo había tocado.
+   */
   const anotado = async () =>
-    db.select().from(auditLog).where(eq(auditLog.resource, 'parametros'))
+    db.select().from(auditLog).where(eq(auditLog.resource, 'configuracion'))
 
   it('guarda el valor anterior, no solo el nuevo', async () => {
     await como('admin', {

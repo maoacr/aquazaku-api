@@ -55,7 +55,7 @@ export async function alertasRoutes(app: FastifyInstance): Promise<void> {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
           action: 'configuracion:editar',
-          resource: 'parametros',
+          resource: 'configuracion',
           resourceId: clave,
           result: 'ok',
           requestId: String(req.id),
@@ -90,7 +90,7 @@ async function manejarError(
       userId: req.user?.id ?? null,
       rolEjercido: req.user?.roles ?? [],
       action: 'configuracion:editar',
-      resource: 'parametros',
+      resource: 'configuracion',
       result: 'denied',
       // `auditarSinBloquear` toma el request y de ahí saca id, ip y agente.
       payload: { clave, code: err.code, mensaje: err.message },
