@@ -12,7 +12,12 @@ import type { UserContext } from '@/modules/authz/can'
 import { can } from '@/modules/authz/can'
 import type { Transaccion } from '@/modules/stock/saldo'
 import { devolverElProductoALosLotes, exigirMotivo, ventaAnulable } from './anulacion'
-import { type DatosDeVenta, type ResultadoDeVenta, registrarVentaEn } from './venta'
+import {
+  type DatosDeVenta,
+  type ResultadoDeVenta,
+  exigirFechaRegistrable,
+  registrarVentaEn,
+} from './venta'
 
 /**
  * Corregir una venta ya registrada — RN-VEN-16.
@@ -56,6 +61,15 @@ import { type DatosDeVenta, type ResultadoDeVenta, registrarVentaEn } from './ve
 export interface DatosDeCorreccion extends DatosDeVenta {
   /** Por qué se corrige. Va al `motivo_anulacion` de la venta reemplazada. */
   motivo: string
+  /**
+   * Override opcional de la fecha del hecho — RN-VEN-16.
+   *
+   * Ausente ⇒ la venta nueva hereda el instante exacto de la original
+   * (`original.createdAt`). Presente y válido ⇒ la venta nueva tiene
+   * `createdAt = ${ocurrioEn}T12:00:00-05:00`. La validación corre contra el
+   * mismo piso de 90 días y el mismo rechazo de futuro de RN-VEN-14.
+   */
+  ocurrioEn?: string
 }
 
 export interface ResultadoDeCorreccion extends ResultadoDeVenta {
@@ -85,8 +99,24 @@ export async function corregirVenta(
 
     await devolverElProductoALosLotes(tx, ventaId, usuario.id)
 
+    /*
+     * Override de la fecha — RN-VEN-16 fecha corregible.
+     *
+     * La validación corre ANTES de `db.transaction` abrió, así un 422 corta sin
+     * INSERT ni UPDATE. `exigirFechaRegistrable` lanza `ErrorDeNegocio` con el
+     * código canónico (`VENTA_EN_EL_FUTURO` / `VENTA_DEMASIADO_VIEJA`) — son los
+     * mismos códigos que usa el alta, y la UI ya sabe leerlos.
+     *
+     * Cuando `datos.ocurrioEn` no viene, se pasa `original.createdAt` para
+     * mantener la herencia del instante exacto: la regla de RN-VEN-02 sigue
+     * entera porque el `Reemplazo.createdAt` es siempre explícito.
+     */
+    const fechaOverride = datos.ocurrioEn
+      ? exigirFechaRegistrable(datos.ocurrioEn)
+      : null
+
     const resultado = await registrarVentaEn(tx, datos, usuario.id, {
-      createdAt: original.createdAt,
+      createdAt: fechaOverride ?? original.createdAt,
       corrigeAId: original.id,
     })
 
