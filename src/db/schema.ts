@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import {
+  type AnyPgColumn,
   bigserial,
   boolean,
   check,
@@ -1164,8 +1165,28 @@ export const medioDePagoEnum = pgEnum('medio_de_pago', [
   'credito',
 ])
 
-/** Una venta confirmada no se edita: se anula — RN-VEN-02. */
-export const estadoDeVentaEnum = pgEnum('estado_de_venta', ['confirmada', 'anulada'])
+/**
+ * Una venta confirmada no se edita — RN-VEN-02. Tiene dos salidas, y son
+ * hechos distintos.
+ *
+ * `anulada` es «esta venta no debio existir»: el cliente se arrepintió, se
+ * cobró de más, se devolvió la plata. `corregida` es «esta venta ocurrió, pero
+ * quedó mal escrita» — RN-VEN-16: el monto era otro, el cliente era otro. La
+ * venta se reemplaza por una nueva y las dos quedan enlazadas.
+ *
+ * Separarlos no es cosmética. «Cuántas ventas anulamos este mes» es una alarma
+ * operativa que mide errores de mostrador y plata devuelta; si cada tipeo
+ * corregido la hiciera subir, en un mes nadie la miraría.
+ *
+ * Lo que las une es lo que importa para el resto del sistema: ninguna de las
+ * dos está `confirmada`, así que todo filtro que ya decía `confirmada` —la
+ * deuda, la cartera, los reportes— siguió siendo correcto sin tocarse.
+ */
+export const estadoDeVentaEnum = pgEnum('estado_de_venta', [
+  'confirmada',
+  'anulada',
+  'corregida',
+])
 
 /**
  * Qué clase de venta es — RN-BAS-08, y la resolución de una contradicción.
@@ -1275,6 +1296,27 @@ export const ventas = pgTable(
     anuladaPor: uuid('anulada_por').references(() => users.id, { onDelete: 'set null' }),
     anuladaEn: tstz('anulada_en'),
     motivoAnulacion: text('motivo_anulacion'),
+
+    /**
+     * El reemplazo, en sus dos direcciones — RN-VEN-16.
+     *
+     * `corrigeA` se escribe cuando la fila nace y no se toca nunca más;
+     * `corregidaPor` viaja en el MISMO `UPDATE` que pasa la venta vieja a
+     * `corregida`, que es la única escritura que el trigger le permite.
+     *
+     * Las dos puntas existen porque se recorren en los dos sentidos. Desde la
+     * nueva se pregunta «¿a qué vino esto?»; desde la vieja —que es la que
+     * aparece en la lista con el sello de corregida— se pregunta «¿y a dónde
+     * fue a parar?». Resolver la segunda con un scan inverso sobre el
+     * histórico para dibujar una tarjeta no es un índice que falta: es la
+     * columna que falta.
+     */
+    corrigeAId: uuid('corrige_a_id').references((): AnyPgColumn => ventas.id, {
+      onDelete: 'restrict',
+    }),
+    corregidaPorId: uuid('corregida_por_id').references((): AnyPgColumn => ventas.id, {
+      onDelete: 'restrict',
+    }),
   },
   (t) => [
     /*
@@ -1299,12 +1341,37 @@ export const ventas = pgTable(
       sql`(${t.estado} = 'confirmada'
              AND ${t.anuladaEn} IS NULL
              AND ${t.motivoAnulacion} IS NULL)
-          OR (${t.estado} = 'anulada'
+          OR (${t.estado} <> 'confirmada'
              AND ${t.anuladaEn} IS NOT NULL
              AND ${t.motivoAnulacion} IS NOT NULL)`,
     ),
 
+    /*
+     * ── El reemplazo tiene que ser coherente — RN-VEN-16 ─────────────────────
+     *
+     * Una venta que se apunta a sí misma deja un historial que no termina, y
+     * una venta con sucesora que sigue `confirmada` cuenta DOS VECES en la
+     * deuda y en los reportes: una por cada punta del reemplazo.
+     *
+     * Van en la base y no solo en el servicio por la línea de ADR-0006: la
+     * regla tiene que sostenerse también cuando el dato entra por un script o
+     * por una consola.
+     */
+    check(
+      'ventas_correccion_no_es_circular',
+      sql`(${t.corrigeAId} IS NULL OR ${t.corrigeAId} <> ${t.id})
+          AND (${t.corregidaPorId} IS NULL OR ${t.corregidaPorId} <> ${t.id})`,
+    ),
+
+    check(
+      'ventas_corregida_no_sigue_confirmada',
+      sql`${t.corregidaPorId} IS NULL OR ${t.estado} <> 'confirmada'`,
+    ),
+
     check('ventas_total_no_negativo', sql`${t.total} >= 0`),
+
+    index('ventas_corrige_a_idx').on(t.corrigeAId),
+    index('ventas_corregida_por_idx').on(t.corregidaPorId),
 
     index('ventas_cliente_idx').on(t.clienteId),
     index('ventas_fecha_idx').on(t.createdAt),
@@ -1668,10 +1735,27 @@ export const movimientosBase = pgTable(
     direccionId: uuid('direccion_id').references(() => direcciones.id, { onDelete: 'restrict' }),
 
     motivo: text('motivo'),
+
+    /**
+     * De qué venta salió este movimiento — RN-BAS-03.
+     *
+     * Espeja `movimientosBotellon.documentoId`, y por la misma razón: un
+     * movimiento que no se puede explicar sin preguntarle a alguien no es un
+     * libro. `NULL` es un movimiento propio de Retornables —un préstamo desde
+     * su pantalla, un retorno, un descarte— y es el caso más común.
+     *
+     * Sin FK a `ventas`, igual que la de botellones: el movimiento es del libro
+     * de activos y no tiene por qué depender de que la venta siga existiendo.
+     */
+    documentoId: uuid('documento_id'),
+
     registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
     createdAt: tstz('created_at').notNull().defaultNow(),
   },
-  (t) => [index('movimientos_base_base_idx').on(t.baseId)],
+  (t) => [
+    index('movimientos_base_base_idx').on(t.baseId),
+    index('movimientos_base_documento_idx').on(t.documentoId),
+  ],
 )
 
 export type MovimientoBotellon = typeof movimientosBotellon.$inferSelect

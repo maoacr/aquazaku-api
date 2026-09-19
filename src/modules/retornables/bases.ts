@@ -297,6 +297,8 @@ export async function prestarBaseEn(
   baseId: string,
   direccionId: string,
   registradoPor: string | null,
+  /** La venta que se lleva la base, si viene de una — RN-BAS-03. */
+  documentoId?: string,
 ): Promise<Base> {
   {
     const base = await baseActiva(tx, baseId)
@@ -348,6 +350,7 @@ export async function prestarBaseEn(
       baseId,
       tipo: 'prestamo',
       direccionId,
+      ...(documentoId && { documentoId }),
       registradoPor,
     })
 

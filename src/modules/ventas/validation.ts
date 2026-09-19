@@ -119,6 +119,25 @@ export const esquemaDeVenta = z.object({
  */
 export const esquemaDeAnulacion = z.object({ motivo })
 
+/**
+ * Corregir una venta registrada — RN-VEN-16.
+ *
+ * Es la venta ENTERA otra vez, no un parche de los campos que cambiaron. No es
+ * comodidad: un `PATCH` con `{ cantidad: 5 }` obliga a fusionar lo nuevo con lo
+ * viejo para saber qué venta queda, y esa fusión es la edición que RN-VEN-02
+ * prohíbe, escrita en el servidor en vez de en la base.
+ *
+ * Mandando la venta completa, lo que llega es lo que se registra: pasa por el
+ * mismo `registrarVentaEn` que el mostrador, con las mismas validaciones de
+ * stock, piso, crédito y vigencia. No hay un segundo camino con sus propias
+ * reglas.
+ *
+ * `ocurrioEn` NO está, y es la única diferencia con `esquemaDeVenta`: la
+ * corrección hereda el instante exacto de la venta que reemplaza. Aceptarlo
+ * sería dejar mover una venta de mes disfrazando el traslado de corrección.
+ */
+export const esquemaDeCorreccion = esquemaDeVenta.omit({ ocurrioEn: true }).extend({ motivo })
+
 export const esquemaDeCobro = z.object({
   clienteId: z.string().uuid(),
   monto: dinero,

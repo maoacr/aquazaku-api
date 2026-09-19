@@ -249,7 +249,7 @@ describe('el UPDATE de una venta solo puede anularla', () => {
 
     await anular()
 
-    expect((await pgErrorOf(anular())).message).toMatch(/ya anulada/)
+    expect((await pgErrorOf(anular())).message).toMatch(/no se vuelve a tocar/)
   })
 
   /** Media anulación —estado sin motivo— no explica nada en tres meses. */

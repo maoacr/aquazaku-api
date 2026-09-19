@@ -66,17 +66,27 @@ export async function registrarDevolucion(
 
     const [venta] = await tx.select().from(ventas).where(eq(ventas.id, linea.ventaId))
 
-    if (venta!.estado === 'anulada') {
+    if (venta!.estado !== 'confirmada') {
       /*
        * Anular ya devolvió TODO el producto al lote. Aceptar una devolución
        * encima lo devolvería dos veces: el inventario diría que hay más de lo
        * que hay, y esa clase de descuadre es la que aparece meses después sin
        * poder rastrearse.
+       *
+       * Vale igual para una venta CORREGIDA (RN-VEN-16): también devolvió su
+       * producto al lote, y lo que el cliente se llevó de verdad cuelga ahora de
+       * la venta que la reemplazó. La devolución va contra esa, que es la que
+       * tiene las líneas vigentes.
+       *
+       * El filtro es por «no confirmada» y no por la lista de estados malos: es
+       * lo que de verdad se quiere decir, y no hay que acordarse de ampliarlo.
        */
       throw new ErrorDeNegocio(
         'VENTA_ANULADA',
         422,
-        'esa venta está anulada, así que el producto ya volvió al stock. Una devolución encima lo contaría dos veces',
+        venta!.estado === 'corregida'
+          ? 'esa venta fue corregida y su producto ya volvió al stock. La devolución va contra la venta que la reemplazó'
+          : 'esa venta está anulada, así que el producto ya volvió al stock. Una devolución encima lo contaría dos veces',
       )
     }
 

@@ -26,6 +26,7 @@ const ESPERADO: Record<Role, string[]> = {
     'ventas:crear:todo',
     'ventas:anular:todo',
     'ventas:anular_verificada:todo',
+    'ventas:corregir:todo',
     'ventas:verificar_pago:todo',
     'ventas:gestionar_cuentas_pendientes:todo',
     'cobros:ver:todo',

@@ -231,6 +231,121 @@ describe('una venta no se edita', () => {
 })
 
 /**
+ * ── Corregir es un sub-recurso, no una edición — RN-VEN-16 ──────────────────
+ *
+ * Que exista `POST /ventas/:id/correccion` no afloja nada de lo de arriba: el
+ * `PATCH` sigue sin existir y el trigger sigue rechazando cualquier `UPDATE`
+ * que toque el monto. Lo que este endpoint agrega es el reemplazo hecho de una
+ * sola vez, con las dos filas enlazadas.
+ */
+describe('corregir una venta', () => {
+  it('devuelve la nueva y la reemplazada, enlazadas', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    const res = await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({ motivo: 'se cargó el producto equivocado en el mostrador' }),
+    })
+
+    expect(res.statusCode).toBe(201)
+    const { venta, reemplazada } = res.json()
+    expect(reemplazada.id).toBe(original.venta.id)
+    expect(reemplazada.estado).toBe('corregida')
+    expect(reemplazada.corregidaPorId).toBe(venta.id)
+    expect(venta.corrigeAId).toBe(original.venta.id)
+  })
+
+  /**
+   * El permiso es `ventas:corregir`, que solo tiene el admin. Un `pos` con
+   * `ventas:anular` sobre lo propio NO lo hereda: corregir escribe una venta
+   * con la fecha de otra, y eso esquiva el tope de 90 días de RN-VEN-14.
+   */
+  it('un pos no puede, ni sobre su propia venta', async () => {
+    const pos = await usuarioAutenticado('pos')
+    const original = (
+      await app.inject({
+        method: 'POST',
+        url: '/ventas',
+        payload: conProducto(),
+        headers: { cookie: pos.cookie },
+      })
+    ).json()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({ motivo: 'me equivoqué de producto al cargarla' }),
+      headers: { cookie: pos.cookie },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('sin motivo suficiente rebota en la validación', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    const res = await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({ motivo: 'mal' }),
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  /**
+   * `ocurrioEn` no entra: la corrección hereda el instante de la venta que
+   * reemplaza. Aceptarlo sería mover una venta de mes disfrazando el traslado
+   * de corrección.
+   */
+  it('no acepta que le dicten la fecha', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    const res = await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({
+        motivo: 'se cargó el producto equivocado en el mostrador',
+        ocurrioEn: '2026-01-15',
+      }),
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('deja una fila de bitácora con el antes y el después', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({
+        items: [{ productoId, cantidad: 5 }],
+        motivo: 'se cargaron 2 y habían salido 5',
+      }),
+    })
+
+    const [fila] = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'ventas:corregir'))
+
+    const payload = fila?.payload as { totalAnterior: string; totalNuevo: string }
+    expect(payload.totalAnterior).toBe(original.venta.total)
+    expect(payload.totalNuevo).not.toBe(original.venta.total)
+  })
+})
+
+/**
  * ── El alcance sale de la matriz, no de la ruta ─────────────────────────────
  *
  * `pos` y `seller` ven y anulan lo PROPIO; `admin`, todo.

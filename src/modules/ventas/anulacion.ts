@@ -5,7 +5,7 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { applicableScopes } from '@/modules/authz/scoped-query'
 import type { UserContext } from '@/modules/authz/can'
-import { ingresar } from '@/modules/stock/saldo'
+import { type Transaccion, ingresar } from '@/modules/stock/saldo'
 
 /**
  * Anular una venta — RN-VEN-03 y RN-VEN-08.
@@ -59,65 +59,118 @@ export function puedeAnular(usuario: UserContext, venta: Venta): boolean {
   return alcances.includes('propio') && venta.registradoPor === usuario.id
 }
 
+/**
+ * La venta sobre la que se va a operar, o el error que explica por qué no.
+ *
+ * Es el preámbulo que comparten anular y corregir (RN-VEN-16), y está acá y no
+ * duplicado en cada uno porque las tres preguntas son las MISMAS: ¿existe?,
+ * ¿sigue confirmada?, ¿es de quien la quiere tocar? Una copia que se desactualice
+ * dejaría un camino por el que se puede anular algo que el otro rechaza.
+ *
+ * El `FOR UPDATE` bloquea la fila hasta el fin de la transacción. Sin él, dos
+ * anulaciones simultáneas de la misma venta pasan las tres validaciones y
+ * devuelven el stock DOS VECES: el `UPDATE` de la segunda falla por el trigger,
+ * pero los `ingresar` de las dos ya están escritos.
+ */
+export async function ventaAnulable(
+  tx: Transaccion,
+  ventaId: string,
+  usuario: UserContext,
+): Promise<Venta> {
+  const [venta] = await tx.select().from(ventas).where(eq(ventas.id, ventaId)).for('update')
+
+  if (!venta) throw new ErrorDeNegocio('VENTA_NO_ENCONTRADA', 404, 'esa venta no existe')
+
+  /*
+   * Cualquier estado que no sea `confirmada` cierra la puerta, y no solo
+   * `anulada`. Una venta ya corregida tiene una sucesora viva: anularla acá
+   * dejaría la deuda cobrada por la nueva y el stock devuelto por las dos.
+   */
+  if (venta.estado !== 'confirmada') {
+    throw new ErrorDeNegocio(
+      'YA_ANULADA',
+      422,
+      venta.estado === 'corregida'
+        ? 'esa venta ya fue corregida: lo que está vigente es la venta que la reemplazó. Anule esa'
+        : 'esa venta ya está anulada. Volver a anularla reemplazaría quién lo hizo y por qué',
+    )
+  }
+
+  if (!puedeAnular(usuario, venta)) {
+    throw new ErrorDeNegocio(
+      'NO_ES_SU_VENTA',
+      403,
+      'solo quien registró la venta puede anularla. Si hace falta anular la de otra persona, tiene que hacerlo un admin',
+    )
+  }
+
+  return venta
+}
+
+/**
+ * El motivo, o el error que dice por qué no alcanza.
+ *
+ * El comentario NO es opcional, y aplica igual al admin: quien tiene más
+ * permisos también deja más rastro. Una anulación sin explicación es un agujero
+ * en la caja que dentro de tres meses nadie puede cerrar.
+ */
+export function exigirMotivo(motivo: string, verbo: 'anular' | 'corregir'): string {
+  if (!motivoEsSuficiente(motivo)) {
+    throw new ErrorDeNegocio(
+      'MOTIVO_REQUERIDO',
+      422,
+      `${verbo} necesita al menos ${LARGO_MINIMO_MOTIVO} caracteres de explicación: es lo que hace que la reversión se pueda entender después`,
+    )
+  }
+
+  return motivo.trim()
+}
+
+/**
+ * Devuelve al stock todo lo que salió con esta venta.
+ *
+ * Es el efecto físico de la reversión, separado del `UPDATE` que cambia el
+ * estado, y esa separación es lo que hace posible la corrección: ahí el estado
+ * se escribe UNA sola vez —con la sucesora ya conocida— porque el trigger no
+ * deja tocar dos veces la misma fila.
+ */
+export async function devolverElProductoALosLotes(
+  tx: Transaccion,
+  ventaId: string,
+  registradoPor: string | null,
+): Promise<void> {
+  const lineas = await tx.select().from(lineasDeVenta).where(eq(lineasDeVenta.ventaId, ventaId))
+
+  for (const linea of lineas) {
+    /*
+     * Vuelve al MISMO lote, no a stock genérico. El lote tiene su propia
+     * fecha de vencimiento: devolver a otro convertiría producto que vencía el
+     * martes en producto que vence el mes que viene, y el sistema dejaría de
+     * poder avisar que hay que sacarlo.
+     */
+    await ingresar(
+      {
+        loteId: linea.loteId,
+        cantidad: linea.cantidad,
+        tipo: 'devolucion',
+        documentoId: ventaId,
+        registradoPor,
+      },
+      tx,
+    )
+  }
+}
+
 export async function anularVenta(
   ventaId: string,
   motivo: string,
   usuario: UserContext,
 ): Promise<Venta> {
   return db.transaction(async (tx) => {
-    const [venta] = await tx.select().from(ventas).where(eq(ventas.id, ventaId))
+    await ventaAnulable(tx, ventaId, usuario)
+    const explicacion = exigirMotivo(motivo, 'anular')
 
-    if (!venta) throw new ErrorDeNegocio('VENTA_NO_ENCONTRADA', 404, 'esa venta no existe')
-
-    if (venta.estado === 'anulada') {
-      throw new ErrorDeNegocio(
-        'YA_ANULADA',
-        422,
-        'esa venta ya está anulada. Volver a anularla reemplazaría quién lo hizo y por qué',
-      )
-    }
-
-    if (!puedeAnular(usuario, venta)) {
-      throw new ErrorDeNegocio(
-        'NO_ES_SU_VENTA',
-        403,
-        'solo quien registró la venta puede anularla. Si hace falta anular la de otra persona, tiene que hacerlo un admin',
-      )
-    }
-
-    /*
-     * El comentario NO es opcional, y aplica igual al admin: quien tiene más
-     * permisos también deja más rastro. Una anulación sin explicación es un
-     * agujero en la caja que dentro de tres meses nadie puede cerrar.
-     */
-    if (!motivoEsSuficiente(motivo)) {
-      throw new ErrorDeNegocio(
-        'MOTIVO_REQUERIDO',
-        422,
-        `anular necesita al menos ${LARGO_MINIMO_MOTIVO} caracteres de explicación: es lo que hace que la reversión se pueda entender después`,
-      )
-    }
-
-    const lineas = await tx.select().from(lineasDeVenta).where(eq(lineasDeVenta.ventaId, ventaId))
-
-    for (const linea of lineas) {
-      /*
-       * Vuelve al MISMO lote, no a stock genérico. El lote tiene su propia
-       * fecha de vencimiento: devolver a otro convertiría producto que vencía el
-       * martes en producto que vence el mes que viene, y el sistema dejaría de
-       * poder avisar que hay que sacarlo.
-       */
-      await ingresar(
-        {
-          loteId: linea.loteId,
-          cantidad: linea.cantidad,
-          tipo: 'devolucion',
-          documentoId: ventaId,
-          registradoPor: usuario.id,
-        },
-        tx,
-      )
-    }
+    await devolverElProductoALosLotes(tx, ventaId, usuario.id)
 
     await tx
       .update(ventas)
@@ -125,7 +178,7 @@ export async function anularVenta(
         estado: 'anulada',
         anuladaPor: usuario.id,
         anuladaEn: new Date(),
-        motivoAnulacion: motivo.trim(),
+        motivoAnulacion: explicacion,
       })
       .where(eq(ventas.id, ventaId))
 

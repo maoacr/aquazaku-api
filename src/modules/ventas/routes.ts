@@ -9,6 +9,7 @@ import { can } from '@/modules/authz/can'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { scopedCondition } from '@/modules/authz/scoped-query'
 import { anularVenta } from './anulacion'
+import { corregirVenta } from './correccion'
 import { cartera, cobrosDe, registrarCobro } from './cobros'
 import { crearCodigo, desactivarCodigo, listarCodigos } from './descuentos'
 import { devolucionesDe, registrarDevolucion } from './devoluciones'
@@ -17,11 +18,13 @@ import {
   esquemaDeAnulacion,
   esquemaDeCobro,
   esquemaDeCodigo,
+  esquemaDeCorreccion,
   esquemaDeDevolucion,
   esquemaDeVenta,
 } from './validation'
 import { registrarVenta } from './venta'
 import { hoyEnLaPlanta } from '@/lib/dia'
+import { documentoParaMostrar } from '@/modules/clientes/documento'
 
 /**
  * Ventas, cobros, devoluciones y descuentos — M6.
@@ -91,6 +94,19 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
           id: ventas.id,
           clienteId: ventas.clienteId,
           clienteNombre: clientes.nombre,
+          /*
+           * El documento viaja para PRECARGAR el modal de corrección — RN-VEN-16.
+           *
+           * El buscador de clientes muestra nombre y documento juntos: es cómo
+           * quien atiende confirma que es esa persona y no otra con el mismo
+           * apellido. Sin él, corregir una venta abriría el modal con medio
+           * cliente y la duda de si es el correcto.
+           *
+           * Sale del mismo `leftJoin` que ya se hacía. Es una columna más, no
+           * una consulta más.
+           */
+          clienteTipoDocumento: clientes.tipoDocumento,
+          clienteNumeroDocumento: clientes.numeroDocumento,
           tipoClienteAlMomento: ventas.tipoClienteAlMomento,
           medioDePago: ventas.medioDePago,
           canal: ventas.canal,
@@ -105,6 +121,14 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
           anuladaPor: ventas.anuladaPor,
           anuladaEn: ventas.anuladaEn,
           motivoAnulacion: ventas.motivoAnulacion,
+          /*
+           * Las dos puntas del reemplazo — RN-VEN-16. Sin ellas, la lista
+           * dibuja una venta corregida como una anulada cualquiera y la nueva
+           * como una venta suelta que apareció a la misma hora: dos tarjetas
+           * que se contradicen y nada que explique por qué.
+           */
+          corrigeAId: ventas.corrigeAId,
+          corregidaPorId: ventas.corregidaPorId,
         })
         .from(ventas)
         .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
@@ -117,7 +141,20 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
       const porVenta = await lineasResumidasDe(filas.map((venta) => venta.id))
 
-      return filas.map((venta) => ({ ...venta, lineas: porVenta.get(venta.id) ?? [] }))
+      return filas.map(({ clienteTipoDocumento, clienteNumeroDocumento, ...venta }) => ({
+        ...venta,
+        /*
+         * Armado acá y no en el cliente: la forma de un documento —el DV del
+         * NIT, los puntos de miles— es una regla del dominio y ya vive en
+         * `documentoParaMostrar`. Mandar las dos partes sueltas obligaría a
+         * reimplementarla del otro lado, y a que las dos versiones se separen.
+         */
+        clienteDocumento:
+          clienteTipoDocumento && clienteNumeroDocumento
+            ? documentoParaMostrar(clienteTipoDocumento, clienteNumeroDocumento)
+            : null,
+        lineas: porVenta.get(venta.id) ?? [],
+      }))
     },
   )
 
@@ -142,7 +179,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/ventas',
-    { preHandler: [requireAuth, requirePermission('ventas', 'crear', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('ventas', 'crear')] },
     async (req, reply) => {
       const datos = validar(esquemaDeVenta, req.body, reply)
       if (!datos) return
@@ -174,9 +211,14 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
         /*
          * ── Fechar una venta hacia atrás deja rastro propio — RN-VEN-14 ─────
          *
-         * La venta ya se audita como cualquier otra por `auditaLaRuta`. Esta
+         * La venta ya la audita `requirePermission` como cualquier otra. Esta
          * fila es aparte y solo existe cuando la fecha NO es hoy, porque lo que
          * registra es otra cosa: alguien movió plata de un mes a otro.
+         *
+         * Ojo con `auditaLaRuta`: el flag NO audita, APAGA la fila del
+         * middleware para que la escriba el handler. Un comentario que decía lo
+         * contrario, justo acá, dejó a `ventas:crear` sin rastro durante meses
+         * — solo quedaban las ventas RECHAZADAS, que las escribe `manejarError`.
          *
          * El reporte de agosto cambia después de haberse emitido —RN-VEN-14 lo
          * acepta a propósito—, y lo único que acota ese costo es poder
@@ -256,7 +298,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/ventas/:id/anulacion',
-    { preHandler: [requireAuth, requirePermission('ventas', 'anular', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('ventas', 'anular')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDeAnulacion, req.body, reply)
@@ -271,6 +313,90 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
   )
 
   /**
+   * Corregir — RN-VEN-16.
+   *
+   * `POST` sobre un sub-recurso, igual que la anulación, y **nunca** un `PATCH`
+   * sobre la venta. El verbo dice qué pasa de verdad: no se edita la venta —eso
+   * sigue sin existir y sigue habiendo un test que lo verifica— se le agrega el
+   * hecho de que fue reemplazada por otra.
+   *
+   * ── Por qué `corregir` y no `anular` en el `requirePermission` ────────────
+   *
+   * Corregir hace dos cosas: anula una venta Y registra otra con la fecha de la
+   * primera. Lo segundo esquiva el tope de 90 días de RN-VEN-14, que rige para
+   * todo el mundo cuando se carga una venta vieja. Colgarlo de `ventas:anular`
+   * —que `pos` y `seller` tienen sobre lo propio— convertiría este endpoint en
+   * la puerta de atrás a ese tope. Es RN-ACC-02: cada ACCIÓN valida el suyo.
+   */
+  app.post(
+    '/ventas/:id/correccion',
+    { preHandler: [requireAuth, requirePermission('ventas', 'corregir', { auditaLaRuta: true })] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string }
+      const datos = validar(esquemaDeCorreccion, req.body, reply)
+      if (!datos) return
+
+      /*
+       * Igual que en `POST /ventas`: llevar una base exige el permiso de
+       * prestarla. La corrección no es una excepción — si lo fuera, sería la
+       * puerta de atrás que esa validación existe para cerrar.
+       */
+      if (datos.base && !can(req.user!, 'bases', 'prestar')) {
+        return reply.code(403).send({
+          code: 'SIN_PERMISO',
+          mensaje:
+            'no tiene permiso para prestar bases. Puede corregir la venta sin la base, y que la entregue quien sí lo tenga',
+        })
+      }
+
+      try {
+        const resultado = await corregirVenta(id, { ...datos, hoy: hoyEnLaPlanta() }, req.user!)
+
+        /*
+         * ── La corrección deja su propia fila, siempre ─────────────────────
+         *
+         * Esta ruta pide `auditaLaRuta`, así que el middleware NO escribe la
+         * fila: la escribe ésta, y es la única que va a existir. Por eso lleva
+         * **qué cambió** y no solo que alguien llamó al endpoint — sin el antes
+         * y el después juntos, reconstruir una corrección obliga a cruzar dos
+         * filas de `ventas` que nadie sabe que están relacionadas.
+         *
+         * Y no es opcional como la fila de venta retroactiva: acá el reporte de
+         * un mes ya emitido puede cambiar SIEMPRE —esa es la naturaleza del
+         * reemplazo— así que el delta de plata es el dato que hace auditable la
+         * operación entera.
+         *
+         * Va con `auditarSinBloquear` por lo mismo que las otras dos: la
+         * corrección ya está escrita y confirmada. Tumbar la respuesta porque
+         * falló la bitácora dejaría al operador creyendo que no se aplicó, y
+         * corrigiendo de nuevo sobre una venta que ya no es la vigente.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'ventas:corregir',
+          resource: 'ventas',
+          result: 'ok',
+          payload: {
+            resourceId: resultado.venta.id,
+            reemplaza: resultado.reemplazada.id,
+            motivo: resultado.reemplazada.motivoAnulacion,
+            totalAnterior: resultado.reemplazada.total,
+            totalNuevo: resultado.venta.total,
+            clienteAnterior: resultado.reemplazada.clienteId,
+            clienteNuevo: resultado.venta.clienteId,
+            ocurrioEn: resultado.venta.createdAt,
+          },
+        })
+
+        return reply.code(201).send(resultado)
+      } catch (err) {
+        return manejarError(err, req, reply, 'ventas', 'ventas:corregir', id)
+      }
+    },
+  )
+
+  /**
    * Devoluciones — RN-VEN-10.
    *
    * Van bajo `ventas:crear` porque aceptar una devolución es una operación de
@@ -280,7 +406,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/devoluciones',
-    { preHandler: [requireAuth, requirePermission('ventas', 'crear', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('ventas', 'crear')] },
     async (req, reply) => {
       const datos = validar(esquemaDeDevolucion, req.body, reply)
       if (!datos) return
@@ -305,7 +431,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/cobros',
-    { preHandler: [requireAuth, requirePermission('cobros', 'registrar', { auditaLaRuta: true })] },
+    { preHandler: [requireAuth, requirePermission('cobros', 'registrar')] },
     async (req, reply) => {
       const datos = validar(esquemaDeCobro, req.body, reply)
       if (!datos) return
@@ -364,7 +490,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('configuracion', 'editar', { auditaLaRuta: true }),
+        requirePermission('configuracion', 'editar'),
       ],
     },
     async (req, reply) => {
@@ -388,7 +514,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('configuracion', 'editar', { auditaLaRuta: true }),
+        requirePermission('configuracion', 'editar'),
       ],
     },
     async (req, reply) => {
@@ -443,6 +569,16 @@ async function lineasResumidasDe(ventaIds: string[]): Promise<Map<string, LineaR
   const lineas = await db
     .select({
       ventaId: lineasDeVenta.ventaId,
+      /*
+       * El id viaja además del nombre — RN-VEN-16.
+       *
+       * El nombre es para leer; el id es para VOLVER A ARMAR la venta cuando se
+       * la corrige. Sin él, el modal de corrección tendría que adivinar a qué
+       * producto del catálogo corresponde cada línea por su nombre, y dos
+       * productos que se renombraron parecido bastan para corregir la venta
+       * contra el equivocado.
+       */
+      productoId: lineasDeVenta.productoId,
       productoNombre: productos.nombre,
       cantidad: sql<number>`sum(${lineasDeVenta.cantidad})::int`,
       /*
@@ -472,6 +608,7 @@ async function lineasResumidasDe(ventaIds: string[]): Promise<Map<string, LineaR
     .where(inArray(lineasDeVenta.ventaId, ventaIds))
     .groupBy(
       lineasDeVenta.ventaId,
+      lineasDeVenta.productoId,
       productos.nombre,
       lineasDeVenta.precioFinal,
       lineasDeVenta.precioManual,

@@ -43,6 +43,7 @@ export type Action =
   | 'editar'
   | 'anular'
   | 'anular_verificada'
+  | 'corregir'
   | 'verificar_pago'
   | 'gestionar_cuentas_pendientes'
   | 'registrar'
@@ -117,6 +118,9 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'ventas', action: 'crear', scope: 'todo' },
     { resource: 'ventas', action: 'anular', scope: 'todo' },
     { resource: 'ventas', action: 'anular_verificada', scope: 'todo' },
+    // Corregir además ESCRIBE una venta con la fecha de otra, esquivando el
+    // tope de 90 días de RN-VEN-14. Por eso no se hereda de `anular`.
+    { resource: 'ventas', action: 'corregir', scope: 'todo' },
     { resource: 'ventas', action: 'verificar_pago', scope: 'todo' },
     { resource: 'ventas', action: 'gestionar_cuentas_pendientes', scope: 'todo' },
 

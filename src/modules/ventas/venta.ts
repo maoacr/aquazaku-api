@@ -14,7 +14,7 @@ import {
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { asignarFifo } from '@/modules/stock/asignacion'
-import { descontar } from '@/modules/stock/saldo'
+import { type Transaccion, descontar } from '@/modules/stock/saldo'
 import { exigirCreditoValido } from './credito'
 import { aCentavos, aMonto, calcularPrecio, totalDeLinea } from './precio'
 import { basePorSticker, prestarBaseEn } from '@/modules/retornables/bases'
@@ -175,9 +175,52 @@ export interface ResultadoDeVenta {
   descuentoAplicadoParcialmente: boolean
 }
 
+/**
+ * De dónde viene esta venta, cuando no viene del mostrador — RN-VEN-16.
+ *
+ * Lo usa la corrección y nadie más. Va como parámetro aparte y no como un campo
+ * de `DatosDeVenta` a propósito: `DatosDeVenta` es lo que alguien TIPEA, y
+ * ninguna de estas dos cosas se tipea. Mezclarlas dejaría que un cuerpo HTTP
+ * pidiera nacer con la fecha de otra venta.
+ */
+export interface Reemplazo {
+  /**
+   * El instante EXACTO de la venta que se reemplaza.
+   *
+   * No alcanza con `ocurrioEn`: ese ancla al mediodía de la planta —está bien
+   * para un día que alguien recuerda, no para un instante que ya está escrito—
+   * y correría la venta de las 8 de la mañana seis horas hacia adelante. Peor
+   * todavía si la corrección se hace al otro día: la venta saltaría de mes y el
+   * reporte que ya se emitió dejaría de cuadrar por el arreglo de un tipeo.
+   */
+  createdAt: Date
+  /** La venta que esta reemplaza. */
+  corrigeAId: string
+}
+
 export async function registrarVenta(
   datos: DatosDeVenta,
   registradoPor: string | null,
+): Promise<ResultadoDeVenta> {
+  return db.transaction((tx) => registrarVentaEn(tx, datos, registradoPor))
+}
+
+/**
+ * La venta, escrita dentro de una transacción que abrió otro.
+ *
+ * `registrarVenta` era todo un `db.transaction` y ahora es su envoltorio. La
+ * corrección necesita que la anulación de la vieja y el alta de la nueva sean
+ * UN solo acto: con dos `db.transaction` anidados, postgres-js toma una segunda
+ * conexión del pool y se abren DOS transacciones independientes —la de adentro
+ * ni siquiera ve lo que escribió la de afuera, así que el stock devuelto no
+ * estaría disponible para el FIFO de la nueva, y un rollback dejaría la mitad
+ * escrita—.
+ */
+export async function registrarVentaEn(
+  tx: Transaccion,
+  datos: DatosDeVenta,
+  registradoPor: string | null,
+  reemplazo?: Reemplazo,
 ): Promise<ResultadoDeVenta> {
   if (datos.items.length === 0) {
     throw new ErrorDeNegocio('VENTA_VACIA', 422, 'una venta sin productos no es una venta')
@@ -192,326 +235,341 @@ export async function registrarVenta(
    */
   const fechaDeEvaluacion = datos.ocurrioEn ?? datos.hoy
 
-  return db.transaction(async (tx) => {
-    const cliente = datos.clienteId ? await clienteActivo(tx, datos.clienteId) : null
-    const codigo = datos.codigoDescuento
-      ? await codigoVigente(tx, datos.codigoDescuento, fechaDeEvaluacion)
-      : null
+  const cliente = datos.clienteId ? await clienteActivo(tx, datos.clienteId) : null
+  const codigo = datos.codigoDescuento
+    ? await codigoVigente(tx, datos.codigoDescuento, fechaDeEvaluacion)
+    : null
+
+  /*
+   * ── Se PLANIFICA todo antes de escribir nada ─────────────────────────────
+   *
+   * La primera versión insertaba la venta con total en cero y lo completaba
+   * al final. El trigger `ventas_solo_anulacion` la rechazó — y con razón: un
+   * `UPDATE` sobre el total es exactamente lo que RN-VEN-02 prohíbe, sin
+   * importar quién lo haga ni con qué intención.
+   *
+   * La salida correcta no era abrirle una excepción al trigger, sino no
+   * necesitar el `UPDATE`: `asignarFifo` planifica y **bloquea las filas**
+   * dentro de la transacción, así que el total se puede calcular antes de que
+   * la venta exista. La fila nace con su valor definitivo y nunca hay un
+   * estado intermedio que alguien pueda leer.
+   */
+  const planificadas: {
+    item: ItemDeVenta
+    producto: Awaited<ReturnType<typeof productoVendible>>
+    precio: ReturnType<typeof calcularPrecio>
+    asignaciones: { loteId: string; codigo: string; cantidad: number }[]
+  }[] = []
+
+  let totalCentavos = 0
+  let huboRecorte = false
+  const preciosManuales: PrecioEscritoAMano[] = []
+
+  for (const item of datos.items) {
+    const producto = await productoVendible(tx, item.productoId)
 
     /*
-     * ── Se PLANIFICA todo antes de escribir nada ─────────────────────────────
-     *
-     * La primera versión insertaba la venta con total en cero y lo completaba
-     * al final. El trigger `ventas_solo_anulacion` la rechazó — y con razón: un
-     * `UPDATE` sobre el total es exactamente lo que RN-VEN-02 prohíbe, sin
-     * importar quién lo haga ni con qué intención.
-     *
-     * La salida correcta no era abrirle una excepción al trigger, sino no
-     * necesitar el `UPDATE`: `asignarFifo` planifica y **bloquea las filas**
-     * dentro de la transacción, así que el total se puede calcular antes de que
-     * la venta exista. La fila nace con su valor definitivo y nunca hay un
-     * estado intermedio que alguien pueda leer.
+     * El precio se elige por el tipo del cliente al momento. Sin cliente —la
+     * venta de mostrador normal— se cobra la lista residencial: es la de
+     * quien compra un botellón y se va.
      */
-    const planificadas: {
-      item: ItemDeVenta
-      producto: Awaited<ReturnType<typeof productoVendible>>
-      precio: ReturnType<typeof calcularPrecio>
-      asignaciones: { loteId: string; codigo: string; cantidad: number }[]
-    }[] = []
+    const deLista =
+      cliente?.tipo === 'comercial' ? producto.precioComercial : producto.precioResidencial
 
-    let totalCentavos = 0
-    let huboRecorte = false
-    const preciosManuales: PrecioEscritoAMano[] = []
+    /*
+     * ── El precio escrito a mano gana, y es su propio piso — RN-VEN-15 ─────
+     *
+     * Con `lista === mínimo` y sin descuento, `calcularPrecio` devuelve el
+     * número tal cual se escribió. Los dos CHECK de la base se cumplen por
+     * construcción: `final >= mínimo` por igualdad, y `final = lista −
+     * descuento` porque el descuento es cero.
+     *
+     * ── Por qué el código de descuento NO se aplica acá ───────────────────
+     *
+     * El manual es el precio que YA se cobró, no una lista sobre la cual
+     * negociar. Un descuento encima lo movería a un número que nunca ocurrió.
+     *
+     * Y si se aplicara igual, el piso —que ahora vale lo mismo que la lista—
+     * lo recortaría a cero y levantaría un `aplicadoParcialmente: true`: un
+     * aviso de «el descuento no entró del todo» sobre una venta donde nadie
+     * pidió descuento. Un aviso que miente es peor que ninguno.
+     *
+     * El código sigue aplicando a las demás líneas de la misma venta.
+     */
+    const precioLista = item.precioManual ?? deLista
+    const precioMinimo = item.precioManual ?? producto.precioMinimo
+    const descuento = item.precioManual
+      ? undefined
+      : codigo
+        ? { tipo: codigo.tipo, valor: codigo.valor }
+        : undefined
 
-    for (const item of datos.items) {
-      const producto = await productoVendible(tx, item.productoId)
+    const precio = calcularPrecio(precioLista, precioMinimo, descuento)
 
+    /*
+     * Se arma acá, con el ítem entero a la vista, y no en el loop de abajo —
+     * que corre por lote y multiplicaría un acto en varias filas.
+     */
+    if (item.precioManual !== undefined) {
+      preciosManuales.push({
+        productoId: producto.id,
+        cantidad: item.cantidad,
+        precioDeLista: aMonto(aCentavos(deLista)),
+        precioCobrado: precio.precioFinal,
+        subtotal: totalDeLinea(precio.precioFinal, item.cantidad),
+      })
+    }
+
+    if (precio.aplicadoParcialmente) huboRecorte = true
+
+    // Planifica y BLOQUEA los lotes por orden de vencimiento. El bloqueo dura
+    // toda la transacción, así que entre planificar y descontar nadie los vacía.
+    const plan = await asignarFifo(item.productoId, item.cantidad, fechaDeEvaluacion, tx)
+
+    if (!plan.ok) {
       /*
-       * El precio se elige por el tipo del cliente al momento. Sin cliente —la
-       * venta de mostrador normal— se cobra la lista residencial: es la de
-       * quien compra un botellón y se va.
+       * Que no alcance es un estado normal del negocio, y el mensaje lleva el
+       * número REAL. Sin él, quien está en el mostrador tiene que ir a la
+       * pantalla de stock a averiguar cuánto puede vender.
        */
-      const deLista =
-        cliente?.tipo === 'comercial' ? producto.precioComercial : producto.precioResidencial
+      throw new ErrorDeNegocio(
+        'STOCK_INSUFICIENTE',
+        422,
+        `de ${producto.nombre} quedan ${plan.disponible} y esta venta pide ${item.cantidad}`,
+      )
+    }
 
+    for (const asignacion of plan.asignaciones) {
+      totalCentavos += aCentavos(totalDeLinea(precio.precioFinal, asignacion.cantidad))
+    }
+
+    planificadas.push({ item, producto, precio, asignaciones: plan.asignaciones })
+  }
+
+  const total = aMonto(totalCentavos)
+
+  /*
+   * El crédito se chequea con el total ya calculado y ANTES de escribir. Si
+   * se pasa del tope, no se escribió nada todavía — y aunque se hubiera
+   * escrito, el rollback lo llevaría. Chequearlo acá evita el trabajo inútil.
+   */
+  if (datos.medioDePago === 'credito') {
+    exigirCreditoValido(cliente!, await deudaDe(cliente!.id, tx), total)
+  }
+
+  /*
+   * ── Los botellones que salen sin vacío de vuelta — RN-ENV-03, RN-ENV-09 ──
+   *
+   * Se valida ANTES de escribir, junto al crédito y por el mismo motivo: si
+   * el pedido no cierra, que no se haya escrito nada.
+   */
+  const salen = datos.botellonesSinVacio ?? 0
+
+  if (salen > 0) {
+    const botellonesVendidos = planificadas
+      .filter(({ producto }) => producto.presentacion === 'botellon')
+      .reduce((suma, { item }) => suma + item.cantidad, 0)
+
+    if (salen > botellonesVendidos) {
       /*
-       * ── El precio escrito a mano gana, y es su propio piso — RN-VEN-15 ─────
-       *
-       * Con `lista === mínimo` y sin descuento, `calcularPrecio` devuelve el
-       * número tal cual se escribió. Los dos CHECK de la base se cumplen por
-       * construcción: `final >= mínimo` por igualdad, y `final = lista −
-       * descuento` porque el descuento es cero.
-       *
-       * ── Por qué el código de descuento NO se aplica acá ───────────────────
-       *
-       * El manual es el precio que YA se cobró, no una lista sobre la cual
-       * negociar. Un descuento encima lo movería a un número que nunca ocurrió.
-       *
-       * Y si se aplicara igual, el piso —que ahora vale lo mismo que la lista—
-       * lo recortaría a cero y levantaría un `aplicadoParcialmente: true`: un
-       * aviso de «el descuento no entró del todo» sobre una venta donde nadie
-       * pidió descuento. Un aviso que miente es peor que ninguno.
-       *
-       * El código sigue aplicando a las demás líneas de la misma venta.
+       * No se puede llevar más envases que recargas compró. Si de verdad
+       * necesita envases sueltos, eso es una entrega y va por su propio
+       * camino —donde queda con su motivo— y no escondida en una venta.
        */
-      const precioLista = item.precioManual ?? deLista
-      const precioMinimo = item.precioManual ?? producto.precioMinimo
-      const descuento = item.precioManual
-        ? undefined
-        : codigo
-          ? { tipo: codigo.tipo, valor: codigo.valor }
-          : undefined
+      throw new ErrorDeNegocio(
+        'BOTELLONES_SIN_RESPALDO',
+        422,
+        `esta venta lleva ${botellonesVendidos} botellón(es) y se están despachando ${salen} sin vacío de vuelta. Si hacen falta envases sueltos, regístrelos como entrega en Retornables`,
+      )
+    }
 
-      const precio = calcularPrecio(precioLista, precioMinimo, descuento)
-
+    if (!cliente) {
       /*
-       * Se arma acá, con el ítem entero a la vista, y no en el loop de abajo —
-       * que corre por lote y multiplicaría un acto en varias filas.
+       * ── La regla, y su alcance exacto — RN-ENV-09 ────────────────────────
+       *
+       * Una venta SIN cliente sigue siendo válida: quien compra una paca de
+       * bolsas no se lleva ningún activo retornable, y exigirle documento
+       * llevaría a inventar clientes o a reusar el del anterior.
+       *
+       * Pero un botellón es de la empresa y vuelve. Si sale sin nombre, no hay
+       * a quién reclamárselo — y la ley de conservación NO lo detecta: sin
+       * fila escrita, la cuenta cierra igual mientras el envase está afuera.
        */
-      if (item.precioManual !== undefined) {
-        preciosManuales.push({
-          productoId: producto.id,
-          cantidad: item.cantidad,
-          precioDeLista: aMonto(aCentavos(deLista)),
-          precioCobrado: precio.precioFinal,
-          subtotal: totalDeLinea(precio.precioFinal, item.cantidad),
-        })
-      }
+      throw new ErrorDeNegocio(
+        'CLIENTE_REQUERIDO',
+        422,
+        'un botellón que sale sin vacío de vuelta queda a cargo de alguien. Registre al cliente antes de despacharlo: sin nombre no hay a quién reclamárselo',
+      )
+    }
+  }
 
-      if (precio.aplicadoParcialmente) huboRecorte = true
+  const [venta] = await tx
+    .insert(ventas)
+    .values({
+      clienteId: cliente?.id ?? null,
+      // El tipo del cliente AL MOMENTO: un cliente pasa de residencial a
+      // comercial y las ventas viejas no se reinterpretan (RN-VEN-12).
+      tipoClienteAlMomento: cliente?.tipo ?? null,
+      medioDePago: datos.medioDePago,
+      canal: datos.canal ?? 'mostrador',
+      total,
+      codigoDescuentoId: codigo?.id ?? null,
+      requiereFacturaElectronica: datos.requiereFacturaElectronica ?? false,
+      registradoPor,
+      /*
+       * Sin fecha, `createdAt` lo pone la base con `defaultNow()` y la venta
+       * lleva la hora real: es el caso del mostrador, y ahí la hora sirve.
+       * Con fecha, el instante se ancla al mediodía de la planta.
+       *
+       * La corrección gana sobre las dos: hereda el instante EXACTO de la
+       * venta que reemplaza, para que arreglar un tipeo no mueva plata de un
+       * día —ni de un mes— a otro.
+       */
+      ...(reemplazo ? { createdAt: reemplazo.createdAt } : ocurrioEn && { createdAt: ocurrioEn }),
+      ...(reemplazo && { corrigeAId: reemplazo.corrigeAId }),
+    })
+    .returning()
 
-      // Planifica y BLOQUEA los lotes por orden de vencimiento. El bloqueo dura
-      // toda la transacción, así que entre planificar y descontar nadie los vacía.
-      const plan = await asignarFifo(item.productoId, item.cantidad, fechaDeEvaluacion, tx)
+  /*
+   * ── Dos filas, en la MISMA transacción que la venta ────────────────────
+   *
+   * Que sea la misma transacción es todo el punto. Antes esto era un segundo
+   * acto que el `pos` tenía que recordar en otra pantalla, y olvidarlo no
+   * dejaba ningún rastro: sin fila escrita, la ley de conservación sigue
+   * cerrando mientras el envase está en la casa del cliente y el sistema lo
+   * cree en la bodega.
+   *
+   * `documentoId` apunta a la venta que lo originó, así que el movimiento se
+   * puede explicar sin preguntarle a nadie.
+   */
+  if (salen > 0) {
+    await tx.insert(movimientosBotellon).values([
+      { cantidad: -salen, tipo: 'entrega', documentoId: venta!.id, registradoPor },
+      {
+        cantidad: salen,
+        tipo: 'entrega',
+        clienteId: cliente!.id,
+        documentoId: venta!.id,
+        registradoPor,
+      },
+    ])
+  }
 
-      if (!plan.ok) {
+  const lineas: LineaRegistrada[] = []
+
+  for (const { item, producto, precio, asignaciones } of planificadas) {
+    /*
+     * ── Una línea POR LOTE, no por producto ────────────────────────────────
+     *
+     * Una venta de 30 puede repartirse entre dos lotes. Cada línea guarda de
+     * cuál salió, y eso es lo que hace exacta la anulación: devolver al mismo
+     * lote, que tiene su propio vencimiento. Devolver a un lote genérico
+     * convertiría producto que vencía el martes en producto que vence el mes
+     * que viene.
+     */
+    for (const asignacion of asignaciones) {
+      const salida = await descontar(
+        {
+          loteId: asignacion.loteId,
+          cantidad: asignacion.cantidad,
+          tipo: 'venta',
+          documentoId: venta!.id,
+          registradoPor,
+        },
+        tx,
+      )
+
+      if (!salida.ok) {
         /*
-         * Que no alcance es un estado normal del negocio, y el mensaje lleva el
-         * número REAL. Sin él, quien está en el mostrador tiene que ir a la
-         * pantalla de stock a averiguar cuánto puede vender.
+         * No debería poder pasar: `asignarFifo` bloqueó estas filas con
+         * `FOR UPDATE` y nadie más las puede tocar hasta que esta transacción
+         * termine. Si igual pasara, es una falla del bloqueo y no un caso de
+         * negocio — lanzar es lo correcto, porque seguir escribiría una venta
+         * que el stock no respalda.
          */
         throw new ErrorDeNegocio(
           'STOCK_INSUFICIENTE',
           422,
-          `de ${producto.nombre} quedan ${plan.disponible} y esta venta pide ${item.cantidad}`,
+          `el lote ${asignacion.codigo} se vació mientras se registraba la venta: quedan ${salida.disponible}`,
         )
       }
 
-      for (const asignacion of plan.asignaciones) {
-        totalCentavos += aCentavos(totalDeLinea(precio.precioFinal, asignacion.cantidad))
-      }
-
-      planificadas.push({ item, producto, precio, asignaciones: plan.asignaciones })
-    }
-
-    const total = aMonto(totalCentavos)
-
-    /*
-     * El crédito se chequea con el total ya calculado y ANTES de escribir. Si
-     * se pasa del tope, no se escribió nada todavía — y aunque se hubiera
-     * escrito, el rollback lo llevaría. Chequearlo acá evita el trabajo inútil.
-     */
-    if (datos.medioDePago === 'credito') {
-      exigirCreditoValido(cliente!, await deudaDe(cliente!.id, tx), total)
-    }
-
-    /*
-     * ── Los botellones que salen sin vacío de vuelta — RN-ENV-03, RN-ENV-09 ──
-     *
-     * Se valida ANTES de escribir, junto al crédito y por el mismo motivo: si
-     * el pedido no cierra, que no se haya escrito nada.
-     */
-    const salen = datos.botellonesSinVacio ?? 0
-
-    if (salen > 0) {
-      const botellonesVendidos = planificadas
-        .filter(({ producto }) => producto.presentacion === 'botellon')
-        .reduce((suma, { item }) => suma + item.cantidad, 0)
-
-      if (salen > botellonesVendidos) {
+      await tx.insert(lineasDeVenta).values({
+        ventaId: venta!.id,
+        productoId: producto.id,
+        loteId: asignacion.loteId,
+        cantidad: asignacion.cantidad,
+        precioListaAplicado: precio.precioLista,
+        descuentoMonto: precio.descuentoMonto,
+        precioMinimoAplicado: precio.precioMinimo,
+        precioFinal: precio.precioFinal,
         /*
-         * No se puede llevar más envases que recargas compró. Si de verdad
-         * necesita envases sueltos, eso es una entrega y va por su propio
-         * camino —donde queda con su motivo— y no escondida en una venta.
+         * Va en CADA línea del ítem, no en la primera. FIFO parte un pedido de
+         * 120 en dos lotes y escribe dos filas: si la bandera fuera solo de la
+         * primera, la segunda pasaría por una venta a precio de catálogo.
          */
-        throw new ErrorDeNegocio(
-          'BOTELLONES_SIN_RESPALDO',
-          422,
-          `esta venta lleva ${botellonesVendidos} botellón(es) y se están despachando ${salen} sin vacío de vuelta. Si hacen falta envases sueltos, regístrelos como entrega en Retornables`,
-        )
-      }
-
-      if (!cliente) {
-        /*
-         * ── La regla, y su alcance exacto — RN-ENV-09 ────────────────────────
-         *
-         * Una venta SIN cliente sigue siendo válida: quien compra una paca de
-         * bolsas no se lleva ningún activo retornable, y exigirle documento
-         * llevaría a inventar clientes o a reusar el del anterior.
-         *
-         * Pero un botellón es de la empresa y vuelve. Si sale sin nombre, no hay
-         * a quién reclamárselo — y la ley de conservación NO lo detecta: sin
-         * fila escrita, la cuenta cierra igual mientras el envase está afuera.
-         */
-        throw new ErrorDeNegocio(
-          'CLIENTE_REQUERIDO',
-          422,
-          'un botellón que sale sin vacío de vuelta queda a cargo de alguien. Registre al cliente antes de despacharlo: sin nombre no hay a quién reclamárselo',
-        )
-      }
-    }
-
-    const [venta] = await tx
-      .insert(ventas)
-      .values({
-        clienteId: cliente?.id ?? null,
-        // El tipo del cliente AL MOMENTO: un cliente pasa de residencial a
-        // comercial y las ventas viejas no se reinterpretan (RN-VEN-12).
-        tipoClienteAlMomento: cliente?.tipo ?? null,
-        medioDePago: datos.medioDePago,
-        canal: datos.canal ?? 'mostrador',
-        total,
-        codigoDescuentoId: codigo?.id ?? null,
-        requiereFacturaElectronica: datos.requiereFacturaElectronica ?? false,
-        registradoPor,
-        /*
-         * Sin fecha, `createdAt` lo pone la base con `defaultNow()` y la venta
-         * lleva la hora real: es el caso del mostrador, y ahí la hora sirve.
-         * Con fecha, el instante se ancla al mediodía de la planta.
-         */
-        ...(ocurrioEn && { createdAt: ocurrioEn }),
+        precioManual: item.precioManual !== undefined,
       })
-      .returning()
 
+      lineas.push({
+        loteCodigo: asignacion.codigo,
+        productoCodigo: producto.codigo,
+        cantidad: asignacion.cantidad,
+        precioFinal: precio.precioFinal,
+        aplicadoParcialmente: precio.aplicadoParcialmente,
+      })
+    }
+  }
+
+  if (codigo) {
+    await tx
+      .update(codigosDeDescuento)
+      .set({ usosRealizados: sql`${codigosDeDescuento.usosRealizados} + 1` })
+      .where(eq(codigosDeDescuento.id, codigo.id))
+  }
+
+  /*
+   * ── La base sale DENTRO de la misma transacción ─────────────────────────
+   *
+   * Si el préstamo falla —figura en otra dirección, el cliente no está
+   * verificado— la venta entera se cae. Y está bien: quien atiende todavía no
+   * cobró, corrige el número y vuelve a intentar.
+   *
+   * Al revés quedaría lo peor de los dos mundos: una venta registrada y una
+   * base saliendo por la puerta sin ninguna fila que la reclame.
+   */
+  let basePrestada: { idSticker: string } | undefined
+
+  if (datos.base) {
+    const base = await basePorSticker(datos.base.sticker, tx)
     /*
-     * ── Dos filas, en la MISMA transacción que la venta ────────────────────
-     *
-     * Que sea la misma transacción es todo el punto. Antes esto era un segundo
-     * acto que el `pos` tenía que recordar en otra pantalla, y olvidarlo no
-     * dejaba ningún rastro: sin fila escrita, la ley de conservación sigue
-     * cerrando mientras el envase está en la casa del cliente y el sistema lo
-     * cree en la bodega.
-     *
-     * `documentoId` apunta a la venta que lo originó, así que el movimiento se
-     * puede explicar sin preguntarle a nadie.
+     * La venta viaja como documento del préstamo. Sin eso, la base queda con
+     * una fila que dice a qué dirección fue y nada que diga de dónde salió — y
+     * la corrección (RN-VEN-16) no puede saber que esta venta prestó un activo
+     * antes de dejar cambiarle el cliente.
      */
-    if (salen > 0) {
-      await tx.insert(movimientosBotellon).values([
-        { cantidad: -salen, tipo: 'entrega', documentoId: venta!.id, registradoPor },
-        {
-          cantidad: salen,
-          tipo: 'entrega',
-          clienteId: cliente!.id,
-          documentoId: venta!.id,
-          registradoPor,
-        },
-      ])
-    }
+    const prestada = await prestarBaseEn(
+      tx,
+      base.id,
+      datos.base.direccionId,
+      registradoPor,
+      venta!.id,
+    )
+    basePrestada = { idSticker: prestada.idSticker }
+  }
 
-    const lineas: LineaRegistrada[] = []
+  const [confirmada] = await tx.select().from(ventas).where(eq(ventas.id, venta!.id))
 
-    for (const { item, producto, precio, asignaciones } of planificadas) {
-      /*
-       * ── Una línea POR LOTE, no por producto ────────────────────────────────
-       *
-       * Una venta de 30 puede repartirse entre dos lotes. Cada línea guarda de
-       * cuál salió, y eso es lo que hace exacta la anulación: devolver al mismo
-       * lote, que tiene su propio vencimiento. Devolver a un lote genérico
-       * convertiría producto que vencía el martes en producto que vence el mes
-       * que viene.
-       */
-      for (const asignacion of asignaciones) {
-        const salida = await descontar(
-          {
-            loteId: asignacion.loteId,
-            cantidad: asignacion.cantidad,
-            tipo: 'venta',
-            documentoId: venta!.id,
-            registradoPor,
-          },
-          tx,
-        )
-
-        if (!salida.ok) {
-          /*
-           * No debería poder pasar: `asignarFifo` bloqueó estas filas con
-           * `FOR UPDATE` y nadie más las puede tocar hasta que esta transacción
-           * termine. Si igual pasara, es una falla del bloqueo y no un caso de
-           * negocio — lanzar es lo correcto, porque seguir escribiría una venta
-           * que el stock no respalda.
-           */
-          throw new ErrorDeNegocio(
-            'STOCK_INSUFICIENTE',
-            422,
-            `el lote ${asignacion.codigo} se vació mientras se registraba la venta: quedan ${salida.disponible}`,
-          )
-        }
-
-        await tx.insert(lineasDeVenta).values({
-          ventaId: venta!.id,
-          productoId: producto.id,
-          loteId: asignacion.loteId,
-          cantidad: asignacion.cantidad,
-          precioListaAplicado: precio.precioLista,
-          descuentoMonto: precio.descuentoMonto,
-          precioMinimoAplicado: precio.precioMinimo,
-          precioFinal: precio.precioFinal,
-          /*
-           * Va en CADA línea del ítem, no en la primera. FIFO parte un pedido de
-           * 120 en dos lotes y escribe dos filas: si la bandera fuera solo de la
-           * primera, la segunda pasaría por una venta a precio de catálogo.
-           */
-          precioManual: item.precioManual !== undefined,
-        })
-
-        lineas.push({
-          loteCodigo: asignacion.codigo,
-          productoCodigo: producto.codigo,
-          cantidad: asignacion.cantidad,
-          precioFinal: precio.precioFinal,
-          aplicadoParcialmente: precio.aplicadoParcialmente,
-        })
-      }
-    }
-
-    if (codigo) {
-      await tx
-        .update(codigosDeDescuento)
-        .set({ usosRealizados: sql`${codigosDeDescuento.usosRealizados} + 1` })
-        .where(eq(codigosDeDescuento.id, codigo.id))
-    }
-
-    /*
-     * ── La base sale DENTRO de la misma transacción ─────────────────────────
-     *
-     * Si el préstamo falla —figura en otra dirección, el cliente no está
-     * verificado— la venta entera se cae. Y está bien: quien atiende todavía no
-     * cobró, corrige el número y vuelve a intentar.
-     *
-     * Al revés quedaría lo peor de los dos mundos: una venta registrada y una
-     * base saliendo por la puerta sin ninguna fila que la reclame.
-     */
-    let basePrestada: { idSticker: string } | undefined
-
-    if (datos.base) {
-      const base = await basePorSticker(datos.base.sticker, tx)
-      const prestada = await prestarBaseEn(tx, base.id, datos.base.direccionId, registradoPor)
-      basePrestada = { idSticker: prestada.idSticker }
-    }
-
-    const [confirmada] = await tx.select().from(ventas).where(eq(ventas.id, venta!.id))
-
-    return {
-      venta: confirmada!,
-      lineas,
-      preciosManuales,
-      descuentoAplicadoParcialmente: huboRecorte,
-      ...(basePrestada && { basePrestada }),
-    }
-  })
+  return {
+    venta: confirmada!,
+    lineas,
+    preciosManuales,
+    descuentoAplicadoParcialmente: huboRecorte,
+    ...(basePrestada && { basePrestada }),
+  }
 }
 
-type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type Tx = Transaccion
 
 async function clienteActivo(tx: Tx, id: string): Promise<Cliente> {
   const [cliente] = await tx.select().from(clientes).where(eq(clientes.id, id))
