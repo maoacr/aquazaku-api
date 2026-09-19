@@ -132,23 +132,44 @@ export const esquemaDeAnulacion = z.object({ motivo })
  * stock, piso, crédito y vigencia. No hay un segundo camino con sus propias
  * reglas.
  *
- * `ocurrioEn` NO está, y es la única diferencia con `esquemaDeVenta`: la
- * corrección hereda el instante exacto de la venta que reemplaza. Aceptarlo
- * sería dejar mover una venta de mes disfrazando el traslado de corrección.
+ * ── `ocurrioEn` opcional, dentro del piso de RN-VEN-14 ──────────────────────
+ *
+ * Por **default** la corrección hereda el instante exacto de la venta que
+ * reemplaza: omitirlo es la regla normal, y no esquiva nada.
+ *
+ * Cuando viene, es porque la venta se cargó con la fecha equivocada en primer
+ * lugar y la corrección es la única oportunidad de encuadrar la plata en el día
+ * real del hecho. No es un permiso nuevo: pasa por el mismo piso de 90 días y
+ * el mismo rechazo de futuro que
+ * [RN-VEN-14](#rn-ven-14--una-venta-se-registra-con-la-fecha-del-día-en-que-ocurrió)
+ * le pone a una venta nueva. La validación corre del lado del servicio —
+ * `exigirFechaRegistrable` — antes de abrir la transacción, así un 422
+ * corto-circuita sin tocar la fila vieja.
  */
 export const esquemaDeCorreccion = esquemaDeVenta
   .omit({ ocurrioEn: true })
-  .extend({ motivo })
+  .extend({
+    motivo,
+    /**
+     * Override de la fecha del hecho — RN-VEN-14 + RN-VEN-16.
+     *
+     * Opcional: ausente hereda el instante exacto. Presente y válido le gana
+     * a la herencia; presente e inválido cae con 422 desde `exigirFechaRegistrable`.
+     */
+    ocurrioEn: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'la fecha va como AAAA-MM-DD')
+      .optional(),
+  })
   /*
    * ── `.strict()` porque `.omit()` DESCARTA, no rechaza ─────────────────────
    *
    * Un `z.object` en modo `strip` —el default— saca las claves que no conoce y
-   * sigue. Así, un cuerpo con `ocurrioEn` devolvía 201 y la fecha se ignoraba
-   * en silencio: quien la mandó se queda creyendo que movió la venta de día.
+   * sigue. Sin `.strict()`, un cuerpo con cualquier clave extra devolvía 201 y
+   * se ignoraba en silencio: quien la mandó se queda creyendo que pidió algo.
    *
-   * En efecto no la movía —la corrección hereda el instante de la original y
-   * eso gana en el INSERT— pero un dato que se acepta y no hace nada es peor
-   * que uno rechazado. Con `.strict()` el 400 dice qué clave sobra.
+   * Con `.strict()` el 400 dice qué clave sobra. Esa puerta queda porque
+   * `ocurrioEn` ya está manejada por el `.extend` de arriba.
    */
   .strict()
 
