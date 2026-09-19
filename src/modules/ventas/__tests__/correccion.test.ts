@@ -241,6 +241,28 @@ describe('la corrección reemplaza, no edita', () => {
       corregir(venta.id, como(admin.usuario.id, ['admin']), { ocurrioEn: '2026-01-01' }),
     ).rejects.toMatchObject({ code: 'VENTA_DEMASIADO_VIEJA' })
   })
+
+  /**
+   * La fecha pre-cargada del modal llega al servidor explícita — D10.
+   *
+   * Aunque coincida con la original, no se filtra: el admin vio el campo,
+   * confirmó el día, y la auditoría tiene que registrar esa intención. Sin
+   * el envío explícito, el reporte perdería la diferencia entre «corrigió
+   * con la misma fecha a propósito» y «corrigió y el sistema la heredó».
+   */
+  it('con `ocurrioEn` igual a la original persiste igual y la auditoría registra el visto bueno', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id, { ocurrioEn: '2026-08-20' })
+
+    const { venta: nueva, reemplazada } = await corregir(
+      venta.id,
+      como(admin.usuario.id, ['admin']),
+      { ocurrioEn: '2026-08-20' },
+    )
+
+    expect(nueva.createdAt.getTime()).toBe(venta.createdAt.getTime())
+    expect(reemplazada.createdAt.getTime()).toBe(nueva.createdAt.getTime())
+  })
 })
 
 describe('el stock queda contando una sola venta', () => {
