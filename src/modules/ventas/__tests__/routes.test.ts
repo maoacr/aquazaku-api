@@ -387,6 +387,68 @@ describe('corregir una venta', () => {
     expect(payload.totalAnterior).toBe(original.venta.total)
     expect(payload.totalNuevo).not.toBe(original.venta.total)
   })
+
+  /**
+   * RN-VEN-16-AUDIT — la corrección con override registra **ambas** fechas.
+   *
+   * La clave singular `ocurrioEn` desapareció del payload de
+   * `ventas:corregir`. Si reaparece, la UI de auditoría la confundiría con la
+   * fecha nueva y el reporte mezclaría las dos cosas.
+   */
+  it('la auditoría registra ambas fechas cuando hay override, y borra la singular', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({
+        motivo: 'verifico que la auditoría registra ambas fechas distintas',
+        ocurrioEn: '2026-08-20',
+      }),
+    })
+
+    const [fila] = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'ventas:corregir'))
+
+    const payload = fila?.payload as Record<string, unknown>
+    expect(payload.ocurrioEnAnterior).toBe(original.venta.createdAt)
+    expect(payload.ocurrioEnNuevo).not.toBe(payload.ocurrioEnAnterior)
+    expect(payload.ocurrioEnNuevo).toBe('2026-08-20T17:00:00.000Z')
+    expect(payload.ocurrioEn).toBeUndefined()
+  })
+
+  /**
+   * Sin override, la auditoría registra la misma fecha en ambos campos.
+   *
+   * La nueva venta hereda el instante exacto de la vieja, y los dos campos del
+   * payload valen lo mismo — pero están **ambos** presentes, no uno solo.
+   */
+  it('la auditoría registra la misma fecha en ambos campos cuando no hay override', async () => {
+    const original = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({
+        motivo: 'verifico que hereda y la auditoría lo refleja en los dos campos',
+      }),
+    })
+
+    const [fila] = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'ventas:corregir'))
+
+    const payload = fila?.payload as Record<string, unknown>
+    expect(payload.ocurrioEnAnterior).toBe(payload.ocurrioEnNuevo)
+    expect(payload.ocurrioEn).toBeUndefined()
+  })
 })
 
 /**
