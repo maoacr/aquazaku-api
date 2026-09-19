@@ -284,6 +284,41 @@ describe('corregir una venta', () => {
     expect(res.statusCode).toBe(403)
   })
 
+  /**
+   * RN-ACC-04 — el rechazo de permiso deja fila en la bitácora.
+   *
+   * `requirePermission` emite `result: 'denied'` antes de salir, así que un
+   * `pos` que intente corregir queda registrado igual que un éxito. Esto es lo
+   * que hace auditable el intento de backdoor contra el piso de 90 días.
+   */
+  it('un intento denegado de seller queda en la bitácora con result=denied', async () => {
+    const pos = await usuarioAutenticado('pos')
+    const original = (
+      await app.inject({
+        method: 'POST',
+        url: '/ventas',
+        payload: conProducto(),
+        headers: { cookie: pos.cookie },
+      })
+    ).json()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/ventas/${original.venta.id}/correccion`,
+      payload: conProducto({ motivo: 'intento de seller para auditar 403' }),
+      headers: { cookie: pos.cookie },
+    })
+
+    expect(res.statusCode).toBe(403)
+
+    const [fila] = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'ventas:corregir'))
+
+    expect(fila?.result).toBe('denied')
+  })
+
   it('sin motivo suficiente rebota en la validación', async () => {
     const original = (
       await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
