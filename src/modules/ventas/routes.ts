@@ -305,7 +305,32 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        return await anularVenta(id, datos.motivo, req.user!)
+        const { venta: anulada, reversiones } = await anularVenta(id, datos.motivo, req.user!)
+
+        /**
+         * Bitácora post-commit con payload rico — change `botellones-entrega-devolucion`.
+         *
+         * Antes la fila `ok` no se escribía (quedaba en manos del middleware de
+         * `requirePermission`, que solo persiste `resourceId`). Sin el detalle de
+         * qué se revirtió, reconstruir la anulación exigía cruzar `ventas`,
+         * `movimientos_botellon` y `movimientos_base` a mano.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'ventas:anular',
+          resource: 'ventas',
+          result: 'ok',
+          payload: {
+            resourceId: anulada.id,
+            motivo: anulada.motivoAnulacion,
+            botellonesReversados: reversiones.botellonesReversados,
+            botellonesDevueltos: reversiones.botellonesDevueltos,
+            baseReversada: reversiones.baseReversada,
+          },
+        })
+
+        return reply.code(200).send(anulada)
       } catch (err) {
         return manejarError(err, req, reply, 'ventas', 'ventas:anular', id)
       }
@@ -403,6 +428,19 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
              */
             ocurrioEnAnterior: resultado.reemplazada.createdAt,
             ocurrioEnNuevo: resultado.venta.createdAt,
+            /*
+             * Botellones — change `botellones-entrega-devolucion`. La corrección
+             * puede mover las dos cantidades; sin el antes/después, reconstruir
+             * el cambio obliga a sumar los compensatorios `tipo='ajuste'`.
+             */
+            botellonesEntregados: {
+              anterior: resultado.reemplazada.botellonesEntregados,
+              nuevo: resultado.venta.botellonesEntregados,
+            },
+            botellonesRecibidos: {
+              anterior: resultado.reemplazada.botellonesRecibidos,
+              nuevo: resultado.venta.botellonesRecibidos,
+            },
           },
         })
 

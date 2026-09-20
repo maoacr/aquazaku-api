@@ -143,9 +143,9 @@ describe('anular revierte los efectos', () => {
 
     const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
 
-    expect(anulada.estado).toBe('anulada')
-    expect(anulada.anuladaPor).toBe(autor.usuario.id)
-    expect(anulada.motivoAnulacion).toBe(MOTIVO)
+    expect(anulada.venta.estado).toBe('anulada')
+    expect(anulada.venta.anuladaPor).toBe(autor.usuario.id)
+    expect(anulada.venta.motivoAnulacion).toBe(MOTIVO)
     expect(await db.select().from(ventas)).toHaveLength(1)
   })
 })
@@ -406,7 +406,7 @@ describe('la anulación sin botella ni base sigue funcionando', () => {
      */
     const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
 
-    expect(anulada.estado).toBe('anulada')
+    expect(anulada.venta.estado).toBe('anulada')
     expect(await saldo()).toBe(50)
 
     const movimientos = await db

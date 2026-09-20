@@ -168,11 +168,30 @@ export async function devolverElProductoALosLotes(
   }
 }
 
+/**
+ * Lo que la anulación revirtió — la bitácora lo necesita para reconstruir la
+ * operación sin cruzar filas de `movimientos_botellon` / `movimientos_base`.
+ *
+ * `baseReversada` es el `baseId` si la venta prestó una base, `null` en caso
+ * contrario. Se identifica vía `movimientos_base` post-commit (la tabla
+ * `ventas` no tiene columna `base`).
+ */
+export interface ReversionesDeAnulacion {
+  botellonesReversados: number
+  botellonesDevueltos: number
+  baseReversada: string | null
+}
+
+export interface ResultadoDeAnulacion {
+  venta: Venta
+  reversiones: ReversionesDeAnulacion
+}
+
 export async function anularVenta(
   ventaId: string,
   motivo: string,
   usuario: UserContext,
-): Promise<Venta> {
+): Promise<ResultadoDeAnulacion> {
   return db.transaction(async (tx) => {
     const venta = await ventaAnulable(tx, ventaId, usuario)
     const explicacion = exigirMotivo(motivo, 'anular')
@@ -191,8 +210,39 @@ export async function anularVenta(
       .where(eq(ventas.id, ventaId))
 
     const [anulada] = await tx.select().from(ventas).where(eq(ventas.id, ventaId))
-    return anulada!
+
+    /**
+     * `devolverActivosDeLaVenta` ya escribió los movimientos (con `tipo='retorno'`
+     * para la base); los contamos acá para que el caller (la ruta) arme el
+     * payload de auditoría sin volver a leer la tabla.
+     */
+    const reversiones: ReversionesDeAnulacion = {
+      botellonesReversados: venta.botellonesEntregados,
+      botellonesDevueltos: venta.botellonesRecibidos,
+      baseReversada: await baseAsignadaAVenta(tx, venta.id),
+    }
+
+    return { venta: anulada!, reversiones }
   })
+}
+
+/**
+ * Devuelve el `baseId` que esta venta prestó, o `null` si la venta no asignó
+ * ninguna base. Se busca en `movimientos_base` (la tabla `ventas` no tiene
+ * columna `base`; el tracking es por el libro contable).
+ */
+async function baseAsignadaAVenta(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  ventaId: string,
+): Promise<string | null> {
+  const [fila] = await tx
+    .select({ baseId: movimientosBase.baseId })
+    .from(movimientosBase)
+    .where(
+      and(eq(movimientosBase.documentoId, ventaId), eq(movimientosBase.tipo, 'prestamo')),
+    )
+    .limit(1)
+  return fila?.baseId ?? null
 }
 
 /**
