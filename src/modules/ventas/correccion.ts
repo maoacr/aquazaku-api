@@ -50,12 +50,19 @@ import {
  *
  * ── Lo que la corrección NO re-emite ────────────────────────────────────────
  *
- * Los botellones despachados sin vacío y una base prestada NO se rehacen. La
- * anulación tampoco los revierte, y por la misma razón: son movimientos
- * FÍSICOS. El botellón salió de la planta una vez y sigue afuera; volver a
- * descontarlo del parque por arreglar un tipeo inventaría un envase que nunca
- * salió. Quedan colgando de la venta original, que es donde de verdad
- * ocurrieron.
+ * Los movimientos FÍSICOS de la venta original (botellones entregados,
+ * botellones recibidos, base prestada) NO se tocan. La corrección, en cambio,
+ * agrega movimientos compensatorios `tipo='ajuste'` sobre la nueva venta con
+ * el delta contra la original — así el saldo del cliente se reconstruye desde
+ * el libro contable sin perder la historia de la venta vieja.
+ *
+ * La anulación, en cambio, SÍ revierte los tres: `entrega` → `retorno`,
+ * `retorno` (sobre `botellonesRecibidos`) → `entrega`, y `prestamo` (de la
+ * base) → `UPDATE bases SET direccionId = NULL` + `retorno`. La reversión
+ * espeja el libro para que la auditoría lea de forma coherente quién devuelve
+ * qué a quién.
+ *
+ * Ver change `botellones-entrega-devolucion` (RN-VEN-16, RN-VEN-17, RN-ENV-09).
  */
 
 export interface DatosDeCorreccion extends DatosDeVenta {
