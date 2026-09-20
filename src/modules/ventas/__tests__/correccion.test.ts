@@ -435,7 +435,11 @@ describe('lo que la corrección no deja hacer', () => {
 
   it('no cambia el cliente si la venta despachó botellones sin vacío', async () => {
     const admin = await usuarioAutenticado('admin')
-    const { venta } = await vender(admin.usuario.id, { clienteId, botellonesSinVacio: 1 })
+    const { venta } = await vender(admin.usuario.id, {
+      clienteId,
+      botellonesEntregados: 1,
+      botellonesRecibidos: 0,
+    })
 
     await expect(
       corregir(venta.id, como(admin.usuario.id, ['admin']), { clienteId: otroClienteId }),
@@ -444,7 +448,11 @@ describe('lo que la corrección no deja hacer', () => {
 
   it('pero sí corrige los números de esa misma venta', async () => {
     const admin = await usuarioAutenticado('admin')
-    const { venta } = await vender(admin.usuario.id, { clienteId, botellonesSinVacio: 1 })
+    const { venta } = await vender(admin.usuario.id, {
+      clienteId,
+      botellonesEntregados: 1,
+      botellonesRecibidos: 0,
+    })
 
     const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']), {
       clienteId,

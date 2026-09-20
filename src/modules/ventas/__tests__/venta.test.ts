@@ -473,16 +473,16 @@ describe('los botellones que salen con la venta', () => {
   it('el que no trae vacío se lleva el envase, y queda a su nombre', async () => {
     await comprarBotellones(100, 'compra inicial al proveedor', null)
 
-    await unaVenta({ clienteId, botellonesSinVacio: 1 })
+    await unaVenta({ clienteId, botellonesEntregados: 1, botellonesRecibidos: 0 })
 
     expect(await botellonesEnBodega()).toBe(99)
     expect(await enPoderDe(clienteId)).toBe(1)
   })
 
   /*
-   * El caso mixto es el que justifica que sea un número y no un booleano: en el
-   * mostrador se dice «vendí tres, trajo dos vacíos», y eso es UN botellón que
-   * sale, no tres ni ninguno.
+   * El caso mixto es el que justifica que sean dos campos: en el mostrador se
+   * dice «vendí tres, trajo dos vacíos», y eso es UN botellón que sale, no
+   * tres ni ninguno. Por eso la entrega neta es `entregados - recibidos`.
    */
   it('cuenta solo los que salen, no los que se intercambian', async () => {
     await comprarBotellones(100, 'compra inicial al proveedor', null)
@@ -492,7 +492,8 @@ describe('los botellones que salen con la venta', () => {
         medioDePago: 'efectivo',
         clienteId,
         items: [{ productoId: botellonId, cantidad: 3 }],
-        botellonesSinVacio: 1,
+        botellonesEntregados: 1,
+        botellonesRecibidos: 0,
         hoy: HOY,
       },
       null,
@@ -504,7 +505,9 @@ describe('los botellones que salen con la venta', () => {
   it('no se pueden despachar más envases que recargas vendidas', async () => {
     await comprarBotellones(100, 'compra inicial al proveedor', null)
 
-    await expect(unaVenta({ clienteId, botellonesSinVacio: 5 })).rejects.toMatchObject({
+    await expect(
+      unaVenta({ clienteId, botellonesEntregados: 5, botellonesRecibidos: 0 }),
+    ).rejects.toMatchObject({
       code: 'BOTELLONES_SIN_RESPALDO',
     })
   })
@@ -519,7 +522,9 @@ describe('los botellones que salen con la venta', () => {
   it('un botellón no sale sin nombre', async () => {
     await comprarBotellones(100, 'compra inicial al proveedor', null)
 
-    await expect(unaVenta({ botellonesSinVacio: 1 })).rejects.toMatchObject({
+    await expect(
+      unaVenta({ botellonesEntregados: 1, botellonesRecibidos: 0 }),
+    ).rejects.toMatchObject({
       code: 'CLIENTE_REQUERIDO',
     })
   })
@@ -534,7 +539,12 @@ describe('los botellones que salen con la venta', () => {
     await comprarBotellones(100, 'compra inicial al proveedor', null)
 
     await expect(
-      unaVenta({ clienteId, items: [{ productoId: botellonId, cantidad: 9999 }], botellonesSinVacio: 1 }),
+      unaVenta({
+        clienteId,
+        items: [{ productoId: botellonId, cantidad: 9999 }],
+        botellonesEntregados: 1,
+        botellonesRecibidos: 0,
+      }),
     ).rejects.toMatchObject({ code: 'STOCK_INSUFICIENTE' })
 
     expect(await botellonesEnBodega()).toBe(100)
@@ -544,7 +554,11 @@ describe('los botellones que salen con la venta', () => {
   it('el movimiento apunta a la venta que lo originó', async () => {
     await comprarBotellones(100, 'compra inicial al proveedor', null)
 
-    const { venta } = await unaVenta({ clienteId, botellonesSinVacio: 1 })
+    const { venta } = await unaVenta({
+      clienteId,
+      botellonesEntregados: 1,
+      botellonesRecibidos: 0,
+    })
 
     const movimientos = await db
       .select()

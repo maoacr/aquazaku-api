@@ -84,18 +84,21 @@ export interface DatosDeVenta {
   requiereFacturaElectronica?: boolean
 
   /**
-   * Cuántos de los botellones que se lleva NO tienen un vacío de contrapartida
-   * — RN-ENV-03.
+   * Cuántos botellones se llevan (cliente recibe de la planta) y cuántos
+   * devuelve — RN-VEN-17.
    *
-   * Es la conversación del mostrador tal cual ocurre: «vendí tres recargas, el
-   * cliente trajo dos vacíos» son tres líneas de venta y **un** botellón que
-   * sale del parque.
+   * Son dos números explícitos: «vendí tres recargas, el cliente trajo dos
+   * vacíos» son tres líneas de venta y UN botellón que sale del parque. La
+   * corrección los lee y calcula el delta compensatorio; la anulación los
+   * revierte con su par opuesto (entregados → retorno, recibidos →
+   * entrega), excluyendo `tipo='dano_base'`.
    *
-   * El default es 0 porque la recarga normal es un intercambio: entra un vacío,
-   * sale uno lleno, y el saldo del cliente no se mueve. Por eso la mayoría de
-   * las ventas de agua no tocan este módulo.
+   * El default es 0 porque la recarga normal es un intercambio 1-a-1: entra
+   * un vacío, sale uno lleno, y los dos campos valen lo mismo. Por eso la
+   * mayoría de las ventas de agua no tocan este módulo.
    */
-  botellonesSinVacio?: number
+  botellonesEntregados?: number
+  botellonesRecibidos?: number
 
   /**
    * Una base que sale con esta venta — RN-BAS-03.
@@ -358,19 +361,20 @@ export async function registrarVentaEn(
   }
 
   /*
-   * ── Los botellones que salen sin vacío de vuelta — RN-ENV-03, RN-ENV-09 ──
+   * ── Los botellones que se llevan y los que vuelven — RN-VEN-17, RN-ENV-09 ─
    *
    * Se valida ANTES de escribir, junto al crédito y por el mismo motivo: si
    * el pedido no cierra, que no se haya escrito nada.
    */
-  const salen = datos.botellonesSinVacio ?? 0
+  const entregados = datos.botellonesEntregados ?? 0
+  const recibidos = datos.botellonesRecibidos ?? 0
 
-  if (salen > 0) {
+  if (entregados > 0 || recibidos > 0) {
     const botellonesVendidos = planificadas
       .filter(({ producto }) => producto.presentacion === 'botellon')
       .reduce((suma, { item }) => suma + item.cantidad, 0)
 
-    if (salen > botellonesVendidos) {
+    if (entregados > botellonesVendidos) {
       /*
        * No se puede llevar más envases que recargas compró. Si de verdad
        * necesita envases sueltos, eso es una entrega y va por su propio
@@ -379,7 +383,7 @@ export async function registrarVentaEn(
       throw new ErrorDeNegocio(
         'BOTELLONES_SIN_RESPALDO',
         422,
-        `esta venta lleva ${botellonesVendidos} botellón(es) y se están despachando ${salen} sin vacío de vuelta. Si hacen falta envases sueltos, regístrelos como entrega en Retornables`,
+        `esta venta lleva ${botellonesVendidos} botellón(es) y se están despachando ${entregados} sin vacío de vuelta. Si hacen falta envases sueltos, regístrelos como entrega en Retornables`,
       )
     }
 
@@ -427,11 +431,18 @@ export async function registrarVentaEn(
        */
       ...(reemplazo ? { createdAt: reemplazo.createdAt } : ocurrioEn && { createdAt: ocurrioEn }),
       ...(reemplazo && { corrigeAId: reemplazo.corrigeAId }),
+      /*
+       * Botellones despachados / devueltos en esta venta — RN-VEN-17. La
+       * corrección los lee de la original para calcular su delta; la anulación
+       * los lee para revertir con el tipo de movimiento opuesto.
+       */
+      botellonesEntregados: entregados,
+      botellonesRecibidos: recibidos,
     })
     .returning()
 
   /*
-   * ── Dos filas, en la MISMA transacción que la venta ────────────────────
+   * ── Hasta cuatro filas, en la MISMA transacción que la venta ─────────────
    *
    * Que sea la misma transacción es todo el punto. Antes esto era un segundo
    * acto que el `pos` tenía que recordar en otra pantalla, y olvidarlo no
@@ -441,17 +452,28 @@ export async function registrarVentaEn(
    *
    * `documentoId` apunta a la venta que lo originó, así que el movimiento se
    * puede explicar sin preguntarle a nadie.
+   *
+   * Entregados > 0 → dos filas `tipo='entrega'` (cliente +N / bodega −N).
+   * Recibidos > 0 → dos filas `tipo='retorno'` (cliente −N / bodega +N).
+   * Si los dos valen 0, no se escribe nada — la venta es de pacas y bolsas
+   * y no toca el parque.
    */
-  if (salen > 0) {
+  if (entregados > 0) {
     await tx.insert(movimientosBotellon).values([
-      { cantidad: -salen, tipo: 'entrega', documentoId: venta!.id, registradoPor },
+      { cantidad: -entregados, tipo: 'entrega', documentoId: venta!.id, registradoPor },
       {
-        cantidad: salen,
+        cantidad: entregados,
         tipo: 'entrega',
         clienteId: cliente!.id,
         documentoId: venta!.id,
         registradoPor,
       },
+    ])
+  }
+  if (recibidos > 0) {
+    await tx.insert(movimientosBotellon).values([
+      { cantidad: -recibidos, tipo: 'retorno', clienteId: cliente!.id, documentoId: venta!.id, registradoPor },
+      { cantidad: recibidos, tipo: 'retorno', documentoId: venta!.id, registradoPor },
     ])
   }
 
