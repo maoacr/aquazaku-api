@@ -568,4 +568,96 @@ describe('los botellones que salen con la venta', () => {
     expect(movimientos).toHaveLength(2)
     expect(movimientos.map((m) => m.cantidad).sort((a, b) => a - b)).toEqual([-1, 1])
   })
+
+  /*
+   * ── Los dos campos explícitos — RN-VEN-17 ────────────────────────────────
+   *
+   * Hasta acá los tests confirman el camino del campo viejo `salen`. Ahora los
+   * dos nuevos campos pueden valer cero, uno, o ambos, y los movimientos
+   * resultantes cambian con cada combinación.
+   */
+
+  it('intercambio 1-a-1: una entrega neta de cero y cuatro movimientos', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    await unaVenta({
+      clienteId,
+      items: [{ productoId: botellonId, cantidad: 3 }],
+      botellonesEntregados: 3,
+      botellonesRecibidos: 3,
+    })
+
+    /*
+     * 2 entrega (cliente +3 / bodega −3) + 2 retorno (cliente −3 / bodega +3).
+     * El saldo neto del cliente queda en cero: un intercambio 1-a-1 no le
+     * cambió el parque, y eso es lo que el libro tiene que reflejar.
+     */
+    expect(await botellonesEnBodega()).toBe(100)
+    expect(await enPoderDe(clienteId)).toBe(0)
+
+    const { venta } = await unaVenta({
+      clienteId,
+      items: [{ productoId: botellonId, cantidad: 2 }],
+      botellonesEntregados: 2,
+      botellonesRecibidos: 2,
+    })
+
+    const movimientos = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.documentoId, venta.id))
+
+    expect(movimientos).toHaveLength(4)
+    const tipos = movimientos.map((m) => m.tipo).sort()
+    expect(tipos).toEqual(['entrega', 'entrega', 'retorno', 'retorno'])
+    expect(movimientos.map((m) => m.cantidad).sort((a, b) => a - b)).toEqual([-2, -2, 2, 2])
+  })
+
+  it('solo recibidos: el cliente devuelve sin haber tomado nada', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    const { venta } = await unaVenta({
+      clienteId,
+      items: [{ productoId: botellonId, cantidad: 2 }],
+      botellonesEntregados: 0,
+      botellonesRecibidos: 2,
+    })
+
+    /*
+     * El cliente tenía 2 vacíos en su casa y los trajo a la planta: el saldo
+     * del cliente baja en 2 y la bodega sube en 2. Dos filas `retorno`, una
+     * con `clienteId` (el −2) y otra sin (el +2 en bodega).
+     */
+    expect(await botellonesEnBodega()).toBe(102)
+    expect(await enPoderDe(clienteId)).toBe(-2)
+
+    const movimientos = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.documentoId, venta.id))
+
+    expect(movimientos).toHaveLength(2)
+    expect(movimientos.every((m) => m.tipo === 'retorno')).toBe(true)
+    expect(movimientos.map((m) => m.cantidad).sort((a, b) => a - b)).toEqual([-2, 2])
+  })
+
+  it('sin intercambio: la venta de una paca no toca el parque', async () => {
+    await comprarBotellones(100, 'compra inicial al proveedor', null)
+
+    /*
+     * Sin líneas `botellon` en el carrito, los dos campos valen 0 y no se
+     * escribe ningún movimiento. La venta sigue siendo válida: es el caso
+     * normal de una paca de bolsas o un repuesto.
+     */
+    const { venta } = await unaVenta({ items: [{ productoId: pacaId, cantidad: 1 }] })
+
+    const movimientos = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.documentoId, venta.id))
+
+    expect(movimientos).toHaveLength(0)
+    expect(venta.botellonesEntregados).toBe(0)
+    expect(venta.botellonesRecibidos).toBe(0)
+  })
 })
