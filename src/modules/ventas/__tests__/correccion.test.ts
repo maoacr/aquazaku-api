@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
 import {
@@ -471,6 +471,114 @@ describe('lo que la corrección no deja hacer', () => {
       .where(and(eq(movimientosBotellon.documentoId, venta.id), eq(movimientosBotellon.tipo, 'entrega')))
 
     expect(movimientos).toHaveLength(2)
+  })
+
+  /*
+   * ── Compensatorios de botellones — RN-VEN-17 + RN-VEN-16 ─────────────────
+   *
+   * Cuando la corrección cambia `botellonesEntregados` o `botellonesRecibidos`,
+   * inserta movimientos `tipo='ajuste'` con el delta sobre la venta NUEVA.
+   * Si no cambia ninguno, no inserta nada.
+   */
+
+  it('cambio en entregados de 3 a 2 inserta tipo ajuste con delta −1', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id, {
+      clienteId,
+      botellonesEntregados: 3,
+      botellonesRecibidos: 0,
+    })
+
+    const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']), {
+      clienteId,
+      items: [{ productoId, cantidad: 3 }],
+      botellonesEntregados: 2,
+      botellonesRecibidos: 0,
+    })
+
+    /*
+     * El delta entregados es 2 − 3 = −1: el cliente devuelve 1 envase. La
+     * bodega lo recibe. Dos filas `tipo='ajuste'`, ambas con
+     * `documentoId = nueva.id` y `cantidad=±1`.
+     */
+    const ajustes = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(
+        and(eq(movimientosBotellon.documentoId, nueva.id), eq(movimientosBotellon.tipo, 'ajuste')),
+      )
+
+    expect(ajustes).toHaveLength(2)
+    expect(ajustes.map((a) => a.cantidad).sort((a, b) => a - b)).toEqual([-1, 1])
+
+    /*
+     * El saldo del cliente refleja la suma de los movimientos: la entrega
+     * original (+3), la entrega de la nueva (+2), y el compensatorio (−1) =
+     * 4. La especificación describe el compensatorio como el delta (new − old)
+     * — la entrega de la nueva venta es independiente y sigue sumando.
+     */
+    const saldo = await db
+      .select({ n: sql<number>`coalesce(sum(cantidad), 0)::int` })
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.clienteId, clienteId))
+
+    expect(saldo[0]?.n).toBe(4)
+  })
+
+  it('cambio en recibidos de 0 a 1 inserta tipo ajuste con delta −1 al cliente', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id, {
+      clienteId,
+      botellonesEntregados: 1,
+      botellonesRecibidos: 0,
+    })
+
+    const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']), {
+      clienteId,
+      items: [{ productoId, cantidad: 1 }],
+      botellonesEntregados: 1,
+      botellonesRecibidos: 1,
+    })
+
+    /*
+     * El delta recibidos es 1 − 0 = +1: el cliente devuelve 1 más. En el libro,
+     * devolver al cliente con cantidad negativa es coherente con el tipo
+     * `retorno`: quien devuelve entrega (−) y la planta recibe (+).
+     */
+    const ajustes = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(
+        and(eq(movimientosBotellon.documentoId, nueva.id), eq(movimientosBotellon.tipo, 'ajuste')),
+      )
+
+    expect(ajustes).toHaveLength(2)
+    expect(ajustes.map((a) => a.cantidad).sort((a, b) => a - b)).toEqual([-1, 1])
+  })
+
+  it('corrección sin cambios en los campos no inserta ajustes', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id, {
+      clienteId,
+      botellonesEntregados: 2,
+      botellonesRecibidos: 1,
+    })
+
+    const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']), {
+      clienteId,
+      items: [{ productoId, cantidad: 3 }],
+      botellonesEntregados: 2,
+      botellonesRecibidos: 1,
+    })
+
+    const ajustes = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(
+        and(eq(movimientosBotellon.documentoId, nueva.id), eq(movimientosBotellon.tipo, 'ajuste')),
+      )
+
+    expect(ajustes).toHaveLength(0)
   })
 
   it('un motivo corto no alcanza', async () => {
