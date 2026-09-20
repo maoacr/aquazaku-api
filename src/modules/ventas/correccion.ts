@@ -1,4 +1,4 @@
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
 import {
   type Venta,
@@ -50,12 +50,19 @@ import {
  *
  * ── Lo que la corrección NO re-emite ────────────────────────────────────────
  *
- * Los botellones despachados sin vacío y una base prestada NO se rehacen. La
- * anulación tampoco los revierte, y por la misma razón: son movimientos
- * FÍSICOS. El botellón salió de la planta una vez y sigue afuera; volver a
- * descontarlo del parque por arreglar un tipeo inventaría un envase que nunca
- * salió. Quedan colgando de la venta original, que es donde de verdad
- * ocurrieron.
+ * Los movimientos FÍSICOS de la venta original (botellones entregados,
+ * botellones recibidos, base prestada) NO se tocan. La corrección, en cambio,
+ * agrega movimientos compensatorios `tipo='ajuste'` sobre la nueva venta con
+ * el delta contra la original — así el saldo del cliente se reconstruye desde
+ * el libro contable sin perder la historia de la venta vieja.
+ *
+ * La anulación, en cambio, SÍ revierte los tres: `entrega` → `retorno`,
+ * `retorno` (sobre `botellonesRecibidos`) → `entrega`, y `prestamo` (de la
+ * base) → `UPDATE bases SET direccionId = NULL` + `retorno`. La reversión
+ * espeja el libro para que la auditoría lea de forma coherente quién devuelve
+ * qué a quién.
+ *
+ * Ver change `botellones-entrega-devolucion` (RN-VEN-16, RN-VEN-17, RN-ENV-09).
  */
 
 export interface DatosDeCorreccion extends DatosDeVenta {
@@ -119,6 +126,25 @@ export async function corregirVenta(
       createdAt: fechaOverride ?? original.createdAt,
       corrigeAId: original.id,
     })
+
+    /*
+     * ── Compensatorios de botellones — RN-VEN-17 + RN-VEN-16 ────────────────
+     *
+     * La venta NUEVA persiste los nuevos valores. Si difieren de la original,
+     * se insertan movimientos `tipo='ajuste'` con el delta (nuevo − viejo) y
+     * `documentoId = nuevaVenta.id`. La original queda intacta: el envase
+     * salió UNA vez y se registra UNA vez; la corrección no duplica, ajusta.
+     *
+     * Si los deltas son ambos cero, no se inserta nada: la corrección no tocó
+     * los botellones. Es el caso normal de cambiar precio, cantidad de
+     * producto, o cliente sin activos despachados.
+     */
+    await compensarBotellonesSiCambiaron(
+      tx,
+      original,
+      resultado.venta,
+      usuario.id,
+    )
 
     /*
      * El ÚNICO `UPDATE` sobre la venta vieja, con sus cinco campos juntos.
@@ -257,5 +283,69 @@ async function exigirQueSeaCorregible(
         'esa venta despachó activos —un botellón, una base— que quedaron a cargo del cliente original. Se pueden corregir los productos y los precios, pero no el cliente: primero registre el retorno en Retornables',
       )
     }
+  }
+}
+
+/**
+ * Inserta los movimientos `tipo='ajuste'` cuando la corrección cambia los
+ * botellones de la venta.
+ *
+ * Va FUERA de `exigirQueSeaCorregible` y DENTRO de la misma transacción que el
+ * `registrarVentaEn`: los originales se preservan, los deltas se compensan
+ * sobre la venta nueva, y `documentoId = nuevaVenta.id` ata cada fila a la
+ * sucesora.
+ *
+ * El signo del delta importa. Si la corrección SUMA envases (entregados de
+ * 3 a 5), el cliente recibe 2 más → fila con `cantidad: +2, clienteId`. Si
+ * RESTA (entregados de 5 a 3), el cliente devuelve 2 → fila con
+ * `cantidad: −2, clienteId`. La bodega lleva el signo opuesto en ambos casos.
+ *
+ * Por la guarda `ACTIVOS_A_NOMBRE_DEL_CLIENTE` arriba, si la original despachó
+ * botellones la nueva hereda el mismo `clienteId`. Si la original no despachó,
+ * los deltas son cero y este bloque no escribe nada.
+ */
+async function compensarBotellonesSiCambiaron(
+  tx: Transaccion,
+  original: Venta,
+  nueva: Venta,
+  registradoPor: string | null,
+): Promise<void> {
+  const deltaEntregados = nueva.botellonesEntregados - original.botellonesEntregados
+  const deltaRecibidos = nueva.botellonesRecibidos - original.botellonesRecibidos
+
+  if (deltaEntregados !== 0) {
+    await tx.insert(movimientosBotellon).values([
+      {
+        cantidad: deltaEntregados,
+        tipo: 'ajuste',
+        clienteId: nueva.clienteId,
+        documentoId: nueva.id,
+        registradoPor,
+      },
+      {
+        cantidad: -deltaEntregados,
+        tipo: 'ajuste',
+        documentoId: nueva.id,
+        registradoPor,
+      },
+    ])
+  }
+
+  if (deltaRecibidos !== 0) {
+    await tx.insert(movimientosBotellon).values([
+      {
+        cantidad: -deltaRecibidos,
+        tipo: 'ajuste',
+        clienteId: nueva.clienteId,
+        documentoId: nueva.id,
+        registradoPor,
+      },
+      {
+        cantidad: deltaRecibidos,
+        tipo: 'ajuste',
+        documentoId: nueva.id,
+        registradoPor,
+      },
+    ])
   }
 }

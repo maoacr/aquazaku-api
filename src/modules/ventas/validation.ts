@@ -76,19 +76,32 @@ export const esquemaDeVenta = z.object({
   ocurrioEn: fecha.optional(),
 
   /*
-   * Cuántos botellones salen SIN vacío de contrapartida — RN-ENV-03.
+   * Botellones que salen con la venta (cliente recibe) y que entran con ella
+   * (cliente devuelve) — RN-VEN-17.
    *
-   * El default es 0 porque la recarga normal es un intercambio: entra un vacío,
-   * sale uno lleno, y el saldo del cliente no cambia. Que el caso común no
-   * requiera escribir nada es lo que hace que este campo no estorbe.
+   * Son dos números explícitos, no un binario: en el mostrador se dice
+   * «vendí tres, trajo dos vacíos» y eso es una entrega neta de UN envase,
+   * no cero ni dos. La corrección los lee, calcula el delta compensatorio,
+   * e inserta `tipo='ajuste'`. La anulación revierte lo que efectivamente
+   * salió y entró, excluyendo `tipo='dano_base'`.
    *
-   * Que no pueda exceder los botellones vendidos, y que exija cliente, lo
-   * decide el servicio: son reglas de negocio, no de forma.
+   * El default es 0 porque la recarga normal es un intercambio 1-a-1: entra
+   * un vacío, sale uno lleno, y los dos campos valen lo mismo. Que el caso
+   * común no requiera escribir nada es lo que hace que estos campos no
+   * estorben.
+   *
+   * Que no puedan exceder los botellones vendidos, y que exijan cliente,
+   * lo decide el servicio: son reglas de negocio, no de forma.
    */
-  botellonesSinVacio: z
+  botellonesEntregados: z
     .number()
     .int()
-    .nonnegative('los botellones que salen sin vacío no pueden ser negativos')
+    .nonnegative('los botellones entregados no pueden ser negativos')
+    .optional(),
+  botellonesRecibidos: z
+    .number()
+    .int()
+    .nonnegative('los botellones recibidos no pueden ser negativos')
     .optional(),
 
   /*

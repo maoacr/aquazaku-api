@@ -1317,6 +1317,25 @@ export const ventas = pgTable(
     corregidaPorId: uuid('corregida_por_id').references((): AnyPgColumn => ventas.id, {
       onDelete: 'restrict',
     }),
+
+    /**
+     * Cuántos botellones salen con la venta (cliente recibe) y cuántos
+     * entran con ella (cliente devuelve) — RN-VEN-17.
+     *
+     * Antes este dato viajaba SOLO en el cuerpo HTTP (`botellonesSinVacio`)
+     * y no se persistía. La corrección no podía saber qué se había
+     * despachado, y la anulación tampoco podía revertirlo. Migración
+     * `0021_botellones_entrega_recepcion.sql` agrega las dos columnas.
+     *
+     * `DEFAULT 0` es el caso común: una venta sin botellones —una paca de
+     * bolsas, una recarga con vacío de vuelta— no tiene por qué pensar en
+     * el campo. La corrección los lee, calcula el delta compensatorio, e
+     * inserta `tipo='ajuste'`. La anulación revierte lo que efectivamente
+     * salió y entró, excluyendo `tipo='dano_base'` (ver
+     * `anulacion.ts:devolverActivosDeLaVenta`).
+     */
+    botellonesEntregados: integer('botellones_entregados').notNull().default(0),
+    botellonesRecibidos: integer('botellones_recibidos').notNull().default(0),
   },
   (t) => [
     /*

@@ -1,10 +1,21 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
-import { clientes, lotes, movimientosStock, productos, ventas } from '@/db/schema'
+import {
+  bases,
+  clientes,
+  direcciones,
+  lotes,
+  movimientosBase,
+  movimientosBotellon,
+  movimientosStock,
+  productos,
+  ventas,
+} from '@/db/schema'
 import type { UserContext } from '@/modules/authz/can'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { anularVenta, puedeAnular } from '@/modules/ventas/anulacion'
+import { darDeAltaBase } from '@/modules/retornables/bases'
 import { deudaDe } from '@/modules/ventas/saldo'
 import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
@@ -132,9 +143,9 @@ describe('anular revierte los efectos', () => {
 
     const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
 
-    expect(anulada.estado).toBe('anulada')
-    expect(anulada.anuladaPor).toBe(autor.usuario.id)
-    expect(anulada.motivoAnulacion).toBe(MOTIVO)
+    expect(anulada.venta.estado).toBe('anulada')
+    expect(anulada.venta.anuladaPor).toBe(autor.usuario.id)
+    expect(anulada.venta.motivoAnulacion).toBe(MOTIVO)
     expect(await db.select().from(ventas)).toHaveLength(1)
   })
 })
@@ -228,5 +239,232 @@ describe('lo que la anulación exige', () => {
     await expect(
       anularVenta('00000000-0000-0000-0000-000000000000', MOTIVO, como(admin.usuario.id, ['admin'])),
     ).rejects.toMatchObject({ code: 'VENTA_NO_ENCONTRADA' })
+  })
+})
+
+/**
+ * ── Reversión de los movimientos físicos — RN-ENV-09 + decisión D5/D8 ──────
+ *
+ * La anulación revierte TODO lo que la venta hizo salir o entrar al parque:
+ * botellones entregados (→ retorno), botellones recibidos (→ entrega), y base
+ * prestada (→ retorno + `UPDATE bases SET direccionId = NULL`). Ventas
+ * `tipo='dano_base'` se excluyen porque no tienen movimientos origen.
+ */
+
+describe('la anulación revierte los botellones despachados', () => {
+  it('entregados=3 → dos filas retorno con ±3 y documentoId=venta.id', async () => {
+    const autor = await usuarioAutenticado('pos')
+    const { venta } = await vender(autor.usuario.id, {
+      clienteId,
+      botellonesEntregados: 3,
+      botellonesRecibidos: 0,
+    })
+
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+
+    /*
+     * La entrega original (+3 / −3) sigue intacta en su `documentoId=venta.id`.
+     * La reversión inserta OTRO par con tipo='retorno' y mismo documentoId:
+     * cliente devuelve los 3 envases que se llevó, bodega los recibe.
+     */
+    const retornos = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(
+        and(eq(movimientosBotellon.documentoId, venta.id), eq(movimientosBotellon.tipo, 'retorno')),
+      )
+
+    expect(retornos).toHaveLength(2)
+    expect(retornos.map((r) => r.cantidad).sort((a, b) => a - b)).toEqual([-3, 3])
+  })
+})
+
+describe('la anulación revierte los botellones recibidos', () => {
+  it('recibidos=2 → dos filas entrega con ±2 y documentoId=venta.id', async () => {
+    const autor = await usuarioAutenticado('pos')
+    const { venta } = await vender(autor.usuario.id, {
+      clienteId,
+      botellonesEntregados: 0,
+      botellonesRecibidos: 2,
+    })
+
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+
+    /*
+     * El cliente había traído 2 vacíos. La anulación emite una `entrega` con
+     * signo opuesto: la planta devuelve esos 2 al cliente. La simetría
+     * contable es «recibir es dar y dar es recibir».
+     */
+    const entregas = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(
+        and(eq(movimientosBotellon.documentoId, venta.id), eq(movimientosBotellon.tipo, 'entrega')),
+      )
+
+    /*
+     * Hay 2 entregas reversoras (las nuevas) más las que ya existían si la
+     * venta original tenía `botellonesEntregados > 0`. Acá son 0 originales
+     * y 2 reversoras: total 2.
+     */
+    expect(entregas).toHaveLength(2)
+    expect(entregas.map((e) => e.cantidad).sort((a, b) => a - b)).toEqual([-2, 2])
+  })
+})
+
+describe('la anulación revierte ambos campos juntos', () => {
+  it('entregados=3 y recibidos=2 → 4 filas nuevas (2 retorno + 2 entrega)', async () => {
+    const autor = await usuarioAutenticado('pos')
+    const { venta } = await vender(autor.usuario.id, {
+      clienteId,
+      botellonesEntregados: 3,
+      botellonesRecibidos: 2,
+    })
+
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+
+    const movimientos = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.documentoId, venta.id))
+
+    /*
+     * Originales: 2 entrega (+3/−3) + 2 retorno (−2/+2) = 4 filas.
+     * Reversión: 2 retorno (+3/−3) + 2 entrega (+2/−2) = 4 filas.
+     * Total: 8 filas con la misma venta.
+     */
+    expect(movimientos).toHaveLength(8)
+    const porTipo = movimientos.reduce<Record<string, number>>((acc, m) => {
+      acc[m.tipo] = (acc[m.tipo] ?? 0) + 1
+      return acc
+    }, {})
+    expect(porTipo.entrega).toBe(4)
+    expect(porTipo.retorno).toBe(4)
+  })
+})
+
+describe('la anulación devuelve la base prestada', () => {
+  it('prestada → bases.direccionId=NULL + fila movimientos_base tipo retorno', async () => {
+    const admin = await usuarioAutenticado('admin')
+
+    /*
+     * El cliente necesita tener una dirección para que la base pueda salir a
+     * algún lado. La plantamos.
+     */
+    const [direccion] = await db
+      .insert(direcciones)
+      .values({ clienteId, etiqueta: 'Casa', viaTipo: 'calle', viaNumero: '1' })
+      .returning()
+
+    const base = await darDeAltaBase('0099', admin.usuario.id)
+
+    /*
+     * `registrarVenta` con `base` en el body se encarga del préstamo en la
+     * misma transacción: la base sale y queda atada a la venta via
+     * `documentoId` en `movimientos_base`.
+     */
+    const { venta } = await registrarVenta(
+      {
+        medioDePago: 'efectivo',
+        clienteId,
+        items: [{ productoId, cantidad: 1 }],
+        base: { sticker: base.idSticker, direccionId: direccion!.id },
+        hoy: HOY,
+      },
+      admin.usuario.id,
+    )
+
+    const [baseAntesDeAnular] = await db.select().from(bases).where(eq(bases.id, base.id))
+    expect(baseAntesDeAnular?.direccionId).toBe(direccion!.id)
+
+    await anularVenta(venta.id, MOTIVO, como(admin.usuario.id, ['admin']))
+
+    const [baseTrasAnular] = await db.select().from(bases).where(eq(bases.id, base.id))
+    expect(baseTrasAnular?.direccionId).toBeNull()
+
+    const retornos = await db
+      .select()
+      .from(movimientosBase)
+      .where(
+        and(eq(movimientosBase.documentoId, venta.id), eq(movimientosBase.tipo, 'retorno')),
+      )
+
+    expect(retornos).toHaveLength(1)
+    expect(retornos[0]?.baseId).toBe(base.id)
+  })
+})
+
+describe('la anulación sin botella ni base sigue funcionando', () => {
+  it('venta simple (producto sin botellones, sin base) → comportamiento idéntico al previo', async () => {
+    const autor = await usuarioAutenticado('pos')
+    const { venta } = await vender(autor.usuario.id)
+
+    /*
+     * No hay botellones ni base. La anulación sigue devolviendo el stock al
+     * lote y dejando la venta en estado `anulada` con su motivo. Los libros
+     * de activos no se tocan.
+     */
+    const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+
+    expect(anulada.venta.estado).toBe('anulada')
+    expect(await saldo()).toBe(50)
+
+    const movimientos = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.documentoId, venta.id))
+
+    expect(movimientos).toHaveLength(0)
+  })
+})
+
+describe('la anulación de una venta tipo dano_base no toca movimientos', () => {
+  it('excluye el bloque activo: ni botellones ni base', async () => {
+    /*
+     * Un recargo por daño (`tipo='dano_base'`) no genera movimientos de
+     * activos. La anulación tiene que respetar eso y NO revertir nada — el
+     * handler ignora el bloque entero para no inventar movimientos que
+     * nunca existieron.
+     *
+     * No probamos el camino de la base ni de los botellones por separado
+     * porque la guarda está al tope del bloque: si se rompe, fallan los dos.
+     */
+    const autor = await usuarioAutenticado('admin')
+
+    const [ventaDano] = await db
+      .insert(ventas)
+      .values({
+        tipo: 'dano_base',
+        medioDePago: 'efectivo',
+        total: '5000.00',
+        registradoPor: autor.usuario.id,
+        motivoAnulacion: null,
+        anuladaEn: null,
+        anuladaPor: null,
+        botellonesEntregados: 0,
+        botellonesRecibidos: 0,
+      })
+      .returning()
+
+    await anularVenta(ventaDano!.id, MOTIVO, como(autor.usuario.id, ['admin']))
+
+    /*
+     * Cero filas en los dos libros: la anulación del recargo solo cambia
+     * el estado de la venta. Los movimientos de activos, si los hubo, son
+     * de OTRA venta (la original del daño) y no se tocan acá.
+     */
+    const botellas = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(eq(movimientosBotellon.documentoId, ventaDano!.id))
+
+    expect(botellas).toHaveLength(0)
+
+    const bases = await db
+      .select()
+      .from(movimientosBase)
+      .where(eq(movimientosBase.documentoId, ventaDano!.id))
+
+    expect(bases).toHaveLength(0)
   })
 })

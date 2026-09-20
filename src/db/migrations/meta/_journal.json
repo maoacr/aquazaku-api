@@ -148,6 +148,13 @@
       "when": 1790211600000,
       "tag": "0020_movimiento_base_con_documento",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790300000000,
+      "tag": "0021_botellones_entrega_recepcion",
+      "breakpoints": true
     }
   ]
 }
