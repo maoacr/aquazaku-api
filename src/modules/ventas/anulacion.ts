@@ -1,6 +1,13 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { type Venta, lineasDeVenta, ventas } from '@/db/schema'
+import {
+  type Venta,
+  bases,
+  lineasDeVenta,
+  movimientosBase,
+  movimientosBotellon,
+  ventas,
+} from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { applicableScopes } from '@/modules/authz/scoped-query'
@@ -167,10 +174,11 @@ export async function anularVenta(
   usuario: UserContext,
 ): Promise<Venta> {
   return db.transaction(async (tx) => {
-    await ventaAnulable(tx, ventaId, usuario)
+    const venta = await ventaAnulable(tx, ventaId, usuario)
     const explicacion = exigirMotivo(motivo, 'anular')
 
     await devolverElProductoALosLotes(tx, ventaId, usuario.id)
+    await devolverActivosDeLaVenta(tx, venta, usuario.id)
 
     await tx
       .update(ventas)
@@ -185,4 +193,109 @@ export async function anularVenta(
     const [anulada] = await tx.select().from(ventas).where(eq(ventas.id, ventaId))
     return anulada!
   })
+}
+
+/**
+ * Revierte los movimientos FÍSICOS asociados a la venta — RN-ENV-09 + decisión
+ * D5/D8 del change `botellones-entrega-devolucion`.
+ *
+ * Tres libros se mueven en una anulación:
+ *
+ * | Libro | Origen | Reversión |
+ * | --- | --- | --- |
+ * | `movimientos_botellon` | `entrega` por `botellonesEntregados` | `retorno` con signo opuesto |
+ * | `movimientos_botellon` | `retorno` por `botellonesRecibidos` | `entrega` con signo opuesto |
+ * | `movimientos_base` | `prestamo` (búsqueda por `documentoId`) | `retorno` + `UPDATE bases SET direccionId = NULL` |
+ *
+ * El `tipo` de cada reversión espeja la semántica del libro contable: revertir
+ * una `entrega` (cliente recibió) es un `retorno` (cliente devuelve); revertir
+ * un `retorno` (planta recibió) es una `entrega` (planta devuelve al cliente).
+ *
+ * Las ventas `tipo='dano_base'` se EXCLUYEN: no tienen movimientos origen que
+ * revertir (el recargo es solo un asiento monetario). Sin la guarda, el handler
+ * trataría de revertir cero filas sin efecto, pero el `if` deja explícito que
+ * la decisión es por diseño y no por accidente.
+ *
+ * Las ventas con `botellonesEntregados = 0` y `botellonesRecibidos = 0` (la
+ * mayoría —pacas, repuestos, devoluciones sin venta—) no escriben nada en
+ * `movimientos_botellon`. La anulación sigue funcionando porque el handler
+ * ya devolvió el stock con `devolverElProductoALosLotes`.
+ */
+async function devolverActivosDeLaVenta(
+  tx: Transaccion,
+  venta: Venta,
+  registradoPor: string | null,
+): Promise<void> {
+  if (venta.tipo === 'dano_base') return
+
+  if (venta.botellonesEntregados > 0) {
+    await tx.insert(movimientosBotellon).values([
+      {
+        cantidad: -venta.botellonesEntregados,
+        tipo: 'retorno',
+        clienteId: venta.clienteId,
+        documentoId: venta.id,
+        registradoPor,
+      },
+      {
+        cantidad: venta.botellonesEntregados,
+        tipo: 'retorno',
+        documentoId: venta.id,
+        registradoPor,
+      },
+    ])
+  }
+
+  if (venta.botellonesRecibidos > 0) {
+    await tx.insert(movimientosBotellon).values([
+      {
+        cantidad: venta.botellonesRecibidos,
+        tipo: 'entrega',
+        clienteId: venta.clienteId,
+        documentoId: venta.id,
+        registradoPor,
+      },
+      {
+        cantidad: -venta.botellonesRecibidos,
+        tipo: 'entrega',
+        documentoId: venta.id,
+        registradoPor,
+      },
+    ])
+  }
+
+  /*
+   * ── La base se identifica por el libro, no por una columna de la venta ───
+   *
+   * `ventas` no tiene una columna `base`: el préstamo deja una fila en
+   * `movimientos_base` con `tipo='prestamo'` y `documentoId=ventaId`. Si la
+   * búsqueda no encuentra fila, la venta no prestó base y no hay nada que
+   * revertir.
+   *
+   * El `documentoId` del nuevo movimiento `retorno` lo ata a la venta que
+   * anuló — sin él, el libro diría «esta base volvió» sin explicar por qué,
+   * y la auditoría no podría conectar el hecho.
+   */
+  const [movimientoBaseAsignado] = await tx
+    .select({ baseId: movimientosBase.baseId })
+    .from(movimientosBase)
+    .where(
+      and(
+        eq(movimientosBase.documentoId, venta.id),
+        eq(movimientosBase.tipo, 'prestamo'),
+      ),
+    )
+
+  if (movimientoBaseAsignado) {
+    await tx
+      .update(bases)
+      .set({ direccionId: null })
+      .where(eq(bases.id, movimientoBaseAsignado.baseId))
+    await tx.insert(movimientosBase).values({
+      baseId: movimientoBaseAsignado.baseId,
+      tipo: 'retorno',
+      documentoId: venta.id,
+      registradoPor,
+    })
+  }
 }
