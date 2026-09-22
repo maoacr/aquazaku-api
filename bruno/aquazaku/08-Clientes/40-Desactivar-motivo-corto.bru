@@ -1,0 +1,30 @@
+meta {
+  name: Desactivar con motivo corto — 422
+  type: http
+  seq: 40
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteParaDesactivarId}}/desactivar
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "corto"
+  }
+}
+
+docs {
+  El motivo escrito no es opcional: es lo único que tres meses después
+  explica por qué este cliente quedó inactivo y qué stock volvió al
+  parque. El piso lo pone `api/` (mínimo 10 caracteres), pero la
+  colección lo verifica acá para que el 422 no sorprenda a quien
+  corre la suite a mano.
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+}

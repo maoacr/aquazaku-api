@@ -1,0 +1,29 @@
+meta {
+  name: Desactivar sin permiso — el contador recibe 403
+  type: http
+  seq: 44
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteParaDesactivarId}}/desactivar
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "intento sin permiso de prueba"
+  }
+}
+
+docs {
+  RN-ACC-02: la UI puede esconder el botón, pero la barrera real es
+  `requirePermission('clientes', 'editar')` en la ruta. El contador
+  tiene `clientes:ver` pero no `clientes:editar`, así que este POST
+  le contesta 403 con un mensaje genérico.
+}
+
+tests {
+  test("responde 403", function() {
+    expect(res.getStatus()).to.equal(403);
+  });
+}

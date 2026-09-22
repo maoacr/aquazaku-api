@@ -1,0 +1,90 @@
+meta {
+  name: Desactivar devuelve bases y botellones al stock — happy path
+  type: http
+  seq: 39
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteParaDesactivarId}}/desactivar
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "se mudó de pueblo y no quiere seguir registrado"
+  }
+}
+
+docs {
+  RN-CLI-02 — desactivar no es solo escribir `activo = false`. El cliente
+  puede tener bases prestadas y botellones a su nombre, y dejarlos
+  «colgados» de un cliente inactivo es stock que nadie puede reclamar.
+
+  Este endpoint hace las dos cosas en una sola transacción:
+  1. Marca `activo = false` y exige motivo escrito (mínimo 10 caracteres).
+  2. Devuelve las bases prestadas a bodega con movimiento `tipo='retorno'`.
+  3. Inserta una transferencia de botellones que devuelve los del cliente.
+  4. Audita con `clientes:desactivar` y los conteos de lo devuelto.
+
+  El toggle `PATCH /:id/estado` queda como cambio puro de `activo` — sirve
+  para reactivar y para ajustes sin efecto sobre stock. Quien necesita
+  desactivar con devolución usa este endpoint.
+}
+
+script:pre-request {
+  /*
+   * Crea un cliente fresco para este test, así no depende del estado
+   * que dejó la desactivación vía PATCH del test 14. El documento
+   * lleva timestamp para que la colección se pueda correr dos veces
+   * seguidas: `clientes.numeroDocumento` es único.
+   */
+  const doc = `79${String(Date.now()).slice(-6)}`;
+  bru.setVar("docDesactivar", doc);
+  bru.setVar("emailDesactivar", `desactivar-${Date.now()}@aquazaku.com`);
+
+  const crear = await bru.sendRequest({
+    url: bru.getEnvVar("baseUrl") + "/clientes",
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      primerNombre: "Don",
+      apellidos: "ParaDesactivar",
+      tipoDocumento: "CC",
+      numeroDocumento: bru.getVar("docDesactivar"),
+      tipo: "residencial",
+    }),
+  });
+  bru.setVar("clienteParaDesactivarId", crear.body.id);
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("la respuesta trae los tres conteos: cliente, bases y botellones", function() {
+    expect(res.getBody()).to.have.property("activo", false);
+    expect(res.getBody()).to.have.property("basesDevueltas");
+    expect(res.getBody()).to.have.property("botellonesDevueltos");
+  });
+
+  test("el cliente queda inactivo", function() {
+    expect(res.getBody().activo).to.equal(false);
+  });
+
+  test("este cliente no tenía stock: ambos conteos vienen en cero", function() {
+    expect(res.getBody().basesDevueltas).to.equal(0);
+    expect(res.getBody().botellonesDevueltos).to.equal(0);
+  });
+}
+
+script:post-response {
+  // Reactivar para no contaminar los tests siguientes. El toggle PATCH
+  // sigue disponible para eso, así no hay que rearmar el cliente.
+  await bru.sendRequest({
+    url: bru.getEnvVar("baseUrl") + `/clientes/${bru.getVar("clienteParaDesactivarId")}/estado`,
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ activo: true }),
+  });
+}

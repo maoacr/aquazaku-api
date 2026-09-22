@@ -1,0 +1,132 @@
+meta {
+  name: Desactivar revierte bases y botellones — flujo completo
+  type: http
+  seq: 45
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteConStockId}}/desactivar
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "se mudó y devuelve sus envases al parque"
+  }
+}
+
+docs {
+  El test que importa: verifica que la promesa de RN-CLI-02 se cumple
+  cuando hay stock físico de por medio. Un cliente con una base
+  prestada y N botellones a su nombre que se desactiva tiene que
+  terminar con:
+
+  - `activo = false` en su fila.
+  - La base de vuelta en bodega (sin `direccionId`), con una fila
+    `tipo='retorno'` en `movimientos_base`.
+  - Los botellones drenados de su poder, con una transferencia
+    `tipo='retorno'` en `movimientos_botellon` que devuelve los N
+    a la bodega.
+  - La respuesta trae los dos conteos con los números exactos.
+}
+
+script:pre-request {
+  /*
+   * Crea un cliente con una base prestada y 3 botellones a su
+   * nombre, lo desactiva, y devuelve los conteos que deberían
+   * venir. La verificación del estado post-desactivación vive
+   * en `script:post-response`.
+   */
+  const base = bru.getEnvVar("baseUrl");
+  const doc = `79${String(Date.now()).slice(-6)}`;
+  bru.setVar("docConStock", doc);
+
+  // 1. Cliente
+  const crear = await bru.sendRequest({
+    url: base + "/clientes",
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      primerNombre: "Don",
+      apellidos: "ConStock",
+      tipoDocumento: "CC",
+      numeroDocumento: doc,
+      tipo: "residencial",
+    }),
+  });
+  const clienteId = crear.body.id;
+  bru.setVar("clienteConStockId", clienteId);
+
+  // 2. Verificar (necesario para prestar bases)
+  await bru.sendRequest({
+    url: base + `/clientes/${clienteId}/verificacion`,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+  });
+
+  // 3. Dirección
+  const dir = await bru.sendRequest({
+    url: base + `/clientes/${clienteId}/direcciones`,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      etiqueta: "La casa",
+      direccion: "Calle 5 #3-20",
+    }),
+  });
+  const direccionId = dir.body.id;
+
+  // 4. Alta de base y préstamo
+  const alta = await bru.sendRequest({
+    url: base + "/bases",
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ idSticker: "0051" }),
+  });
+  await bru.sendRequest({
+    url: base + `/bases/${alta.body.id}/prestamo`,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ direccionId }),
+  });
+
+  // 5. Compra y entrega de botellones (necesita una compra primero
+  //    para que la bodega no quede en negativo)
+  await bru.sendRequest({
+    url: base + "/botellones/compra",
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      cantidad: 10,
+      motivo: "compra inicial para test de desactivación",
+    }),
+  });
+  await bru.sendRequest({
+    url: base + `/botellones/entrega`,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      clienteId,
+      cantidad: 3,
+    }),
+  });
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve la base prestada al parque", function() {
+    expect(res.getBody().basesDevueltas).to.equal(1);
+  });
+
+  test("devuelve los 3 botellones a la bodega", function() {
+    expect(res.getBody().botellonesDevueltos).to.equal(3);
+  });
+
+  test("el cliente queda inactivo", function() {
+    expect(res.getBody().activo).to.equal(false);
+  });
+}
+

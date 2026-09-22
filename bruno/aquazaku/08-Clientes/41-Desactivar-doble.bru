@@ -1,0 +1,66 @@
+meta {
+  name: Desactivar dos veces — 422 CLIENTE_YA_INACTIVO
+  type: http
+  seq: 41
+}
+
+post {
+  url: {{baseUrl}}/clientes/{{clienteParaDobleId}}/desactivar
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "segundo intento de desactivación de prueba"
+  }
+}
+
+docs {
+  Repetir la desactivación no es idempotente: la primera devolvió
+  bases y botellones al stock físico. Una segunda llamada operaría
+  sobre saldos que ya no le corresponden al cliente.
+}
+
+script:pre-request {
+  /*
+   * Crea un cliente fresco y lo desactiva, para que la llamada
+   * de este test ya encuentre el cliente inactivo. El documento
+   * lleva timestamp para correr la colección dos veces seguidas.
+   */
+  const base = bru.getEnvVar("baseUrl");
+  const doc = `79${String(Date.now()).slice(-6)}`;
+  bru.setVar("docParaDoble", doc);
+
+  const crear = await bru.sendRequest({
+    url: base + "/clientes",
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      primerNombre: "Don",
+      apellidos: "ParaDoble",
+      tipoDocumento: "CC",
+      numeroDocumento: doc,
+      tipo: "residencial",
+    }),
+  });
+  bru.setVar("clienteParaDobleId", crear.body.id);
+
+  await bru.sendRequest({
+    url: base + `/clientes/${crear.body.id}/desactivar`,
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      motivo: "primera desactivación para preparar el test 41",
+    }),
+  });
+}
+
+tests {
+  test("responde 422", function() {
+    expect(res.getStatus()).to.equal(422);
+  });
+
+  test("el código de error es CLIENTE_YA_INACTIVO", function() {
+    expect(res.getBody().code).to.equal("CLIENTE_YA_INACTIVO");
+  });
+}

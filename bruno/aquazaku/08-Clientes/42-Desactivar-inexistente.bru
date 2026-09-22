@@ -1,0 +1,31 @@
+meta {
+  name: Desactivar un cliente inexistente — 404
+  type: http
+  seq: 42
+}
+
+post {
+  url: {{baseUrl}}/clientes/00000000-0000-0000-0000-000000000000/desactivar
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "cliente inexistente de prueba para 404"
+  }
+}
+
+docs {
+  Validación del contrato HTTP — `api/` rechaza con 404 antes de
+  abrir transacción, así que no se mueve stock de nadie.
+}
+
+tests {
+  test("responde 404", function() {
+    expect(res.getStatus()).to.equal(404);
+  });
+
+  test("el código de error es CLIENTE_NO_ENCONTRADO", function() {
+    expect(res.getBody().code).to.equal("CLIENTE_NO_ENCONTRADO");
+  });
+}

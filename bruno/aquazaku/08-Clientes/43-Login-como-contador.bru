@@ -1,0 +1,30 @@
+meta {
+  name: Login como contador — setup para test de permisos
+  type: http
+  seq: 43
+}
+
+post {
+  url: {{baseUrl}}/api/auth/sign-in/email
+  body: json
+}
+
+body:json {
+  {
+    "email": "{{emailContadorClientes}}",
+    "password": "contrasena-de-prueba-123"
+  }
+}
+
+docs {
+  Setup para el test 44. El contador existe en la base desde el test 15;
+  la sesión de admin deja cookies separadas, así que para actuar como
+  contador hay que volver a entrar. La cookie que devuelve esta respuesta
+  es la que usa el test siguiente.
+}
+
+tests {
+  test("entra como contador", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
