@@ -129,6 +129,18 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
            */
           corrigeAId: ventas.corrigeAId,
           corregidaPorId: ventas.corregidaPorId,
+          /*
+           * Los botellones de la transacción — RN-VEN-17.
+           *
+           * Viajan en el listado, no solo en `GET /ventas/:id`, porque el
+           * modal de corrección los pre-carga con los valores originales
+           * (ver `correccionDesde` en `web/src/components/ventas/mostrador.tsx`).
+           * Sin estos dos campos en la respuesta, el modal abre con los
+           * contadores en cero aunque la venta original tuviera cinco
+           * botellones despachados.
+           */
+          botellonesEntregados: ventas.botellonesEntregados,
+          botellonesRecibidos: ventas.botellonesRecibidos,
         })
         .from(ventas)
         .leftJoin(clientes, eq(clientes.id, ventas.clienteId))

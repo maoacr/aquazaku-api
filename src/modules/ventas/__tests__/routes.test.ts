@@ -635,6 +635,38 @@ describe('GET /ventas — cada fila se explica sola', () => {
     expect(fila.tipo).toBe('dano_base')
     expect(fila.lineas).toEqual([])
   })
+
+  /*
+   * Los botellones despachados y recibidos viven en la lista — RN-VEN-17.
+   *
+   * El modal de corrección los pre-carga con los valores originales desde
+   * `GET /ventas` (no desde `GET /ventas/:id`, porque la lista alimenta la
+   * corrección). Sin estos dos campos en el listado, la corrección abría con
+   * los contadores en cero aunque la venta original hubiera movido
+   * botellones.
+   */
+  it('trae los botellones despachados y recibidos de la transacción', async () => {
+    /*
+     * El cap es `entregados <= cantidad_de_botellones` (RN-VEN-17) — la
+     * venta lleva 5 y despacha 3 / recibe 2, así el server no rechaza con
+     * BOTELLONES_SIN_RESPALDO.
+     */
+    await comoAdmin({
+      method: 'POST',
+      url: '/ventas',
+      payload: {
+        ...conProducto({ clienteId }),
+        items: [{ productoId, cantidad: 5 }],
+        botellonesEntregados: 3,
+        botellonesRecibidos: 2,
+      },
+    })
+
+    const [fila] = await (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
+
+    expect(fila.botellonesEntregados).toBe(3)
+    expect(fila.botellonesRecibidos).toBe(2)
+  })
 })
 
 /**
