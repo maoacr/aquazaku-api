@@ -110,6 +110,24 @@ export const esquemaDeEdicion = z
 export const esquemaDeEstado = z.object({ activo: z.boolean() })
 
 /**
+ * Desactivar un cliente exige motivo escrito — es la única operación que
+ * mueve stock que pertenece a un cliente (bases y botellones) y ese
+ * movimiento tiene que quedar explicado en el libro. Es el mismo piso que
+ * ya usan descartar base o anular venta.
+ *
+ * Existe como esquema aparte y no como `.extend` de `esquemaDeEstado`
+ * porque este NO acepta el toggle `activo`: el endpoint nuevo es de un
+ * solo sentido, y mezclar los dos en un mismo payload invitaría a
+ * confundir desactivar con reactivar.
+ */
+export const esquemaDeDesactivacion = z.object({
+  motivo: z
+    .string()
+    .trim()
+    .min(10, 'la desactivación necesita un motivo: alguien va a tener que reconstruir por qué después'),
+})
+
+/**
  * Habilitar crédito NO acepta el estado de verificación, y eso es RN-CLI-15
  * hecha contrato: no hay override que valga. La condición se lee del cliente,
  * nunca del pedido.

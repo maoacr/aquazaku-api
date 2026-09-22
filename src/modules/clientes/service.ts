@@ -1,8 +1,19 @@
 import { type SQL, and, desc, eq, like, ne, or, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { db } from '@/db/client'
-import { type Cliente, type Direccion, type Telefono, clientes, telefonos } from '@/db/schema'
+import {
+  type Cliente,
+  type Direccion,
+  type Telefono,
+  bases,
+  clientes,
+  direcciones,
+  movimientosBase,
+  movimientosBotellon,
+  telefonos,
+} from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { botellonesDe } from '@/modules/retornables/conservacion'
 import { type DatosDeDireccion, agregarDireccion } from './direcciones'
 import {
   DocumentoInvalido,
@@ -411,6 +422,154 @@ export async function cambiarEstado(id: string, activo: boolean): Promise<Client
     .returning()
 
   return cliente!
+}
+
+/**
+ * El resultado de desactivar un cliente — RN-CLI-02 + RN-BAS-04 + RN-ENV-04.
+ *
+ * Los dos números que devuelve son los que el modal de web/ muestra antes de
+ * confirmar: «las N bases y los M botellones van a volver al stock». Sin
+ * ellos, la pantalla no podría avisar qué se está moviendo.
+ */
+export interface ResultadoDeDesactivacion {
+  cliente: Cliente
+  basesDevueltas: number
+  botellonesDevueltos: number
+}
+
+/**
+ * Desactivar un cliente revirtiendo lo que tiene en su poder — RN-CLI-02 +
+ * RN-BAS-04 + RN-ENV-04.
+ *
+ * ── Por qué un endpoint aparte de `cambiarEstado` ───────────────────────────
+ *
+ * El toggle de `activo` por sí solo es inocuo: cambia una columna y nada más.
+ * Esta operación NO es ese toggle: devuelve al stock físico las bases
+ * prestadas a las direcciones del cliente y los botellones que figuran a su
+ * nombre. Es otra cosa, con sus propios efectos colaterales, su propia fila
+ * en la bitácora y su propio motivo obligatorio.
+ *
+ * Mantener las dos separadas evita que `PATCH /clientes/:id/estado` —
+ * pensado para reactivar— termine haciendo una reversión de stock por
+ * accidente, o que reactivar tenga que duplicar la lógica de «soy el toggle
+ * inverso de desactivar».
+ *
+ * ── Todo en una sola transacción ────────────────────────────────────────────
+ *
+ * La reversion toca TRES tablas (`clientes`, `bases`, `movimientos_base`,
+ * `movimientos_botellon`). Si el `UPDATE clientes` entra y los retornos no,
+ * el cliente queda inactivo pero con stock que sigue a su nombre, y el
+ * operador no entiende por qué «desactivé y siguen apareciendo». La
+ * transacción garantiza que las escrituras se aplican juntas o no se aplica
+ * ninguna.
+ *
+ * ── El candado de bodega se delega ──────────────────────────────────────────
+ *
+ * El `retornarBotellones` toma su propio `pg_advisory_xact_lock`, así que
+ * la transacción completa se serializa contra cualquier otra transferencia
+ * del parque — lo que evita que dos reversionen en paralelo y vean un saldo
+ * intermedio.
+ */
+export async function desactivarClienteConReversion(
+  id: string,
+  motivo: string,
+  registradoPor: string | null,
+): Promise<ResultadoDeDesactivacion> {
+  return db.transaction(async (tx) => {
+    const cliente = await tx
+      .select()
+      .from(clientes)
+      .where(eq(clientes.id, id))
+      .then((filas) => filas[0])
+
+    if (!cliente) {
+      throw new ErrorDeNegocio('CLIENTE_NO_ENCONTRADO', 404, 'ese cliente ya no existe')
+    }
+
+    if (!cliente.activo) {
+      throw new ErrorDeNegocio(
+        'CLIENTE_YA_INACTIVO',
+        422,
+        'este cliente ya estaba desactivado',
+      )
+    }
+
+    /*
+     * Las bases del cliente son las que están prestadas a cualquiera de SUS
+     * direcciones (RN-BAS-04). Las activas y las inactivas cuentan: una base
+     * prestada a una dirección dada de baja sigue siendo reclamable, y al
+     * desactivar al dueño la dirección pierde al único referente. Devolver al
+     * parque es lo que cierra el préstamo.
+     */
+    const basesDelCliente = await tx
+      .select({ id: bases.id, idSticker: bases.idSticker })
+      .from(bases)
+        .innerJoin(direcciones, eq(direcciones.id, bases.direccionId))
+      .where(and(eq(direcciones.clienteId, id), sql`${bases.direccionId} IS NOT NULL`))
+
+    /*
+     * El update y la fila del libro van juntos por base: si la mitad escribe
+     * y la otra no, el libro dice que volvió pero la base sigue prestada.
+     */
+    for (const base of basesDelCliente) {
+      await tx
+        .update(bases)
+        .set({ direccionId: null })
+        .where(eq(bases.id, base.id))
+
+      await tx.insert(movimientosBase).values({
+        baseId: base.id,
+        tipo: 'retorno',
+        motivo: motivo.trim(),
+        registradoPor,
+      })
+    }
+
+    /*
+     * Los botellones son fungibles y se cuentan por cliente (RN-ENV-04): una
+     * sola transferencia devuelve los N a la bodega, en dos filas como toda
+     * transferencia —una que resta del cliente y otra que suma a la bodega—
+     * para que la ley de conservación siga cerrando.
+     */
+    const botellonesEnPoder = await botellonesDe(id, tx)
+
+    if (botellonesEnPoder > 0) {
+      await tx.insert(movimientosBotellon).values([
+        {
+          cantidad: -botellonesEnPoder,
+          tipo: 'retorno',
+          clienteId: id,
+          motivo: motivo.trim(),
+          registradoPor,
+        },
+        {
+          cantidad: botellonesEnPoder,
+          tipo: 'retorno',
+          clienteId: null,
+          motivo: motivo.trim(),
+          registradoPor,
+        },
+      ])
+    }
+
+    /*
+     * El `activo` se baja al final, después de los movimientos: si la
+     * transacción rebota por cualquier motivo (FK rota, validación de la
+     * base, lo que sea) el cliente sigue activo, y el operador puede
+     * intentar de nuevo sin tener que «reactivar para desactivar».
+     */
+    const [clienteActualizado] = await tx
+      .update(clientes)
+      .set({ activo: false, updatedAt: new Date() })
+      .where(eq(clientes.id, id))
+      .returning()
+
+    return {
+      cliente: clienteActualizado!,
+      basesDevueltas: basesDelCliente.length,
+      botellonesDevueltos: botellonesEnPoder,
+    }
+  })
 }
 
 export async function clientePorId(id: string): Promise<Cliente> {

@@ -18,6 +18,7 @@ import {
   cambiarEstado,
   clientePorId,
   crearCliente,
+  desactivarClienteConReversion,
   editarCliente,
   buscarClientes,
   clientesRecientes,
@@ -26,6 +27,7 @@ import {
 import {
   esquemaDeAlta,
   esquemaDeCredito,
+  esquemaDeDesactivacion,
   esquemaDeDireccion,
   esquemaDeTelefono,
   esquemaDeEdicion,
@@ -222,6 +224,84 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
         return conDocumento(await cambiarEstado(id, datos.activo))
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:editar', id)
+      }
+    },
+  )
+
+  /**
+   * Desactivar revirtiendo lo que el cliente tiene en su poder — RN-CLI-02 +
+   * RN-BAS-04 + RN-ENV-04.
+   *
+   * Convive con `PATCH /:id/estado` (que sigue siendo el toggle de un solo
+   * sentido para reactivar) porque esta operación hace DOS cosas: cambia
+   * `activo` y mueve stock físico. Un solo verbo con un solo cuerpo las
+   * describía peor.
+   *
+   * El permiso es `clientes:editar`, mismo que ya cubre el toggle: la
+   * matriz dice que «desactivar es escribir una columna» y esta sigue
+   * siendo esa columna — los movimientos extra son el cumplimiento de
+   * RN-BAS-04 y RN-ENV-04 al desactivar, no una acción nueva.
+   *
+   * `auditaLaRuta: true` apaga la fila automática del middleware porque
+   * esta ruta escribe la SUYA con los conteos: sin ellos, reconstruir el
+   * «cuánto stock volvió» exige cruzar el libro de movimientos.
+   */
+  app.post(
+    '/clientes/:id/desactivar',
+    {
+      preHandler: [
+        requireAuth,
+        requirePermission('clientes', 'editar', { auditaLaRuta: true }),
+      ],
+    },
+    async (req, reply) => {
+      const { id } = req.params as { id: string }
+      const datos = validar(esquemaDeDesactivacion, req.body, reply)
+      if (!datos) return
+
+      try {
+        const resultado = await desactivarClienteConReversion(id, datos.motivo, req.user!.id)
+
+        /*
+         * Bitácora post-commit con los conteos — change
+         * `clientes-desactivar-con-reversion`.
+         *
+         * La fila `ok` del middleware no existe: `auditaLaRuta: true` la
+         * apagó y este handler es el único que escribe. El motivo + los
+         * conteos hacen auditable la operación tres meses después — «se
+         * desactivó a la señora Gómez y volvió al parque con 2 bases y
+         * 8 botellones» se reconstruye sin tener que cruzar
+         * `movimientos_base` y `movimientos_botellon`.
+         *
+         * Va con `auditarSinBloquear` por la misma razón que las demás
+         * operaciones que ya escribieron su efecto: la desactivación está
+         * confirmada y aplicada. Tumbar la respuesta porque falló la
+         * bitácora dejaría al operador creyendo que no se aplicó, y
+         * desactivando dos veces.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user!.id,
+          rolEjercido: req.user!.roles ?? [],
+          action: 'clientes:desactivar',
+          resource: 'clientes',
+          result: 'ok',
+          payload: {
+            resourceId: id,
+            motivo: datos.motivo,
+            basesDevueltas: resultado.basesDevueltas,
+            botellonesDevueltos: resultado.botellonesDevueltos,
+          },
+        })
+
+        return reply
+          .code(200)
+          .send({
+            ...conDocumento(resultado.cliente),
+            basesDevueltas: resultado.basesDevueltas,
+            botellonesDevueltos: resultado.botellonesDevueltos,
+          })
+      } catch (err) {
+        return manejarError(err, req, reply, 'clientes:desactivar', id)
       }
     },
   )
