@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { db } from '@/db/client'
 import { clientes, lineasDeVenta, productos, users, ventas } from '@/db/schema'
@@ -75,7 +75,29 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
        * direcciones—.
        */
       const { clienteId } = req.query as { clienteId?: string }
-      const condicion = clienteId ? and(alcance, eq(ventas.clienteId, clienteId)) : alcance
+
+      /*
+       * Una venta corregida NO aparece — RN-VEN-16 + cambio UX de lista.
+       *
+       * La corrección NO es un PATCH: la vieja se marca `estado='corregida'`
+       * y se inserta una venta NUEVA que la reemplaza. Sin este filtro, la
+       * lista mostraría DOS filas para una sola operación lógica, con la
+       * misma hora a la que se hizo la corrección.
+       *
+       * La fila que se ve es la NUEVA — y como `corregirVenta` la inserta
+       * con `createdAt = original.createdAt` (o el override que pidió el
+       * admin), queda en la posición temporal del hecho, no salta al tope
+       * con la hora de la corrección. Es la única fila que importa: la
+       * vieja solo existe como eslabón de la trazabilidad.
+       *
+       * Las anuladas sí se listan, en su propio tab — ver `UltimasVentas`
+       * en `web/`.
+       */
+      const condicion = and(
+        alcance,
+        ne(ventas.estado, 'corregida'),
+        clienteId ? eq(ventas.clienteId, clienteId) : undefined,
+      )
 
       /*
        * Los nombres viajan RESUELTOS, no los ids.

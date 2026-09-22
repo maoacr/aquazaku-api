@@ -171,6 +171,56 @@ describe('la corrección reemplaza, no edita', () => {
     expect(nueva.total).toBe('24000.00')
   })
 
+  /*
+   * La nueva venta hereda el `createdAt` exacto de la vieja.
+   *
+   * Sin esto, la lista de «últimas ventas» saltaría la fila corregida al
+   * tope: la nueva se inserta con la hora del momento de la corrección,
+   * mientras la vieja —filtrada de la lista— se va al fondo de la pila.
+   *
+   * Que herede el instante es lo que hace que la operación lógica «esa
+   * venta del 26 de agosto» siga viviendo en su posición temporal cuando
+   * se corrige. La pantalla le pone el label «Modificada» y nadie
+   * pierde el lugar donde estaba.
+   */
+  it('la nueva hereda el createdAt de la vieja cuando no hay override', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id)
+
+    const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']))
+
+    expect(nueva.createdAt.getTime()).toBe(venta.createdAt.getTime())
+  })
+
+  /*
+   * Si la corrección trae override de fecha (RN-VEN-16 fecha corregible),
+   * ese gana sobre la herencia.
+   */
+  it('con override de fecha, la nueva usa el override y no la herencia', async () => {
+    const admin = await usuarioAutenticado('admin')
+    const { venta } = await vender(admin.usuario.id)
+
+    /*
+     * `hoy: HOY` es 2026-08-26, el override es 2026-08-20. La nueva
+     * debería caer en el día 20, no en el 26.
+     */
+    const { venta: nueva } = await corregirVenta(
+      venta.id,
+      {
+        medioDePago: 'efectivo',
+        items: [{ productoId, cantidad: 3 }],
+        motivo: MOTIVO,
+        ocurrioEn: '2026-08-20',
+        hoy: HOY,
+      },
+      como(admin.usuario.id, ['admin']),
+    )
+
+    const isoNueva = nueva.createdAt.toISOString().slice(0, 10)
+    expect(isoNueva).toBe('2026-08-20')
+    expect(isoNueva).not.toBe(HOY)
+  })
+
   it('deja quién, cuándo y por qué en la venta reemplazada', async () => {
     const admin = await usuarioAutenticado('admin')
     const { venta } = await vender(admin.usuario.id)

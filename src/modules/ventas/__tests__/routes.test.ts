@@ -667,6 +667,37 @@ describe('GET /ventas — cada fila se explica sola', () => {
     expect(fila.botellonesEntregados).toBe(3)
     expect(fila.botellonesRecibidos).toBe(2)
   })
+
+  /*
+   * Una venta CORREGIDA NO aparece en la lista — RN-VEN-16 + cambio UX.
+   *
+   * La corrección NO es un PATCH: crea una venta nueva y marca la vieja
+   * como `estado='corregida'`. Sin este filtro, la lista mostraría dos
+   * filas para una sola operación lógica. La nueva venta hereda el
+   * `createdAt` de la vieja, así que aparece en su misma posición
+   * temporal — eso es lo que permite que la fila "no salte" cuando se
+   * corrige.
+   */
+  it('después de corregir, la vieja NO aparece: solo la nueva', async () => {
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId }) })
+    const vieja = (await (await comoAdmin({ method: 'GET', url: '/ventas' })).json())[0]
+
+    await comoAdmin({
+      method: 'POST',
+      url: `/ventas/${vieja.id}/correccion`,
+      payload: {
+        motivo: 'se cobraron 8.000 y quedaron 10.000 por unidad',
+        medioDePago: 'efectivo',
+        items: [{ productoId, cantidad: 2 }],
+      },
+    })
+
+    const filas = (await (await comoAdmin({ method: 'GET', url: '/ventas' })).json())
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0].id).not.toBe(vieja.id)
+    expect(filas[0].corrigeAId).toBe(vieja.id)
+  })
 })
 
 /**
