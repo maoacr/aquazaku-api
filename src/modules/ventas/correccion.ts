@@ -11,7 +11,7 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import type { UserContext } from '@/modules/authz/can'
 import { can } from '@/modules/authz/can'
 import type { Transaccion } from '@/modules/stock/saldo'
-import { devolverElProductoALosLotes, exigirMotivo, ventaAnulable } from './anulacion'
+import { devolverBotellonesDeLaVenta, devolverElProductoALosLotes, exigirMotivo, ventaAnulable } from './anulacion'
 import {
   type DatosDeVenta,
   type ResultadoDeVenta,
@@ -128,23 +128,22 @@ export async function corregirVenta(
     })
 
     /*
-     * ── Compensatorios de botellones — RN-VEN-17 + RN-VEN-16 ────────────────
+     * ── Botellones: revertir los originales para que los nuevos manden ─────
      *
-     * La venta NUEVA persiste los nuevos valores. Si difieren de la original,
-     * se insertan movimientos `tipo='ajuste'` con el delta (nuevo − viejo) y
-     * `documentoId = nuevaVenta.id`. La original queda intacta: el envase
-     * salió UNA vez y se registra UNA vez; la corrección no duplica, ajusta.
+     * La venta NUEVA ya insertó sus propios movimientos con
+     * `documentoId = nueva.id` (vía `registrarVentaEn`). Los originales,
+     * con `documentoId = original.id`, siguen en el libro — preservados para
+     * auditoría, pero visibles para `botellonesDe(cliente)`.
      *
-     * Si los deltas son ambos cero, no se inserta nada: la corrección no tocó
-     * los botellones. Es el caso normal de cambiar precio, cantidad de
-     * producto, o cliente sin activos despachados.
+     * Sin esta reversión, el saldo del cliente sería `original + nuevo`, no
+     * `nuevo`. Es exactamente el bug que dejó un tiempo el sistema
+     * duplicando movimientos: la corrección insertaba además «compensatorios
+     * de delta» que SUMABAN al error en vez de corregirlo.
+     *
+     * La misma lógica usa la anulación (RN-ENV-09) — un solo helper compartido
+     * para que ambas operaciones no puedan diverger.
      */
-    await compensarBotellonesSiCambiaron(
-      tx,
-      original,
-      resultado.venta,
-      usuario.id,
-    )
+    await devolverBotellonesDeLaVenta(tx, original, usuario.id)
 
     /*
      * El ÚNICO `UPDATE` sobre la venta vieja, con sus cinco campos juntos.
@@ -283,69 +282,5 @@ async function exigirQueSeaCorregible(
         'esa venta despachó activos —un botellón, una base— que quedaron a cargo del cliente original. Se pueden corregir los productos y los precios, pero no el cliente: primero registre el retorno en Retornables',
       )
     }
-  }
-}
-
-/**
- * Inserta los movimientos `tipo='ajuste'` cuando la corrección cambia los
- * botellones de la venta.
- *
- * Va FUERA de `exigirQueSeaCorregible` y DENTRO de la misma transacción que el
- * `registrarVentaEn`: los originales se preservan, los deltas se compensan
- * sobre la venta nueva, y `documentoId = nuevaVenta.id` ata cada fila a la
- * sucesora.
- *
- * El signo del delta importa. Si la corrección SUMA envases (entregados de
- * 3 a 5), el cliente recibe 2 más → fila con `cantidad: +2, clienteId`. Si
- * RESTA (entregados de 5 a 3), el cliente devuelve 2 → fila con
- * `cantidad: −2, clienteId`. La bodega lleva el signo opuesto en ambos casos.
- *
- * Por la guarda `ACTIVOS_A_NOMBRE_DEL_CLIENTE` arriba, si la original despachó
- * botellones la nueva hereda el mismo `clienteId`. Si la original no despachó,
- * los deltas son cero y este bloque no escribe nada.
- */
-async function compensarBotellonesSiCambiaron(
-  tx: Transaccion,
-  original: Venta,
-  nueva: Venta,
-  registradoPor: string | null,
-): Promise<void> {
-  const deltaEntregados = nueva.botellonesEntregados - original.botellonesEntregados
-  const deltaRecibidos = nueva.botellonesRecibidos - original.botellonesRecibidos
-
-  if (deltaEntregados !== 0) {
-    await tx.insert(movimientosBotellon).values([
-      {
-        cantidad: deltaEntregados,
-        tipo: 'ajuste',
-        clienteId: nueva.clienteId,
-        documentoId: nueva.id,
-        registradoPor,
-      },
-      {
-        cantidad: -deltaEntregados,
-        tipo: 'ajuste',
-        documentoId: nueva.id,
-        registradoPor,
-      },
-    ])
-  }
-
-  if (deltaRecibidos !== 0) {
-    await tx.insert(movimientosBotellon).values([
-      {
-        cantidad: -deltaRecibidos,
-        tipo: 'ajuste',
-        clienteId: nueva.clienteId,
-        documentoId: nueva.id,
-        registradoPor,
-      },
-      {
-        cantidad: deltaRecibidos,
-        tipo: 'ajuste',
-        documentoId: nueva.id,
-        registradoPor,
-      },
-    ])
   }
 }

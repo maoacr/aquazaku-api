@@ -246,32 +246,28 @@ async function baseAsignadaAVenta(
 }
 
 /**
- * Revierte los movimientos FÍSICOS asociados a la venta — RN-ENV-09 + decisión
- * D5/D8 del change `botellones-entrega-devolucion`.
+ * Revierte los movimientos de BOTELLONES asociados a la venta — RN-ENV-09.
  *
- * Tres libros se mueven en una anulación:
+ * Exportada porque la usa también la corrección: la lógica de reversión es la
+ * misma, y tener dos implementaciones divergentes (la original con
+ * compensatorios de delta, la nueva con movimientos opuestos) es exactamente
+ * la clase de duplicación que dejó el bug del doble-conteo en producción.
  *
- * | Libro | Origen | Reversión |
- * | --- | --- | --- |
- * | `movimientos_botellon` | `entrega` por `botellonesEntregados` | `retorno` con signo opuesto |
- * | `movimientos_botellon` | `retorno` por `botellonesRecibidos` | `entrega` con signo opuesto |
- * | `movimientos_base` | `prestamo` (búsqueda por `documentoId`) | `retorno` + `UPDATE bases SET direccionId = NULL` |
+ * ── El signo importa ────────────────────────────────────────────────────────
  *
- * El `tipo` de cada reversión espeja la semántica del libro contable: revertir
- * una `entrega` (cliente recibió) es un `retorno` (cliente devuelve); revertir
- * un `retorno` (planta recibió) es una `entrega` (planta devuelve al cliente).
+ * `entrega` (planta → cliente, cliente recibe): revertir es un `retorno` con
+ * `cantidad = -botellonesEntregados` para el cliente. `retorno` (cliente →
+ * planta, cliente devuelve): revertir es una `entrega` con
+ * `cantidad = +botellonesRecibidos` para el cliente.
  *
- * Las ventas `tipo='dano_base'` se EXCLUYEN: no tienen movimientos origen que
- * revertir (el recargo es solo un asiento monetario). Sin la guarda, el handler
- * trataría de revertir cero filas sin efecto, pero el `if` deja explícito que
- * la decisión es por diseño y no por accidente.
+ * El `documentoId` de la reversión queda apuntando a la venta ORIGINAL, no a la
+ * sucesora. La auditoría reconstruye «esta venta devolvió» mirando la fila
+ * original; el `documentoId = ventaOriginal.id` ata el hecho a su origen.
  *
- * Las ventas con `botellonesEntregados = 0` y `botellonesRecibidos = 0` (la
- * mayoría —pacas, repuestos, devoluciones sin venta—) no escriben nada en
- * `movimientos_botellon`. La anulación sigue funcionando porque el handler
- * ya devolvió el stock con `devolverElProductoALosLotes`.
+ * Las ventas con `botellonesEntregados = 0` y `botellonesRecibidos = 0` no
+ * escriben nada — la mayoría (pacas, repuestos) no tocan el parque.
  */
-async function devolverActivosDeLaVenta(
+export async function devolverBotellonesDeLaVenta(
   tx: Transaccion,
   venta: Venta,
   registradoPor: string | null,
@@ -313,6 +309,30 @@ async function devolverActivosDeLaVenta(
       },
     ])
   }
+}
+
+/**
+ * Revierte los movimientos FÍSICOS asociados a la venta — RN-ENV-09 + decisión
+ * D5/D8 del change `botellones-entrega-devolucion`.
+ *
+ * Tres libros se mueven en una anulación:
+ *
+ * | Libro | Origen | Reversión |
+ * | --- | --- | --- |
+ * | `movimientos_botellon` | `entrega` por `botellonesEntregados` | `retorno` con signo opuesto |
+ * | `movimientos_botellon` | `retorno` por `botellonesRecibidos` | `entrega` con signo opuesto |
+ * | `movimientos_base` | `prestamo` (búsqueda por `documentoId`) | `retorno` + `UPDATE bases SET direccionId = NULL` |
+ *
+ * La parte de botellones se delega a `devolverBotellonesDeLaVenta` — la
+ * corrección usa el mismo helper, así no hay dos implementaciones de la
+ * misma reversión.
+ */
+async function devolverActivosDeLaVenta(
+  tx: Transaccion,
+  venta: Venta,
+  registradoPor: string | null,
+): Promise<void> {
+  await devolverBotellonesDeLaVenta(tx, venta, registradoPor)
 
   /*
    * ── La base se identifica por el libro, no por una columna de la venta ───

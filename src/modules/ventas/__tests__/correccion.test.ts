@@ -524,14 +524,15 @@ describe('lo que la corrección no deja hacer', () => {
   })
 
   /*
-   * ── Compensatorios de botellones — RN-VEN-17 + RN-VEN-16 ─────────────────
+   * ── Botellones en la corrección — RN-VEN-16 + RN-VEN-17 ─────────────────
    *
-   * Cuando la corrección cambia `botellonesEntregados` o `botellonesRecibidos`,
-   * inserta movimientos `tipo='ajuste'` con el delta sobre la venta NUEVA.
-   * Si no cambia ninguno, no inserta nada.
+   * La corrección REVIERTE los movimientos de la venta original (mismo
+   * helper que la anulación) y la nueva venta inserta los suyos. Resultado
+   * neto: el saldo del cliente refleja SOLO la nueva venta, no la suma de
+   * la original y la nueva — que era el bug del doble-conteo.
    */
 
-  it('cambio en entregados de 3 a 2 inserta tipo ajuste con delta −1', async () => {
+  it('cambio en entregados de 3 a 2 deja el cliente en +2', async () => {
     const admin = await usuarioAutenticado('admin')
     const { venta } = await vender(admin.usuario.id, {
       clienteId,
@@ -547,9 +548,24 @@ describe('lo que la corrección no deja hacer', () => {
     })
 
     /*
-     * El delta entregados es 2 − 3 = −1: el cliente devuelve 1 envase. La
-     * bodega lo recibe. Dos filas `tipo='ajuste'`, ambas con
-     * `documentoId = nueva.id` y `cantidad=±1`.
+     * La reversión apunta a la venta ORIGINAL, no a la nueva — la auditoría
+     * reconstruye «esta venta devolvió» mirando la fila original, no su
+     * sucesora.
+     */
+    const reversiones = await db
+      .select()
+      .from(movimientosBotellon)
+      .where(
+        and(eq(movimientosBotellon.documentoId, venta.id), eq(movimientosBotellon.tipo, 'retorno')),
+      )
+
+    expect(reversiones).toHaveLength(2)
+    expect(reversiones.map((m) => m.cantidad).sort((a, b) => a - b)).toEqual([-3, 3])
+
+    /*
+     * Sin movimientos `tipo='ajuste'`: la corrección no «suma deltas», REVIERTE
+     * los originales. La nueva venta ya tiene sus propios movimientos, y
+     * sumar un delta encima era lo que duplicaba.
      */
     const ajustes = await db
       .select()
@@ -557,25 +573,22 @@ describe('lo que la corrección no deja hacer', () => {
       .where(
         and(eq(movimientosBotellon.documentoId, nueva.id), eq(movimientosBotellon.tipo, 'ajuste')),
       )
-
-    expect(ajustes).toHaveLength(2)
-    expect(ajustes.map((a) => a.cantidad).sort((a, b) => a - b)).toEqual([-1, 1])
+    expect(ajustes).toHaveLength(0)
 
     /*
-     * El saldo del cliente refleja la suma de los movimientos: la entrega
-     * original (+3), la entrega de la nueva (+2), y el compensatorio (−1) =
-     * 4. La especificación describe el compensatorio como el delta (new − old)
-     * — la entrega de la nueva venta es independiente y sigue sumando.
+     * Saldo del cliente: original +3, reversión −3, nueva +2 = +2. El
+     * cliente tomó 2 envases; eso es lo único que cuenta después de la
+     * corrección.
      */
     const saldo = await db
       .select({ n: sql<number>`coalesce(sum(cantidad), 0)::int` })
       .from(movimientosBotellon)
       .where(eq(movimientosBotellon.clienteId, clienteId))
 
-    expect(saldo[0]?.n).toBe(4)
+    expect(saldo[0]?.n).toBe(2)
   })
 
-  it('cambio en recibidos de 0 a 1 inserta tipo ajuste con delta −1 al cliente', async () => {
+  it('cambio en recibidos de 0 a 1 deja el cliente en 0 (1-a-1 efectivo)', async () => {
     const admin = await usuarioAutenticado('admin')
     const { venta } = await vender(admin.usuario.id, {
       clienteId,
@@ -583,7 +596,11 @@ describe('lo que la corrección no deja hacer', () => {
       botellonesRecibidos: 0,
     })
 
-    const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']), {
+    /*
+     * El cliente tenía +1 de saldo. La corrección agrega un retorno, así
+     * que el saldo neto debería ser 0 (intercambio 1-a-1).
+     */
+    await corregir(venta.id, como(admin.usuario.id, ['admin']), {
       clienteId,
       items: [{ productoId, cantidad: 1 }],
       botellonesEntregados: 1,
@@ -591,22 +608,20 @@ describe('lo que la corrección no deja hacer', () => {
     })
 
     /*
-     * El delta recibidos es 1 − 0 = +1: el cliente devuelve 1 más. En el libro,
-     * devolver al cliente con cantidad negativa es coherente con el tipo
-     * `retorno`: quien devuelve entrega (−) y la planta recibe (+).
+     * La reversión de la ENTREGA original inserta un `retorno` con el
+     * cliente −1 y la bodega +1. La nueva venta escribe la ENTREGA nueva
+     * (+1 cliente) y el RETORNO nuevo (−1 cliente). Saldo neto del
+     * cliente: +1 −1 +1 −1 = 0.
      */
-    const ajustes = await db
-      .select()
+    const saldo = await db
+      .select({ n: sql<number>`coalesce(sum(cantidad), 0)::int` })
       .from(movimientosBotellon)
-      .where(
-        and(eq(movimientosBotellon.documentoId, nueva.id), eq(movimientosBotellon.tipo, 'ajuste')),
-      )
+      .where(eq(movimientosBotellon.clienteId, clienteId))
 
-    expect(ajustes).toHaveLength(2)
-    expect(ajustes.map((a) => a.cantidad).sort((a, b) => a - b)).toEqual([-1, 1])
+    expect(saldo[0]?.n).toBe(0)
   })
 
-  it('corrección sin cambios en los campos no inserta ajustes', async () => {
+  it('corrección sin cambios en botellones igual revierte los originales', async () => {
     const admin = await usuarioAutenticado('admin')
     const { venta } = await vender(admin.usuario.id, {
       clienteId,
@@ -614,21 +629,21 @@ describe('lo que la corrección no deja hacer', () => {
       botellonesRecibidos: 1,
     })
 
-    const { venta: nueva } = await corregir(venta.id, como(admin.usuario.id, ['admin']), {
-      clienteId,
-      items: [{ productoId, cantidad: 3 }],
-      botellonesEntregados: 2,
-      botellonesRecibidos: 1,
-    })
-
-    const ajustes = await db
+    /*
+     * La entrega original tiene `botellonesEntregados > 0`, así que la
+     * reversión SIEMPRE se inserta (es la que cancela el efecto de la
+     * original). Lo que cambia acá es que la nueva venta lleva los
+     * mismos números, así que el cliente termina con el mismo saldo que
+     * tenía antes de la corrección.
+     */
+    const reversiones = await db
       .select()
       .from(movimientosBotellon)
       .where(
-        and(eq(movimientosBotellon.documentoId, nueva.id), eq(movimientosBotellon.tipo, 'ajuste')),
+        and(eq(movimientosBotellon.documentoId, venta.id), eq(movimientosBotellon.tipo, 'retorno')),
       )
 
-    expect(ajustes).toHaveLength(0)
+    expect(reversiones).toHaveLength(2)
   })
 
   it('un motivo corto no alcanza', async () => {
