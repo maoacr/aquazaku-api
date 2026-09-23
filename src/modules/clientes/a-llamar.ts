@@ -38,7 +38,8 @@ export interface TelefonoParaLlamar {
 export interface ClienteALlamar {
   clienteId: string
   nombre: string
-  documento: string
+  /** `null` cuando el cliente se registró sin documento — RN-CLI-20. */
+  documento: string | null
   diasSinComprar: number
   urgencia: 'aviso' | 'urgente'
   telefonos: TelefonoParaLlamar[]

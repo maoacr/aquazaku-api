@@ -155,6 +155,20 @@
       "when": 1790300000000,
       "tag": "0021_botellones_entrega_recepcion",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790900000000,
+      "tag": "0022_venta_con_direccion",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790910000000,
+      "tag": "0023_cliente_solo_con_nombre",
+      "breakpoints": true
     }
   ]
 }

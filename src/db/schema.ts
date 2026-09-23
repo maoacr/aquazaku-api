@@ -964,9 +964,25 @@ export const clientes = pgTable(
 
     tipo: tipoClienteEnum('tipo').notNull().default('residencial'),
 
-    tipoDocumento: tipoDocumentoEnum('tipo_documento').notNull(),
+    /**
+     * El documento, ahora OPCIONAL — RN-CLI-20.
+     *
+     * Era obligatorio (RN-CLI-13) y en el mostrador mucha gente no lo quiere
+     * dar. La salida que encontró la planta fue un cliente «POS Aquazaku» con
+     * todas esas ventas colgadas: un tacho donde conviven cientos de personas,
+     * sin cartera propia, sin historial y sin a quién llamar.
+     *
+     * Registrar a alguien con el nombre y el teléfono que sí dio es mejor que
+     * eso aunque falte el documento. Lo que se pierde —el identificador
+     * estable, el aviso de duplicado— ya estaba perdido dentro del tacho.
+     *
+     * Los dos van juntos o no va ninguno (`clientes_documento_completo`): un
+     * número sin tipo no se puede leer, porque 79123456 puede ser una cédula o
+     * un NIT y no son lo mismo (RN-CLI-08).
+     */
+    tipoDocumento: tipoDocumentoEnum('tipo_documento'),
     /** El número BASE, normalizado: sin puntos, sin guion y sin el DV. */
-    numeroDocumento: text('numero_documento').notNull(),
+    numeroDocumento: text('numero_documento'),
 
     verificacionEstado: verificacionEstadoEnum('verificacion_estado')
       .notNull()
@@ -1259,6 +1275,28 @@ export const ventas = pgTable(
      * que no compró.
      */
     clienteId: uuid('cliente_id').references(() => clientes.id, { onDelete: 'restrict' }),
+
+    /**
+     * Dónde se entrega esta venta — RN-VEN-18.
+     *
+     * Antes la dirección solo aparecía cuando la venta despachaba una BASE
+     * (`base.direccionId`), porque una base se presta a una dirección y no a
+     * un cliente (RN-BAS-03). Una venta de botellones sin base no registraba
+     * dónde se entregaba, y el reparto tenía que abrir el cliente y adivinar
+     * a cuál de sus locales iba el pedido.
+     *
+     * NULLABLE por la misma razón que `clienteId`: sin cliente no hay
+     * dirección que asignar, y exigir una obligaría a inventar un cliente.
+     *
+     * La coherencia entre las dos la garantiza la base, no este archivo:
+     * `ventas_con_cliente_exige_direccion` obliga a que vengan las dos o
+     * ninguna, y la foránea COMPUESTA `(direccion_id, cliente_id)` contra
+     * `direcciones (id, cliente_id)` impide entregarle a Rosa en la casa de
+     * Pedro. Drizzle no expresa una foránea compuesta, así que acá solo queda
+     * la columna — la restricción vive en `0022_venta_con_direccion.sql`
+     * (ADR-0006).
+     */
+    direccionId: uuid('direccion_id'),
 
     /**
      * El tipo del cliente AL MOMENTO — RN-VEN-12.

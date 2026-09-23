@@ -1,4 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { direccionDe } from '@/test/fixtures'
 import { closeDb, db } from '@/db/client'
 import { clientes, cobros, lineasDeVenta, lotes, productos, ventas } from '@/db/schema'
 import { resumenMensual } from '@/modules/contador/mensual'
@@ -14,6 +15,7 @@ import { resetDb } from '@/test/db'
  */
 
 let clienteId: string
+let direccionId: string
 let productoId: string
 let loteId: string
 
@@ -23,6 +25,8 @@ async function ventaEn(fecha: string, total: string) {
       .insert(ventas)
       .values({
         clienteId,
+        // RN-VEN-18: con cliente va dirección.
+        direccionId,
         tipoClienteAlMomento: 'comercial',
         medioDePago: 'efectivo',
         tipo: 'producto',
@@ -59,6 +63,7 @@ beforeEach(async () => {
     })
     .returning()
   clienteId = c!.id
+  direccionId = await direccionDe(clienteId)
 
   const [p] = await db
     .insert(productos)

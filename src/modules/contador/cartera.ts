@@ -50,7 +50,8 @@ export const TRAMOS: Tramo[] = [
 export interface CarteraDeCliente {
   clienteId: string
   cliente: string
-  documento: string
+  /// `null` cuando el cliente se registró sin documento — RN-CLI-20.
+  documento: string | null
   total: string
   tramos: Record<string, string>
 }
@@ -105,7 +106,10 @@ export async function carteraPorEdad(hoy: string): Promise<CarteraDeCliente[]> {
     abonado.set(d.clienteId, (abonado.get(d.clienteId) ?? 0) + aCentavos(d.monto))
   }
 
-  const porCliente = new Map<string, { cliente: string; documento: string; tramos: number[] }>()
+  const porCliente = new Map<
+    string,
+    { cliente: string; documento: string | null; tramos: number[] }
+  >()
 
   for (const venta of aCredito) {
     const id = venta.clienteId!

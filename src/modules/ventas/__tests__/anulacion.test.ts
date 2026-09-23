@@ -19,7 +19,7 @@ import { darDeAltaBase } from '@/modules/retornables/bases'
 import { deudaDe } from '@/modules/ventas/saldo'
 import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
-import { usuarioAutenticado } from '@/test/fixtures'
+import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
 /**
  * La anulación — RN-VEN-03 y RN-VEN-08.
@@ -34,6 +34,7 @@ const MOTIVO = 'el cliente devolvió el botellón sin abrir'
 
 let productoId: string
 let clienteId: string
+let direccionId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -71,6 +72,7 @@ beforeEach(async () => {
     })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 })
 
 afterAll(async () => {
@@ -84,9 +86,23 @@ const como = (id: string, roles: UserContext['roles']): UserContext =>
 const saldo = async () =>
   (await db.select().from(lotes).where(eq(lotes.productoId, productoId)))[0]!.cantidadDisponible
 
-const vender = (registradoPor: string | null, extra = {}) =>
+/*
+ * Con cliente va SIEMPRE la dirección — RN-VEN-18. Se pone acá porque ninguno
+ * de estos casos trata sobre la dirección, y repetirla en cada uno sería ruido
+ * que esconde lo que miran de verdad.
+ */
+const vender = (
+  registradoPor: string | null,
+  extra: Partial<Parameters<typeof registrarVenta>[0]> = {},
+) =>
   registrarVenta(
-    { medioDePago: 'efectivo', items: [{ productoId, cantidad: 3 }], hoy: HOY, ...extra },
+    {
+      medioDePago: 'efectivo',
+      items: [{ productoId, cantidad: 3 }],
+      hoy: HOY,
+      ...(extra.clienteId && { direccionId }),
+      ...extra,
+    },
     registradoPor,
   )
 
@@ -367,6 +383,10 @@ describe('la anulación devuelve la base prestada', () => {
       {
         medioDePago: 'efectivo',
         clienteId,
+        // La venta se entrega donde queda la base. Son dos campos distintos
+        // —uno dice a dónde va la venta, el otro dónde se reclama el préstamo
+        // (RN-BAS-03)— y acá apuntan al mismo lugar.
+        direccionId: direccion!.id,
         items: [{ productoId, cantidad: 1 }],
         base: { sticker: base.idSticker, direccionId: direccion!.id },
         hoy: HOY,

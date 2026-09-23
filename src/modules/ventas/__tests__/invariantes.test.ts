@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { direccionDe } from '@/test/fixtures'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
 import { clientes, cobros, lineasDeVenta, productos, ventas } from '@/db/schema'
@@ -18,6 +19,7 @@ import { pgErrorOf, resetDb } from '@/test/db'
 let productoId: string
 let loteId: string
 let clienteId: string
+let direccionId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -60,6 +62,7 @@ beforeEach(async () => {
     .values({ nombreLibre: 'Yeimy', tipoDocumento: 'CC', numeroDocumento: '79123456' })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 })
 
 afterAll(async () => {
@@ -87,7 +90,21 @@ const unaVenta = (extra: Partial<typeof ventas.$inferInsert> = {}) =>
   db.transaction(async (tx) => {
     const [venta] = await tx
       .insert(ventas)
-      .values({ medioDePago: 'efectivo', total: '10000.00', ...extra })
+      /*
+       * Al cliente de este archivo va su dirección: tiene una cargada, y el
+       * trigger `ventas_direccion_cuando_el_cliente_tiene` rechaza la venta que
+       * no dice a cuál. Estos casos miran OTROS invariantes.
+       *
+       * Solo a ese: la foránea compuesta impide entregarle a un cliente en la
+       * dirección de otro, así que un `clienteId` distinto trae la suya o
+       * ninguna.
+       */
+      .values({
+        medioDePago: 'efectivo',
+        total: '10000.00',
+        ...(extra.clienteId === clienteId && { direccionId }),
+        ...extra,
+      })
       .returning()
 
     /*
@@ -310,5 +327,96 @@ describe('un cobro', () => {
     await expect(
       db.update(cobros).set({ monto: '1.00' }).where(eq(cobros.id, cobro!.id)),
     ).rejects.toThrow()
+  })
+})
+
+/**
+ * La venta dice a dónde se entrega, y lo garantiza LA BASE — RN-VEN-18.
+ *
+ * ── Por qué acá y no solo en el servicio ────────────────────────────────────
+ *
+ * `registrarVentaEn` ya lo comprueba y devuelve un mensaje legible, pero ese
+ * es el aviso, no el barrote: cualquier `INSERT` que no pase por ahí —un
+ * script, una corrección futura, un módulo nuevo— se lo saltearía entero.
+ *
+ * Estos casos entran por `db.insert` directo, justamente para probar lo que
+ * queda en pie cuando el servicio no está en el medio (ADR-0006).
+ *
+ * ── Y por qué es un trigger y no un CHECK ───────────────────────────────────
+ *
+ * «El cliente tiene direcciones» vive en OTRA tabla, y un CHECK solo ve su
+ * propia fila. Es `DEFERRABLE INITIALLY DEFERRED` porque el alta de un cliente
+ * crea cliente y dirección en la misma transacción: evaluado al vuelo vería un
+ * estado a medio armar.
+ */
+describe('a dónde se entrega la venta', () => {
+  const insertar = (valores: Partial<typeof ventas.$inferInsert>) =>
+    db.insert(ventas).values({ medioDePago: 'efectivo', total: '10000.00', ...valores })
+
+  it('con direcciones cargadas, la base rechaza la venta que no dice a cuál', async () => {
+    const error = await pgErrorOf(insertar({ clienteId }))
+
+    expect(error.constraint).toBe('ventas_direccion_cuando_el_cliente_tiene')
+  })
+
+  it('sin ninguna dirección, la base la deja pasar', async () => {
+    const [solo] = await db
+      .insert(clientes)
+      .values({ nombreLibre: 'Alguien que solo dio el nombre' })
+      .returning()
+
+    // `unaVenta` inserta también la línea: una venta de producto sin líneas
+    // tiene un total que no sale de ningún lado, y ese es otro invariante.
+    await unaVenta({ clienteId: solo!.id })
+
+    const [guardada] = await db.select().from(ventas).where(eq(ventas.clienteId, solo!.id))
+    expect(guardada?.direccionId).toBeNull()
+  })
+
+  /*
+   * El recargo por base rota no se entrega en ningún lado: es un cobro. Y
+   * muchas veces NO podría tener dirección — una base se rompe estando en
+   * bodega, ya devuelta.
+   */
+  it('el recargo por daño queda afuera de la regla', async () => {
+    // `direccionId: null` explícito: el helper se la pone al cliente de este
+    // archivo, y lo que este caso mira es justamente que SIN ella pase.
+    await unaVenta({ clienteId, direccionId: null, tipo: 'dano_base', total: '50000.00' })
+
+    const [guardada] = await db
+      .select()
+      .from(ventas)
+      .where(eq(ventas.tipo, 'dano_base'))
+    expect(guardada?.direccionId).toBeNull()
+  })
+
+  /*
+   * Una dirección cuelga de un cliente (RN-CLI-07): suelta en una venta
+   * anónima es un dato que no le pertenece a nadie. Esta mitad SÍ es un CHECK,
+   * porque mira una sola fila.
+   */
+  it('una dirección sin cliente no entra', async () => {
+    const error = await pgErrorOf(insertar({ direccionId }))
+
+    expect(error.constraint).toBe('ventas_direccion_exige_cliente')
+  })
+
+  /**
+   * La dirección tiene que ser DE ESE cliente.
+   *
+   * Con dos foráneas sueltas la base aceptaría una venta a uno entregada en la
+   * casa de otro, y el error solo se vería el día que el repartidor toca la
+   * puerta equivocada. Lo impide la foránea COMPUESTA sobre el par.
+   */
+  it('la dirección de otro cliente no entra', async () => {
+    const [otro] = await db
+      .insert(clientes)
+      .values({ nombreLibre: 'Otro', tipoDocumento: 'CC', numeroDocumento: '1098765432' })
+      .returning()
+
+    const ajena = await direccionDe(otro!.id)
+    const error = await pgErrorOf(insertar({ clienteId, direccionId: ajena }))
+
+    expect(error.constraint).toBe('ventas_direccion_del_cliente_fk')
   })
 })

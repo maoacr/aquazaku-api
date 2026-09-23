@@ -19,7 +19,7 @@ import { registrarDevolucion } from '@/modules/ventas/devoluciones'
 import { deudaDe } from '@/modules/ventas/saldo'
 import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
-import { usuarioAutenticado } from '@/test/fixtures'
+import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
 /**
  * Corregir una venta registrada — RN-VEN-16.
@@ -36,7 +36,9 @@ const MOTIVO = 'el precio se cargó mal: se cobraron 8.000 y quedaron 10.000'
 let productoId: string
 let otroProductoId: string
 let clienteId: string
+let direccionId: string
 let otroClienteId: string
+let otraDireccionId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -98,12 +100,14 @@ beforeEach(async () => {
     .values({ nombreLibre: 'Yeimy', tipoDocumento: 'CC', numeroDocumento: '79123456', ...conCredito })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 
   const [otroCliente] = await db
     .insert(clientes)
     .values({ nombreLibre: 'Marleny', tipoDocumento: 'CC', numeroDocumento: '52987654', ...conCredito })
     .returning()
   otroClienteId = otroCliente!.id
+  otraDireccionId = await direccionDe(otroClienteId)
 })
 
 afterAll(async () => {
@@ -116,13 +120,31 @@ const como = (id: string, roles: UserContext['roles']): UserContext =>
 const saldoDe = async (id: string) =>
   (await db.select().from(lotes).where(eq(lotes.productoId, id)))[0]!.cantidadDisponible
 
-const vender = (registradoPor: string | null, extra = {}) =>
+/*
+ * Con cliente va SIEMPRE la dirección — RN-VEN-18. Se pone acá porque ninguno
+ * de estos casos trata sobre la dirección, y repetirla en cada uno sería ruido
+ * que esconde lo que miran de verdad.
+ */
+const vender = (
+  registradoPor: string | null,
+  extra: Partial<Parameters<typeof registrarVenta>[0]> = {},
+) =>
   registrarVenta(
-    { medioDePago: 'efectivo', items: [{ productoId, cantidad: 3 }], hoy: HOY, ...extra },
+    {
+      medioDePago: 'efectivo',
+      items: [{ productoId, cantidad: 3 }],
+      hoy: HOY,
+      ...(extra.clienteId && { direccionId }),
+      ...extra,
+    },
     registradoPor,
   )
 
-const corregir = (ventaId: string, usuario: UserContext, extra = {}) =>
+const corregir = (
+  ventaId: string,
+  usuario: UserContext,
+  extra: Partial<Parameters<typeof corregirVenta>[1]> = {},
+) =>
   corregirVenta(
     ventaId,
     {
@@ -130,6 +152,9 @@ const corregir = (ventaId: string, usuario: UserContext, extra = {}) =>
       items: [{ productoId, cantidad: 3 }],
       hoy: HOY,
       motivo: MOTIVO,
+      // La corrección pasa por el mismo `registrarVentaEn` que el mostrador,
+      // así que también le exige dirección al cliente (RN-VEN-18).
+      ...(extra.clienteId && { direccionId }),
       ...extra,
     },
     usuario,
@@ -385,6 +410,9 @@ describe('la deuda cuenta una sola vez', () => {
     await corregir(venta.id, como(admin.usuario.id, ['admin']), {
       medioDePago: 'credito',
       clienteId: otroClienteId,
+      // La dirección tiene que ser DE ESE cliente: la foránea compuesta
+      // `ventas_direccion_del_cliente_fk` rechaza la del anterior.
+      direccionId: otraDireccionId,
     })
 
     expect(await deudaDe(clienteId)).toBe('0.00')
@@ -479,7 +507,10 @@ describe('lo que la corrección no deja hacer', () => {
     })
 
     await expect(
-      corregir(venta.id, como(admin.usuario.id, ['admin']), { clienteId: otroClienteId }),
+      corregir(venta.id, como(admin.usuario.id, ['admin']), {
+        clienteId: otroClienteId,
+        direccionId: otraDireccionId,
+      }),
     ).rejects.toMatchObject({ code: 'ACTIVOS_A_NOMBRE_DEL_CLIENTE' })
   })
 

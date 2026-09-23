@@ -10,6 +10,7 @@ import {
   lineasDeVenta,
   productos,
   ventas,
+  direcciones,
   movimientosBotellon,
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
@@ -76,6 +77,28 @@ export interface ItemDeVenta {
 
 export interface DatosDeVenta {
   clienteId?: string | null
+
+  /**
+   * Dónde se entrega esta venta — RN-VEN-18.
+   *
+   * **Obligatoria si el cliente TIENE direcciones cargadas.** Sin ella el
+   * reparto no sale de la venta: quien arma la ruta tendría que abrir el
+   * cliente y adivinar a cuál de sus locales iba el pedido.
+   *
+   * Y solo si tiene: desde RN-CLI-20 un cliente se registra con el nombre
+   * nada más, y exigirle dirección lo dejaría sin poder comprar — que es lo
+   * contrario de lo que ese registro vino a habilitar. El día que le carguen
+   * una dirección, la regla empieza a aplicarle sola.
+   *
+   * No se confunde con `base.direccionId`. Esa dice a dónde se PRESTÓ una base
+   * —el préstamo se reclama en una dirección concreta (RN-BAS-03)— y solo
+   * existe cuando sale una base. Esta dice a dónde va la venta, y existe
+   * siempre que haya cliente. En la práctica suelen ser la misma, pero no
+   * tienen por qué serlo: una recarga que se entrega en la casa puede dejar la
+   * base en el local.
+   */
+  direccionId?: string | null
+
   medioDePago: 'efectivo' | 'transferencia' | 'credito'
   canal?: 'mostrador' | 'whatsapp' | 'ruta'
   items: ItemDeVenta[]
@@ -229,6 +252,26 @@ export async function registrarVentaEn(
     throw new ErrorDeNegocio('VENTA_VACIA', 422, 'una venta sin productos no es una venta')
   }
 
+  /*
+   * Sin cliente NO se acepta dirección — RN-VEN-18.
+   *
+   * Una dirección cuelga de un cliente (RN-CLI-07), así que suelta en una
+   * venta anónima es un dato que no le pertenece a nadie. La base lo impide
+   * igual (`ventas_direccion_exige_cliente`); esto solo adelanta el rechazo
+   * con un mensaje que se puede leer.
+   *
+   * La otra punta —con cliente, exigir dirección— NO se decide acá: depende de
+   * si ESE cliente tiene alguna cargada, y eso se sabe recién con la
+   * transacción abierta. Está más abajo.
+   */
+  if (!datos.clienteId && datos.direccionId) {
+    throw new ErrorDeNegocio(
+      'DIRECCION_SIN_CLIENTE',
+      422,
+      'una venta sin cliente no puede tener dirección: la dirección es de alguien',
+    )
+  }
+
   const ocurrioEn = exigirFechaRegistrable(datos.ocurrioEn)
 
   /*
@@ -239,6 +282,38 @@ export async function registrarVentaEn(
   const fechaDeEvaluacion = datos.ocurrioEn ?? datos.hoy
 
   const cliente = datos.clienteId ? await clienteActivo(tx, datos.clienteId) : null
+
+  /*
+   * Si el cliente tiene direcciones, hay que decir a cuál se entrega
+   * — RN-VEN-18.
+   *
+   * La base lo impide igual, con el trigger
+   * `ventas_direccion_cuando_el_cliente_tiene`, y ese es el barrote real. Esto
+   * existe para que el rechazo llegue con un mensaje que diga qué falta en vez
+   * de un error de restricción que quien atiende no puede leer.
+   *
+   * Se pregunta ADENTRO de la transacción y no antes: el alta de un cliente
+   * puede crear su primera dirección en esta misma transacción, y mirarlo
+   * desde afuera vería un estado que todavía no existe.
+   *
+   * El recargo por base rota no pasa por acá —lo inserta `dano.ts` directo—,
+   * así que no hace falta eximirlo: el trigger de la base sí lo exime.
+   */
+  if (cliente && !datos.direccionId) {
+    const [tiene] = await tx
+      .select({ id: direcciones.id })
+      .from(direcciones)
+      .where(and(eq(direcciones.clienteId, cliente.id), eq(direcciones.activa, true)))
+      .limit(1)
+
+    if (tiene) {
+      throw new ErrorDeNegocio(
+        'VENTA_SIN_DIRECCION',
+        422,
+        'falta a qué dirección del cliente se entrega esta venta',
+      )
+    }
+  }
   const codigo = datos.codigoDescuento
     ? await codigoVigente(tx, datos.codigoDescuento, fechaDeEvaluacion)
     : null
@@ -411,6 +486,9 @@ export async function registrarVentaEn(
     .insert(ventas)
     .values({
       clienteId: cliente?.id ?? null,
+      // Dónde se entrega (RN-VEN-18). Va junto al cliente porque la base los
+      // exige juntos: `ventas_con_cliente_exige_direccion`.
+      direccionId: cliente ? (datos.direccionId ?? null) : null,
       // El tipo del cliente AL MOMENTO: un cliente pasa de residencial a
       // comercial y las ventas viejas no se reinterpretan (RN-VEN-12).
       tipoClienteAlMomento: cliente?.tipo ?? null,

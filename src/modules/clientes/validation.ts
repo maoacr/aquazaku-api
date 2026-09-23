@@ -42,8 +42,21 @@ const nombre = {
 export const esquemaDeAlta = z.object({
   ...nombre,
   tipo: tipoCliente.optional(),
-  tipoDocumento,
-  numeroDocumento,
+
+  /**
+   * El documento, OPCIONAL desde RN-CLI-20.
+   *
+   * Era obligatorio, y en el mostrador mucha gente no lo quiere dar. La salida
+   * que encontró la planta fue un cliente «POS Aquazaku» con todas esas ventas
+   * colgadas — un tacho donde conviven cientos de personas sin cartera propia,
+   * sin historial y sin a quién llamar.
+   *
+   * Que los dos vengan juntos o ninguno NO se valida acá: es una regla con su
+   * propio mensaje y vive en el servicio, y además la base la garantiza con
+   * `clientes_documento_completo`. Este esquema valida FORMA.
+   */
+  tipoDocumento: tipoDocumento.optional(),
+  numeroDocumento: numeroDocumento.optional(),
   /**
    * Un teléfono en el mismo alta — opcional.
    *

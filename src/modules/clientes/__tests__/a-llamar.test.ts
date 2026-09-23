@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { direccionDe } from '@/test/fixtures'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
 import { clientes, lineasDeVenta, parametros, productos, telefonos, ventas } from '@/db/schema'
@@ -54,11 +55,21 @@ async function ventaDe(
       ? { anuladaEn: cuando, motivoAnulacion: 'se arrepintió en el mostrador' }
       : {}
 
+  /*
+   * La dirección se crea ANTES de abrir la transacción — RN-VEN-18.
+   *
+   * `direccionDe` usa el pool, no el `tx`. Llamarla adentro pide una segunda
+   * conexión mientras la primera tiene la transacción abierta, y el test se
+   * cuelga hasta el timeout en vez de fallar diciendo algo.
+   */
+  const direccionId = await direccionDe(clienteId)
+
   await db.transaction(async (tx) => {
     const [venta] = await tx
       .insert(ventas)
       .values({
         clienteId,
+        direccionId,
         medioDePago: 'efectivo',
         total: '10000.00',
         createdAt: cuando,
@@ -86,6 +97,7 @@ async function recargoDe(clienteId: string, haceDias: number) {
 
   await db.insert(ventas).values({
     clienteId,
+    // Un recargo por daño NO lleva dirección: no se entrega en ningún lado.
     medioDePago: 'efectivo',
     tipo: 'dano_base',
     total: '50000.00',
