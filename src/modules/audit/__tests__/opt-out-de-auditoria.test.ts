@@ -34,6 +34,17 @@ const MODULOS = join(import.meta.dirname, '../..')
 const SE_AUDITAN_SOLAS: Record<string, string> = {
   'alertas → configuracion:editar':
     'alertas/routes.ts — emite con los umbrales viejos y nuevos',
+  /*
+   * El permiso es `clientes:editar` y la fila que escribe dice
+   * `clientes:desactivar`, que es más preciso: desactivar es escribir una
+   * columna, pero arrastra la devolución de bases y botellones.
+   *
+   * Los conteos son lo que la hace auditable tres meses después — «se desactivó
+   * a la señora Gómez y volvieron 2 bases y 8 botellones» se lee de la fila, sin
+   * cruzar `movimientos_base` con `movimientos_botellon`.
+   */
+  'clientes → clientes:editar':
+    'clientes/routes.ts — emite `clientes:desactivar` con el motivo y los conteos devueltos',
   'productos → productos:crear': 'productos/routes.ts — emite con código y nombre',
   'productos → productos:desactivar':
     'productos/routes.ts — emite `desactivar` y `reactivar` con el código',
