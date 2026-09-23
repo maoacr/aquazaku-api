@@ -9,12 +9,13 @@ import { crearCodigo, desactivarCodigo, listarCodigos } from '@/modules/ventas/d
 import { deudaDe } from '@/modules/ventas/saldo'
 import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
-import { usuarioAutenticado } from '@/test/fixtures'
+import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 import type { UserContext } from '@/modules/authz/can'
 
 const HOY = '2026-08-26'
 let productoId: string
 let clienteId: string
+let direccionId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -52,6 +53,7 @@ beforeEach(async () => {
     })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 })
 
 afterAll(async () => {
@@ -61,7 +63,7 @@ afterAll(async () => {
 /** Deja al cliente debiendo `cantidad × $10.000`. */
 const venderACredito = (cantidad: number) =>
   registrarVenta(
-    { medioDePago: 'credito', clienteId, items: [{ productoId, cantidad }], hoy: HOY },
+    { medioDePago: 'credito', clienteId, direccionId, items: [{ productoId, cantidad }], hoy: HOY },
     null,
   )
 
@@ -168,7 +170,13 @@ describe('la cartera', () => {
 
     await venderACredito(1)
     await registrarVenta(
-      { medioDePago: 'credito', clienteId: otro!.id, items: [{ productoId, cantidad: 5 }], hoy: HOY },
+      {
+        medioDePago: 'credito',
+        clienteId: otro!.id,
+        direccionId: await direccionDe(otro!.id),
+        items: [{ productoId, cantidad: 5 }],
+        hoy: HOY,
+      },
       null,
     )
 

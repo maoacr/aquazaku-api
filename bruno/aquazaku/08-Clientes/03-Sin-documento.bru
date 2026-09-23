@@ -1,5 +1,5 @@
 meta {
-  name: Sin documento — se rechaza
+  name: Sin documento — se registra igual
   type: http
   seq: 3
 }
@@ -12,19 +12,53 @@ post {
 body:json {
   {
     "primerNombre": "Alguien",
-    "apellidos": "Que Después Trae La Cédula",
-    "tipoDocumento": "CC"
+    "apellidos": "Que Después Trae La Cédula"
   }
 }
 
 docs {
-  RN-CLI-13, sin excepciones. El `seller` puede tomar el número dictado de viva
-  voz y la app lo acepta — pero el dato existe desde el primer momento, no se
-  rellena después.
+  **RN-CLI-20**, que reemplaza a RN-CLI-13.
+
+  El documento era obligatorio, y en el mostrador mucha gente no lo quiere dar.
+  La salida que encontró la planta fue crear un cliente «POS Aquazaku» y
+  colgarle TODAS esas ventas: un tacho donde conviven cientos de personas, sin
+  cartera propia, sin historial y sin a quién llamar.
+
+  Registrar a alguien con el nombre y el teléfono que sí dio es mejor que eso.
+  Lo que se pierde —el identificador estable, el aviso de duplicado CC/NIT—
+  dentro del tacho ya estaba perdido, y además se perdían el nombre y el
+  teléfono.
+
+  El cliente-tacho sigue existiendo, ahora para lo que de verdad es: quien no
+  quiere dar NI el nombre. Ese caso tampoco necesita un cliente — `ventas.cliente_id`
+  es nullable.
+
+  ## Lo que sí sigue siendo obligatorio
+
+  El **nombre**. `clientes.nombre` es una columna generada `NOT NULL` que sale
+  de las partes o de `nombre_libre`: un cliente sin nombre no se puede volver a
+  encontrar, porque el buscador busca por nombre, apellidos, apodo y documento.
+
+  ## Y por qué el `tipoDocumento` tampoco viaja
+
+  Los dos van juntos o no va ninguno (`clientes_documento_completo`). Un tipo
+  sin número no identifica nada, y un número sin tipo no se puede leer:
+  `79123456` puede ser una cédula o el NIT de esa misma persona, y no son lo
+  mismo (RN-CLI-08).
 }
 
 tests {
-  test("lo atrapa Zod: el campo falta", function() {
-    expect(res.getStatus()).to.equal(400);
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda el nombre, que es lo que dieron", function() {
+    expect(res.getBody().nombre).to.equal("Alguien Que Después Trae La Cédula");
+  });
+
+  test("el documento queda vacío, no inventado", function() {
+    expect(res.getBody().numeroDocumento).to.equal(null);
+    expect(res.getBody().tipoDocumento).to.equal(null);
+    expect(res.getBody().documento).to.equal(null);
   });
 }

@@ -55,9 +55,23 @@ export interface NombreDeCliente {
 
 export interface DatosDeAlta extends NombreDeCliente {
   tipo?: 'residencial' | 'comercial'
-  tipoDocumento: TipoDeDocumento
+
+  /**
+   * El documento, OPCIONAL — RN-CLI-20.
+   *
+   * En el mostrador mucha gente no lo quiere dar, y la salida que había
+   * encontrado la planta era colgar esas ventas de un cliente «POS Aquazaku»:
+   * un tacho donde conviven cientos de personas, sin cartera propia, sin
+   * historial y sin a quién llamar. Con el nombre y el teléfono que sí dieron,
+   * el registro ya sirve para lo que se hizo.
+   *
+   * Los dos van juntos o no va ninguno. Sin tipo, `79123456` puede ser una
+   * cédula o un NIT y no son lo mismo (RN-CLI-08); sin número, el tipo no
+   * identifica nada. Lo garantiza `clientes_documento_completo`.
+   */
+  tipoDocumento?: TipoDeDocumento
   /** Como lo dictaron: con puntos, con guion o pelado. Se normaliza acá. */
-  numeroDocumento: string
+  numeroDocumento?: string
   /**
    * Un teléfono, capturado en el mismo momento del alta.
    *
@@ -194,7 +208,7 @@ async function buscarCruce(
     clienteExistente: {
       id: existente.id,
       nombre: existente.nombre,
-      tipoDocumento: existente.tipoDocumento,
+      tipoDocumento: existente.tipoDocumento!,
     },
     mensaje: `${existente.nombre} ya está registrado con el mismo número como ${existente.tipoDocumento}. Si es la misma persona, use ese registro en vez de crear otro: dos fichas parten su deuda y sus botellones en dos, y ninguna de las dos es real.`,
   }
@@ -267,8 +281,24 @@ export function exigirNombreCoherente(n: NombreDeCliente): NombreDeCliente {
 export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta> {
   const nombre = exigirNombreCoherente(datos)
 
-  const numeroDocumento = exigirDocumento(datos.numeroDocumento)
-  const aviso = await buscarCruce(datos.tipoDocumento, numeroDocumento)
+  /*
+   * El documento es OPCIONAL — RN-CLI-20.
+   *
+   * Cuando no viene, no hay número que normalizar ni cruce CC/NIT que buscar:
+   * el aviso de RN-CLI-08 se apoya en el número, y sin número no hay nada con
+   * qué cruzar. Se registra igual, con el nombre —y el teléfono, si lo dieron—
+   * que es exactamente el punto: mejor eso que colgarlo del cliente-tacho.
+   *
+   * Los dos van juntos o no va ninguno; lo garantiza
+   * `clientes_documento_completo` en la base.
+   */
+  const numeroDocumento = datos.numeroDocumento
+    ? exigirDocumento(datos.numeroDocumento)
+    : null
+  const tipoDocumento = numeroDocumento ? (datos.tipoDocumento ?? 'CC') : null
+
+  const aviso =
+    tipoDocumento && numeroDocumento ? await buscarCruce(tipoDocumento, numeroDocumento) : null
 
   /*
    * Cliente y teléfono en la MISMA transacción.
@@ -284,7 +314,7 @@ export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta>
       .values({
         ...nombre,
         tipo: datos.tipo ?? 'residencial',
-        tipoDocumento: datos.tipoDocumento,
+        tipoDocumento,
         numeroDocumento,
       })
       .returning()
@@ -365,7 +395,10 @@ export async function editarCliente(
   const cambioElDocumento =
     tipoDocumento !== actual.tipoDocumento || numeroDocumento !== actual.numeroDocumento
 
-  const aviso = cambioElDocumento ? await buscarCruce(tipoDocumento, numeroDocumento, id) : null
+  const aviso =
+    cambioElDocumento && tipoDocumento && numeroDocumento
+      ? await buscarCruce(tipoDocumento, numeroDocumento, id)
+      : null
 
   /*
    * El nombre se reemplaza ENTERO o no se toca.

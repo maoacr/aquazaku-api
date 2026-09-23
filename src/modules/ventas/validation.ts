@@ -24,6 +24,23 @@ const motivo = z
 
 export const esquemaDeVenta = z.object({
   clienteId: z.string().uuid().optional(),
+
+  /**
+   * Dónde se entrega — RN-VEN-18.
+   *
+   * Opcional **acá**, obligatoria cuando la venta tiene cliente. La regla
+   * relaciona dos campos y tiene su propio mensaje, así que vive en el
+   * servicio: este esquema valida FORMA. Con un `.refine()` acá, además,
+   * `esquemaDeVenta` dejaría de ser un `ZodObject` y la corrección —que lo
+   * extiende con `.omit().extend()`— no compilaría.
+   *
+   * Que la dirección sea DE ESE cliente no se comprueba ni acá ni en el
+   * servicio: lo garantiza la foránea compuesta
+   * `ventas_direccion_del_cliente_fk`. Repetirlo en TypeScript sería una
+   * segunda definición de lo mismo, esperando a separarse (ADR-0006).
+   */
+  direccionId: z.string().uuid('esa dirección no es válida').optional(),
+
   medioDePago: z.enum(['efectivo', 'transferencia', 'credito']),
   canal: z.enum(['mostrador', 'whatsapp', 'ruta']).optional(),
 

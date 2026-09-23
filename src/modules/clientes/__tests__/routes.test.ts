@@ -51,15 +51,57 @@ describe('POST /clientes', () => {
     expect(res.json().numeroDocumento).toBe('79123456')
   })
 
-  /** RN-CLI-13: el documento se exige. Lo que puede esperar es la verificación. */
-  it('sin documento no hay alta', async () => {
+  /**
+   * Sin documento SÍ hay alta — RN-CLI-20, que reemplaza a RN-CLI-13.
+   *
+   * ── Por qué se dio vuelta esta regla ──────────────────────────────────────
+   *
+   * El documento era obligatorio, y en el mostrador mucha gente no lo quiere
+   * dar. La salida que encontró la planta fue crear un cliente «POS Aquazaku»
+   * y colgarle TODAS esas ventas: un tacho donde conviven cientos de personas,
+   * sin cartera propia, sin historial y sin a quién llamar.
+   *
+   * Registrar a alguien con el nombre y el teléfono que sí dio es mejor que
+   * eso. Lo que se pierde —el identificador estable, el aviso de duplicado—
+   * dentro del tacho ya estaba perdido.
+   *
+   * El cliente-tacho sigue existiendo, y ahora para lo que de verdad es: quien
+   * no quiere dar NI el nombre.
+   */
+  it('sin documento SÍ hay alta: queda el nombre, que es lo que dieron', async () => {
     const res = await comoAdmin({
       method: 'POST',
       url: '/clientes',
-      payload: { primerNombre: 'Alguien', apellidos: 'Sin Documento', tipoDocumento: 'CC' },
+      payload: { primerNombre: 'Alguien', apellidos: 'Sin Documento' },
     })
 
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(201)
+    expect(res.json().numeroDocumento).toBeNull()
+    expect(res.json().nombre).toBe('Alguien Sin Documento')
+  })
+
+  /*
+   * El tipo sin número no identifica nada, y el número sin tipo no se puede
+   * leer: `79123456` es una cédula o un NIT, y no son lo mismo (RN-CLI-08).
+   * Van juntos o no va ninguno.
+   */
+  it('el tipo suelto, sin número, no cuenta como documento', async () => {
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/clientes',
+      payload: { primerNombre: 'Alguien', apellidos: 'Con Tipo Suelto', tipoDocumento: 'CC' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().tipoDocumento).toBeNull()
+    expect(res.json().numeroDocumento).toBeNull()
+  })
+
+  /* Y el nombre sigue siendo el piso: sin él la fila no se puede volver a encontrar. */
+  it('sin nada, no hay cliente', async () => {
+    const res = await comoAdmin({ method: 'POST', url: '/clientes', payload: {} })
+
+    expect(res.statusCode).toBe(422)
   })
 
   it('el `contador` mira pero no registra', async () => {

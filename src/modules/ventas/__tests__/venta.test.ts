@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { direccionDe } from '@/test/fixtures'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { movimientosBotellon } from '@/db/schema'
 import { comprarBotellones } from '@/modules/retornables/botellones'
@@ -33,6 +34,7 @@ const HOY = '2026-08-26'
 let botellonId: string
 let pacaId: string
 let clienteId: string
+let direccionId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -87,6 +89,7 @@ beforeEach(async () => {
     .values({ nombreLibre: 'Yeimy', tipoDocumento: 'CC', numeroDocumento: '79123456' })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 })
 
 afterAll(async () => {
@@ -106,9 +109,25 @@ async function saldoDelLoteDe(productoId: string): Promise<number> {
   return lote!.cantidadDisponible
 }
 
+/*
+ * Con cliente va SIEMPRE la dirección — RN-VEN-18.
+ *
+ * Se pone acá y no en cada caso porque ninguno de estos tests trata sobre la
+ * dirección: tratan sobre stock, precio, crédito y botellones. Repetirla en
+ * los dieciséis sería ruido que esconde lo que cada uno mira de verdad.
+ *
+ * Un caso que quiera probar la regla la pasa explícita —o la pasa en `null`—
+ * y este default se aparta.
+ */
 const unaVenta = (extra: Partial<Parameters<typeof registrarVenta>[0]> = {}) =>
   registrarVenta(
-    { medioDePago: 'efectivo', items: [{ productoId: botellonId, cantidad: 2 }], hoy: HOY, ...extra },
+    {
+      medioDePago: 'efectivo',
+      items: [{ productoId: botellonId, cantidad: 2 }],
+      hoy: HOY,
+      ...(extra.clienteId && { direccionId }),
+      ...extra,
+    },
     null,
   )
 
@@ -491,6 +510,7 @@ describe('los botellones que salen con la venta', () => {
       {
         medioDePago: 'efectivo',
         clienteId,
+        direccionId,
         items: [{ productoId: botellonId, cantidad: 3 }],
         botellonesEntregados: 1,
         botellonesRecibidos: 0,
@@ -659,5 +679,117 @@ describe('los botellones que salen con la venta', () => {
     expect(movimientos).toHaveLength(0)
     expect(venta.botellonesEntregados).toBe(0)
     expect(venta.botellonesRecibidos).toBe(0)
+  })
+})
+
+/**
+ * La venta se entrega en una dirección — RN-VEN-18.
+ *
+ * ── Qué problema resuelve ───────────────────────────────────────────────────
+ *
+ * Antes la dirección solo aparecía si la venta despachaba una BASE, porque el
+ * préstamo se reclama en una dirección concreta (RN-BAS-03). Una venta de
+ * botellones sin base no registraba dónde se entregaba, y el reparto tenía que
+ * abrir el cliente y adivinar a cuál de sus locales iba el pedido.
+ *
+ * ── Y por qué NO es obligatoria siempre ─────────────────────────────────────
+ *
+ * Una dirección cuelga de un cliente (RN-CLI-07), y la venta de mostrador a
+ * quien compra un botellón y se va no tiene cliente — exigirla obligaría a
+ * inventar uno, que ensucia la cartera de alguien que no compró.
+ *
+ * La regla real es la COHERENCIA entre las dos, y la garantiza la base con
+ * `ventas_con_cliente_exige_direccion`. El servicio la adelanta solo para que
+ * el mensaje diga qué falta.
+ */
+describe('la dirección de entrega', () => {
+  it('se guarda en la venta', async () => {
+    const { venta } = await unaVenta({ clienteId })
+
+    expect(venta.direccionId).toBe(direccionId)
+  })
+
+  it('con cliente que TIENE direcciones y sin elegir una, no se registra', async () => {
+    await expect(unaVenta({ clienteId, direccionId: null })).rejects.toMatchObject({
+      code: 'VENTA_SIN_DIRECCION',
+    })
+  })
+
+  /**
+   * Un cliente sin ninguna dirección SÍ puede comprar — RN-CLI-20.
+   *
+   * Desde que un cliente se registra solo con el nombre, exigirle dirección lo
+   * dejaría sin poder comprar — que es lo contrario de lo que ese registro vino
+   * a habilitar. Quien no tiene a dónde, no tiene que decir a dónde.
+   *
+   * Es el caso que más importa de este bloque: si se rompe, el mostrador se
+   * traba justo con el cliente que se acaba de dar de alta.
+   */
+  it('un cliente sin ninguna dirección compra igual, y la venta queda sin dirección', async () => {
+    const [reciencito] = await db
+      .insert(clientes)
+      .values({ nombreLibre: 'Alguien que solo dio el nombre' })
+      .returning()
+
+    const { venta } = await unaVenta({ clienteId: reciencito!.id, direccionId: null })
+
+    expect(venta.clienteId).toBe(reciencito!.id)
+    expect(venta.direccionId).toBeNull()
+  })
+
+  /*
+   * Y en cuanto le cargan una, la regla le empieza a aplicar sola. Sin este
+   * caso, «sin direcciones compra igual» podría estar pasando porque la regla
+   * se rompió entera.
+   */
+  it('en cuanto le cargan una dirección, ya tiene que decir a cuál', async () => {
+    const [reciencito] = await db
+      .insert(clientes)
+      .values({ nombreLibre: 'Alguien que después dio la dirección' })
+      .returning()
+
+    await unaVenta({ clienteId: reciencito!.id, direccionId: null })
+    await direccionDe(reciencito!.id)
+
+    await expect(unaVenta({ clienteId: reciencito!.id, direccionId: null })).rejects.toMatchObject({
+      code: 'VENTA_SIN_DIRECCION',
+    })
+  })
+
+  it('sin cliente no hay dirección, y la venta sigue andando', async () => {
+    const { venta } = await unaVenta()
+
+    expect(venta.clienteId).toBeNull()
+    expect(venta.direccionId).toBeNull()
+  })
+
+  /*
+   * Una dirección es de alguien. Suelta en una venta anónima sería un dato que
+   * no le pertenece a nadie, y el mismo CHECK de la base cubre esta punta.
+   */
+  it('sin cliente, una dirección suelta se rechaza', async () => {
+    await expect(unaVenta({ direccionId })).rejects.toMatchObject({
+      code: 'DIRECCION_SIN_CLIENTE',
+    })
+  })
+
+  /**
+   * La dirección de OTRO cliente no entra — y no lo impide TypeScript.
+   *
+   * Lo impide la foránea compuesta `(direccion_id, cliente_id)` contra
+   * `direcciones (id, cliente_id)`: el par tiene que existir tal cual. Con dos
+   * foráneas sueltas la base aceptaría una venta a Yeimy entregada en la casa
+   * de otro, y el error solo se vería el día que el repartidor toca la puerta
+   * equivocada.
+   */
+  it('la dirección de otro cliente la rechaza la base', async () => {
+    const [otro] = await db
+      .insert(clientes)
+      .values({ nombreLibre: 'Wilmer', tipoDocumento: 'CC', numeroDocumento: '1098765432' })
+      .returning()
+
+    const ajena = await direccionDe(otro!.id)
+
+    await expect(unaVenta({ clienteId, direccionId: ajena })).rejects.toThrow()
   })
 })

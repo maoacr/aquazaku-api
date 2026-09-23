@@ -482,11 +482,24 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   )
 }
 
-/** Suma el documento ya armado, sin guardarlo. */
-function conDocumento<T extends { tipoDocumento: 'CC' | 'NIT'; numeroDocumento: string }>(
-  cliente: T,
-): T & { documento: string } {
-  return { ...cliente, documento: documentoParaMostrar(cliente.tipoDocumento, cliente.numeroDocumento) }
+/**
+ * Suma el documento ya armado, sin guardarlo.
+ *
+ * `null` cuando el cliente no tiene documento — RN-CLI-20. Y `null` y no `''`:
+ * la cadena vacía se cuela en un `${}` sin que nadie lo note y pinta un hueco
+ * donde debería decir que ese dato no está. Quien lo muestre tiene que decidir
+ * qué poner, y esa decisión es de la pantalla.
+ */
+function conDocumento<
+  T extends { tipoDocumento: 'CC' | 'NIT' | null; numeroDocumento: string | null },
+>(cliente: T): T & { documento: string | null } {
+  return {
+    ...cliente,
+    documento:
+      cliente.tipoDocumento && cliente.numeroDocumento
+        ? documentoParaMostrar(cliente.tipoDocumento, cliente.numeroDocumento)
+        : null,
+  }
 }
 
 async function manejarError(

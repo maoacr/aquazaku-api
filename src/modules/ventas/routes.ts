@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { db } from '@/db/client'
-import { clientes, lineasDeVenta, productos, users, ventas } from '@/db/schema'
+import { clientes, direcciones, lineasDeVenta, productos, users, ventas } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
@@ -163,9 +163,29 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
            */
           botellonesEntregados: ventas.botellonesEntregados,
           botellonesRecibidos: ventas.botellonesRecibidos,
+
+          /*
+           * A dónde se entregó — RN-VEN-18.
+           *
+           * Viaja por las mismas dos razones que el documento del cliente: se
+           * muestra en la lista, y PRECARGA el modal de corrección. Sin el id,
+           * corregir una venta obligaría a volver a elegir la dirección, y
+           * quien corrige un tipeo en la cantidad no tiene por qué acordarse
+           * de a cuál de los tres locales fue el pedido.
+           *
+           * Va la ETIQUETA y no la dirección armada: `legible` se compone en
+           * TypeScript a partir de nueve columnas, y traerlas para cien filas
+           * de una lista es mucha consulta para lo que se lee de un vistazo.
+           * «la casa» o «el local» es exactamente lo que se mira acá; la
+           * nomenclatura completa ya la tiene el modal, que carga las
+           * direcciones del cliente igual.
+           */
+          direccionId: ventas.direccionId,
+          direccionEtiqueta: direcciones.etiqueta,
         })
         .from(ventas)
         .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
+        .leftJoin(direcciones, eq(direcciones.id, ventas.direccionId))
         .leftJoin(users, eq(users.id, ventas.registradoPor))
         .orderBy(desc(ventas.createdAt))
         .limit(100)

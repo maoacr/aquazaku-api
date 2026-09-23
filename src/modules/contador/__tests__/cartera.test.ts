@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { direccionDe } from '@/test/fixtures'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
 import { clientes, cobros, lineasDeVenta, lotes, productos, ventas } from '@/db/schema'
@@ -21,6 +22,7 @@ import { resetDb } from '@/test/db'
 const HOY = '2026-08-28'
 
 let clienteId: string
+let direccionId: string
 let productoId: string
 let loteId: string
 
@@ -41,11 +43,17 @@ async function unaVenta(
     de?: string
   } = {},
 ) {
+  // Antes de abrir la transacción: `direccionDe` usa el pool, y pedir una
+  // segunda conexión con la transacción abierta cuelga el test (RN-VEN-18).
+  const direccionDeLaVenta = extra.de ? await direccionDe(extra.de) : direccionId
+
   return db.transaction(async (tx) => {
     const [v] = await tx
       .insert(ventas)
       .values({
         clienteId: extra.de ?? clienteId,
+        // RN-VEN-18: con cliente va dirección, y tiene que ser DE ESE cliente.
+        direccionId: direccionDeLaVenta,
         tipoClienteAlMomento: 'comercial',
         medioDePago: extra.medioDePago ?? 'credito',
         tipo: extra.tipo ?? 'producto',
@@ -91,6 +99,7 @@ beforeEach(async () => {
     })
     .returning()
   clienteId = c!.id
+  direccionId = await direccionDe(clienteId)
 
   const [p] = await db
     .insert(productos)

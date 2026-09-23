@@ -1,7 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { roles as rolesTable, sessions, userRoles, users } from '@/db/schema'
+import {
+  direcciones,
+  roles as rolesTable,
+  sessions,
+  userRoles,
+  users,
+} from '@/db/schema'
 import { auth } from '@/modules/auth/better-auth'
 import { COOKIE_SESION } from '@/modules/auth/cookie'
 import { ROLES, type Role } from '@/modules/authz/matrix'
@@ -122,4 +128,26 @@ export async function usuarioAutenticado(
   const cookie = await crearSesion(usuario)
 
   return { usuario, cookie }
+}
+
+/**
+ * La dirección sin la cual un cliente no puede comprar — RN-VEN-18.
+ *
+ * Desde que la venta registra dónde se entrega, venderle a un cliente sin
+ * dirección es imposible: `ventas_con_cliente_exige_direccion` lo rechaza en
+ * la base, y `registrarVentaEn` antes, con un mensaje.
+ *
+ * Está acá y no repetida en cada archivo para que el día que «poder comprar»
+ * exija algo más, cambie en un solo lugar.
+ */
+export async function direccionDe(clienteId: string, etiqueta = 'la casa'): Promise<string> {
+  const [direccion] = await db
+    .insert(direcciones)
+    // Con la etiqueta sola no alcanza: `direcciones_ubicable` exige que la
+    // dirección UBIQUE algo. Una etiqueta nombra, no ubica — a «la casa» no se
+    // le puede entregar agua.
+    .values({ clienteId, etiqueta, direccion: 'Calle 5 #3-20' })
+    .returning()
+
+  return direccion!.id
 }

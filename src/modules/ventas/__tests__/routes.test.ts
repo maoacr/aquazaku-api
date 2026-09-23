@@ -7,12 +7,13 @@ import { auditLog, clientes, productos, ventas } from '@/db/schema'
 import type { Role } from '@/modules/authz/matrix'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
-import { usuarioAutenticado } from '@/test/fixtures'
+import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
 let app: FastifyInstance
 let admin: { usuario: { id: string }; cookie: string }
 let productoId: string
 let clienteId: string
+let direccionId: string
 
 const HOY = new Date().toISOString().slice(0, 10)
 
@@ -55,6 +56,7 @@ beforeEach(async () => {
     })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 })
 
 afterAll(async () => {
@@ -71,9 +73,14 @@ const como = async (rol: Role, pedido: Omit<InjectOptions, 'headers'>) => {
 }
 
 const UNA_VENTA = { medioDePago: 'efectivo', items: [{ productoId: '', cantidad: 2 }] }
-const conProducto = (extra: object = {}) => ({
+/*
+ * Con cliente va SIEMPRE la dirección — RN-VEN-18. Va acá para que los casos
+ * que miran alcance, filtros o auditoría no tengan que hablar de direcciones.
+ */
+const conProducto = (extra: Record<string, unknown> = {}) => ({
   ...UNA_VENTA,
   items: [{ productoId, cantidad: 2 }],
+  ...('clienteId' in extra && extra.clienteId ? { direccionId } : {}),
   ...extra,
 })
 
@@ -628,7 +635,13 @@ describe('GET /ventas — cada fila se explica sola', () => {
   it('un recargo por daño llega con su tipo y sin líneas', async () => {
     await db
       .insert(ventas)
-      .values({ clienteId, medioDePago: 'efectivo', tipo: 'dano_base', total: '35000.00' })
+      .values({
+        clienteId,
+        direccionId,
+        medioDePago: 'efectivo',
+        tipo: 'dano_base',
+        total: '35000.00',
+      })
 
     const [fila] = (await comoAdmin({ method: 'GET', url: '/ventas' })).json()
 
@@ -719,13 +732,15 @@ describe('GET /ventas?clienteId — las ventas de un cliente', () => {
       .values({ nombreLibre: 'Wilmer', tipoDocumento: 'CC', numeroDocumento: '1098765432' })
       .returning()
 
-    return otro!.id
+    // Su propia dirección: la foránea compuesta impide entregarle a uno en la
+    // dirección del otro (RN-VEN-18).
+    return { clienteId: otro!.id, direccionId: await direccionDe(otro!.id) }
   }
 
   it('trae solo las de ese cliente', async () => {
-    const otroId = await otroCliente()
+    const otro = await otroCliente()
     await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId }) })
-    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId: otroId }) })
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId: otro.clienteId, direccionId: otro.direccionId }) })
     // La de mostrador: sin cliente, y no es de nadie.
     await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
 
@@ -761,9 +776,9 @@ describe('GET /ventas?clienteId — las ventas de un cliente', () => {
   })
 
   it('sin el parámetro siguen llegando todas', async () => {
-    const otroId = await otroCliente()
+    const otro = await otroCliente()
     await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId }) })
-    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId: otroId }) })
+    await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto({ clienteId: otro.clienteId, direccionId: otro.direccionId }) })
 
     expect((await comoAdmin({ method: 'GET', url: '/ventas' })).json()).toHaveLength(2)
   })

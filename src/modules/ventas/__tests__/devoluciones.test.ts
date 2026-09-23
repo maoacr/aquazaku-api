@@ -9,7 +9,7 @@ import { registrarDevolucion } from '@/modules/ventas/devoluciones'
 import { deudaDe } from '@/modules/ventas/saldo'
 import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
-import { usuarioAutenticado } from '@/test/fixtures'
+import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
 /**
  * Devoluciones — RN-VEN-10.
@@ -23,6 +23,7 @@ const MOTIVO = 'el cliente dijo que el agua tenía mal sabor'
 
 let productoId: string
 let clienteId: string
+let direccionId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -60,6 +61,7 @@ beforeEach(async () => {
     })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 })
 
 afterAll(async () => {
@@ -71,7 +73,7 @@ async function venderCinco(medioDePago: 'efectivo' | 'credito' = 'efectivo') {
   const { venta } = await registrarVenta(
     {
       medioDePago,
-      ...(medioDePago === 'credito' ? { clienteId } : {}),
+      ...(medioDePago === 'credito' ? { clienteId, direccionId } : {}),
       items: [{ productoId, cantidad: 5 }],
       hoy: HOY,
     },

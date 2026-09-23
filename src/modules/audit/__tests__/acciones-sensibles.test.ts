@@ -6,7 +6,7 @@ import { closeDb, db } from '@/db/client'
 import { auditLog, clientes, productos } from '@/db/schema'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
-import { usuarioAutenticado } from '@/test/fixtures'
+import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
 /**
  * La acción que SALE BIEN deja rastro.
@@ -26,6 +26,7 @@ let app: FastifyInstance
 let admin: { usuario: { id: string }; cookie: string }
 let productoId: string
 let clienteId: string
+let direccionId: string
 
 const HOY = new Date().toISOString().slice(0, 10)
 
@@ -68,6 +69,7 @@ beforeEach(async () => {
     })
     .returning()
   clienteId = cliente!.id
+  direccionId = await direccionDe(clienteId)
 })
 
 afterAll(async () => {
@@ -141,6 +143,8 @@ describe('el resto de los módulos que estaban mudos', () => {
       payload: {
         medioDePago: 'credito',
         clienteId,
+        // Toda venta con cliente dice dónde se entrega — RN-VEN-18.
+        direccionId,
         items: [{ productoId, cantidad: 1 }],
       },
     })
