@@ -160,3 +160,51 @@ describe('el resto de los módulos que estaban mudos', () => {
     expect(await filasDe('cobros:registrar')).toHaveLength(1)
   })
 })
+
+/**
+ * La exención de auditoría se COMPRUEBA, no se declara y ya.
+ *
+ * ── Por qué hace falta este bloque ──────────────────────────────────────────
+ *
+ * `requirePermission(..., { auditaLaRuta: true })` APAGA la fila automática del
+ * middleware. Es una promesa: «yo, la ruta, escribo una con más detalle».
+ *
+ * `opt-out-de-auditoria.test.ts` vigila que esa promesa esté DECLARADA. No
+ * vigila que se cumpla — y es justo la mitad que importa, porque una bitácora
+ * a la que le falta una acción se ve idéntica a una donde esa acción no pasó.
+ *
+ * Así se perdieron veinte acciones antes: el único `emit` de esos módulos vivía
+ * dentro del manejador de errores, así que la venta RECHAZADA aparecía y la
+ * exitosa no. La bitácora mostraba lo contrario de lo que había pasado.
+ *
+ * Este caso cierra esa mitad para `clientes:editar`. Las otras nueve exenciones
+ * siguen declaradas y sin comprobar.
+ */
+describe('las rutas que se auditan solas, cumplen', () => {
+  it('`clientes:desactivar` escribe su fila, con el motivo y los conteos', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/clientes/${clienteId}/desactivar`,
+      headers: { cookie: admin.cookie },
+      payload: { motivo: 'se mudó de ciudad y devolvió todo' },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('clientes:desactivar')
+    expect(filas).toHaveLength(1)
+
+    /*
+     * Los conteos son lo que hace auditable la operación tres meses después:
+     * «volvieron 2 bases y 8 botellones» se lee de la fila, sin cruzar
+     * `movimientos_base` con `movimientos_botellon`. Sin ellos la fila existe y
+     * no sirve, que es la forma cara de este error.
+     */
+    expect(filas[0]?.payload).toMatchObject({
+      resourceId: clienteId,
+      motivo: 'se mudó de ciudad y devolvió todo',
+      basesDevueltas: expect.any(Number),
+      botellonesDevueltos: expect.any(Number),
+    })
+  })
+})
