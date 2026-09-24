@@ -67,9 +67,27 @@ tests {
     expect(huerfanos).to.have.lengthOf(0);
   });
 
+  /*
+   * ── Las dos fechas se comparan EN EL MISMO HUSO ──────────────────────────
+   *
+   * `extractoHasta` es el día de la PLANTA (UTC−5). `m.fecha` viene en ISO con
+   * `Z`, o sea UTC. Recortar los diez primeros caracteres da el día UTC.
+   *
+   * Entre las 19:00 de Bogotá y la medianoche —00:00 a 05:00 UTC— esos dos días
+   * son distintos: un movimiento de esta misma corrida queda «después» de
+   * `hasta` y el caso falla.
+   *
+   * Pasaba diecinueve horas al día y fallaba cinco. CI lo agarró a las 02:37
+   * UTC, que es 21:37 en la planta — adentro de la ventana.
+   */
+  const diaDeLaPlanta = (f) =>
+    new Date(new Date(f).getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+
   test("ningún movimiento se sale del rango", function() {
     const fuera = res.getBody().movimientos.filter(
-      (m) => m.fecha.slice(0, 10) < bru.getVar("extractoDesde") || m.fecha.slice(0, 10) > bru.getVar("extractoHasta"),
+      (m) =>
+        diaDeLaPlanta(m.fecha) < bru.getVar("extractoDesde") ||
+        diaDeLaPlanta(m.fecha) > bru.getVar("extractoHasta"),
     );
     expect(fuera).to.have.lengthOf(0);
   });
