@@ -54,6 +54,17 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'stock → stock:descartar': 'stock/service.ts — emite con el lote y el motivo',
   'users → usuarios:crear': 'users/routes.ts — emite con el id nuevo y los roles',
   'users → usuarios:editar': 'users/routes.ts — emite con los campos que cambiaron',
+  /*
+   * La fila del middleware se escribe en el `preHandler`, ANTES de que la venta
+   * exista: sale sin `resourceId` y sin `payload`. Medido en producción: 225
+   * filas de `ventas:crear`, las 225 con las dos columnas en NULL.
+   *
+   * Decían «alguien con permiso intentó vender» y no cuál venta, ni si llegó a
+   * hacerse. La ruta escribe la suya con el id, el total, el cliente y el medio
+   * de pago.
+   */
+  'ventas → ventas:crear':
+    'ventas/routes.ts — emite con el id de la venta, el total, el cliente y el medio de pago',
   'ventas → ventas:corregir': 'ventas/routes.ts — emite con el antes y el después',
 }
 

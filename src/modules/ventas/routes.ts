@@ -233,7 +233,21 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/ventas',
-    { preHandler: [requireAuth, requirePermission('ventas', 'crear')] },
+    {
+      /*
+       * `auditaLaRuta: true` APAGA la fila automática del middleware porque
+       * esta ruta escribe la SUYA — RN-ACC-04.
+       *
+       * La del middleware se escribe en el `preHandler`, ANTES de que la venta
+       * exista, así que sale sin `resourceId` y sin `payload`: dice «alguien
+       * con permiso intentó vender» y no cuál venta, ni si llegó a hacerse.
+       *
+       * Medido en producción: 225 filas de `ventas:crear`, las 225 con
+       * `resource_id` y `payload` en NULL. Un total que no cuadra contra una
+       * copia impresa no se puede explicar con eso.
+       */
+      preHandler: [requireAuth, requirePermission('ventas', 'crear', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const datos = validar(esquemaDeVenta, req.body, reply)
       if (!datos) return
@@ -298,6 +312,37 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
             },
           })
         }
+
+        /*
+         * ── La venta deja su fila, con lo que hace falta para reconstruirla ─
+         *
+         * Va PRIMERO porque es el hecho: las que siguen —retroactiva, precio
+         * manual— califican esta, no la reemplazan.
+         *
+         * Lleva `resourceId` para poder ir de la bitácora a la venta, y `total`
+         * y `cliente` para que la fila signifique algo sin ir a buscarla. Es el
+         * mismo criterio que `clientes:desactivar`, que guarda los conteos de lo
+         * que volvió al parque.
+         *
+         * `auditarSinBloquear` por la misma razón que las otras dos: la venta ya
+         * está escrita y confirmada. Tumbar la respuesta porque falló la
+         * bitácora dejaría al operador creyendo que no vendió, y cobrando de
+         * nuevo.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'ventas:crear',
+          resource: 'ventas',
+          result: 'ok',
+          payload: {
+            resourceId: resultado.venta.id,
+            total: resultado.venta.total,
+            medioDePago: resultado.venta.medioDePago,
+            clienteId: resultado.venta.clienteId,
+            lineas: resultado.lineas.length,
+          },
+        })
 
         /*
          * ── Un precio escrito a mano deja rastro propio — RN-VEN-15 ─────────
@@ -515,13 +560,53 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/devoluciones',
-    { preHandler: [requireAuth, requirePermission('ventas', 'crear')] },
+    {
+      /*
+       * Comparte el permiso `ventas:crear` —devolver es parte de vender, y la
+       * matriz lo dice ahí— pero NO comparte el nombre en la bitácora.
+       *
+       * Con la fila del middleware, una devolución quedaba registrada como
+       * `ventas:crear`: dos hechos opuestos con el mismo nombre. Quien audite
+       * «cuántas ventas se hicieron» contaba devoluciones adentro.
+       */
+      preHandler: [requireAuth, requirePermission('ventas', 'crear', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const datos = validar(esquemaDeDevolucion, req.body, reply)
       if (!datos) return
 
       try {
-        return reply.code(201).send(await registrarDevolucion(datos, req.user?.id ?? null))
+        const devolucion = await registrarDevolucion(datos, req.user?.id ?? null)
+
+        /*
+         * Una devolución mueve stock y plata: qué línea volvió, cuánta, en qué
+         * estado y por qué. Sin el payload, la fila dice que alguien devolvió
+         * algo y no qué — y esto es justamente lo que alguien va a querer
+         * reconstruir cuando el inventario no cuadre.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'ventas:devolucion',
+          resource: 'ventas',
+          result: 'ok',
+          payload: {
+            resourceId: devolucion.devolucion.id,
+            lineaId: datos.lineaId,
+            cantidad: datos.cantidad,
+            estadoProducto: datos.estadoProducto,
+            motivo: datos.motivo,
+            /*
+             * Las dos consecuencias, no solo el hecho: cuánto se le bajó de la
+             * deuda y si el producto volvió al stock. Un «sano» vuelve, un
+             * «dañado» no — y esa diferencia es la que explica un inventario.
+             */
+            montoAcreditado: devolucion.montoAcreditado,
+            volvioAlStock: devolucion.volvioAlStock,
+          },
+        })
+
+        return reply.code(201).send(devolucion)
       } catch (err) {
         return manejarError(err, req, reply, 'ventas', 'ventas:crear', datos.lineaId)
       }
