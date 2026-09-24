@@ -69,3 +69,26 @@ script:pre-request {
   // el. Ver /frontend/bff-pattern/, seccion del header Origin.
   req.setHeader("Origin", bru.getEnvVar("webOrigin"));
 }
+
+script:post-response {
+  /*
+   * La cookie de sesión, guardada en una variable cada vez que alguien entra.
+   *
+   * Los pedidos normales la llevan solos: Bruno mantiene un cookie jar. Pero
+   * `bru.sendRequest` —el que usan los scripts que se arman su propio
+   * escenario— NO comparte ese jar, y sale sin sesión: 401, el script revienta,
+   * y con él se caen todos los pedidos que venían después.
+   *
+   * Va acá y no en el login para que siga al rol ACTUAL: la colección cambia de
+   * usuario varias veces, y una variable capturada una sola vez apuntaría a la
+   * sesión equivocada desde el segundo cambio.
+   *
+   * Se recorta en el `;` porque lo que sigue son atributos —`HttpOnly`,
+   * `Path`— que no van en el header `Cookie`.
+   */
+  const crudas = res.getHeader("set-cookie") ?? [];
+  const lista = Array.isArray(crudas) ? crudas : [crudas];
+  const sesion = lista.find(c => c && c.startsWith("aquazaku_session=")) ?? "";
+
+  if (sesion) bru.setVar("cookieSesion", sesion.split(";")[0]);
+}

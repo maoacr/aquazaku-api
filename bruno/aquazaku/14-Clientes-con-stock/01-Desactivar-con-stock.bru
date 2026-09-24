@@ -1,7 +1,7 @@
 meta {
   name: Desactivar revierte bases y botellones — flujo completo
   type: http
-  seq: 45
+  seq: 1
 }
 
 post {
@@ -16,6 +16,24 @@ body:json {
 }
 
 docs {
+  ## Por qué esta petición vive en su propia carpeta, al final
+
+  Su script de preparación COMPRA botellones y da de alta una base: ensucia el
+  parque, que es estado global.
+
+  `10-Retornables/01-La-bodega-arranca-vacia` afirma justamente que el parque
+  arranca en cero, y `11-Proveedores/05` cuenta los botellones que entraron por
+  compra. Corriendo dentro de `08-Clientes` esta preparación les pasaba por
+  encima — y las hacía fallar por algo que no tiene nada que ver con lo que
+  miran.
+
+  No se notaba porque el script venía roto y moría antes de crear nada. Al
+  arreglarlo, el daño apareció.
+
+  Acá corre después de todo lo que necesita un parque limpio, y puede ensuciarlo
+  sin arrastrar a nadie.
+
+
   El test que importa: verifica que la promesa de RN-CLI-02 se cumple
   cuando hay stock físico de por medio. Un cliente con una base
   prestada y N botellones a su nombre que se desactiva tiene que
@@ -45,8 +63,13 @@ script:pre-request {
   const crear = await bru.sendRequest({
     url: base + "/clientes",
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({
       primerNombre: "Don",
       apellidos: "ConStock",
       tipoDocumento: "CC",
@@ -54,40 +77,63 @@ script:pre-request {
       tipo: "residencial",
     }),
   });
-  const clienteId = crear.body.id;
+  const clienteId = crear.data.id;
   bru.setVar("clienteConStockId", clienteId);
 
   // 2. Verificar (necesario para prestar bases)
   await bru.sendRequest({
     url: base + `/clientes/${clienteId}/verificacion`,
     method: "POST",
-    headers: { "content-type": "application/json" },
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    // Fastify rechaza con 400 un `content-type: application/json` sin cuerpo,
+    // y esta ruta no lee ninguno. El objeto vacío es lo que la deja pasar.
+    data: ({}),
   });
 
   // 3. Dirección
   const dir = await bru.sendRequest({
     url: base + `/clientes/${clienteId}/direcciones`,
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({
       etiqueta: "La casa",
       direccion: "Calle 5 #3-20",
     }),
   });
-  const direccionId = dir.body.id;
+  const direccionId = dir.data.id;
 
   // 4. Alta de base y préstamo
   const alta = await bru.sendRequest({
     url: base + "/bases",
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ idSticker: "0051" }),
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({ idSticker: "0051" }),
   });
   await bru.sendRequest({
-    url: base + `/bases/${alta.body.id}/prestamo`,
+    url: base + `/bases/${alta.data.id}/prestamo`,
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ direccionId }),
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({ direccionId }),
   });
 
   // 5. Compra y entrega de botellones (necesita una compra primero
@@ -95,8 +141,13 @@ script:pre-request {
   await bru.sendRequest({
     url: base + "/botellones/compra",
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({
       cantidad: 10,
       motivo: "compra inicial para test de desactivación",
     }),
@@ -104,8 +155,13 @@ script:pre-request {
   await bru.sendRequest({
     url: base + `/botellones/entrega`,
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({
       clienteId,
       cantidad: 3,
     }),

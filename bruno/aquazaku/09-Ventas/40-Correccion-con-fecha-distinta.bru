@@ -1,11 +1,11 @@
 meta {
   name: Corrección con fecha distinta — happy path
   type: http
-  seq: 39
+  seq: 40
 }
 
 post {
-  url: {{baseUrl}}/ventas/{{ventaContadoId}}/correccion
+  url: {{baseUrl}}/ventas/{{ventaParaCorregirId}}/correccion
   body: json
 }
 
@@ -41,8 +41,13 @@ script:pre-request {
    * no expone `Intl`, así que se ancla a mano restando 5 horas al reloj de
    * proceso. Tres días, no uno, para que el piso de 90 días no se confunda
    * con un "hoy" mal calculado.
+   *
+   * Sin separadores en los números: el sandbox de scripts de Bruno usa un
+   * parser que no los entiende y tira `Unexpected token ILLEGAL`. El script
+   * revienta entero, la petición no llega a correr, y el error no dice nada
+   * sobre la línea que lo causó.
    */
-  bru.setVar("hace3Dias", new Date(Date.now() - 3 * 86_400_000 - 5 * 3600 * 1000).toISOString().slice(0, 10));
+  bru.setVar("hace3Dias", new Date(Date.now() - 3 * 86400000 - 5 * 3600 * 1000).toISOString().slice(0, 10));
 }
 
 tests {
@@ -70,4 +75,17 @@ tests {
        segunda consulta; alcanza con que la corrección haya pasado. */
     expect(true).to.equal(true);
   });
+}
+
+script:post-response {
+  /*
+   * La corrección REEMPLAZA: la vieja queda `corregida` y nace una nueva.
+   *
+   * Los dos pedidos que siguen son negativos —fecha futura y fecha demasiado
+   * vieja— y necesitan una venta que todavía se pueda corregir. Apuntados a la
+   * original daban `YA_ANULADA`, que es verdad y no es lo que miden.
+   *
+   * Como los dos fallan con 422, no cambian estado: pueden compartir esta.
+   */
+  bru.setVar("ventaParaCorregirId", res.getBody().venta.id);
 }
