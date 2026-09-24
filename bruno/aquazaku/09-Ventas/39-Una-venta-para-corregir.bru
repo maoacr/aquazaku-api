@@ -1,0 +1,60 @@
+meta {
+  name: Una venta limpia, para corregirla
+  type: http
+  seq: 39
+}
+
+post {
+  url: {{baseUrl}}/ventas
+  body: json
+}
+
+body:json {
+  {
+    "medioDePago": "efectivo",
+    "canal": "mostrador",
+    "items": [
+      { "productoId": "{{ventasProductoId}}", "cantidad": 2 }
+    ]
+  }
+}
+
+docs {
+  ## Por qué las correcciones necesitan su propia venta
+
+  Los tres pedidos que siguen corregían `ventaContadoId`, la venta de contado
+  de la petición 03. Para cuando llegan, esa venta **ya tiene una devolución**:
+  la registró `28-Una-devolucion-sana` sobre una de sus líneas.
+
+  Y una venta con devoluciones no se corrige — `VENTA_CON_DEVOLUCIONES`. La
+  regla es correcta: corregir reemplaza la venta entera, y la devolución quedaría
+  colgando de líneas que dejaron de existir.
+
+  Así que los tres fallaban con 422 por una razón que no tiene nada que ver con
+  lo que miran, que es el manejo de la FECHA en la corrección (RN-VEN-14 +
+  RN-VEN-16).
+
+  No se notaba porque la carpeta entera venía en 403: `08-Clientes` dejaba la
+  sesión prestada al `contador` y nada de `09-Ventas` llegaba a ejecutarse.
+  Arreglar aquello destapó esto.
+
+  ## Sin cliente, a propósito
+
+  Una venta de mostrador anónima alcanza para probar la fecha, y no arrastra
+  crédito, cartera ni dirección de entrega (RN-VEN-18) — tres cosas que podrían
+  hacer fallar la corrección por otro motivo y volver a esconder lo que se mide.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda una venta limpia, sin devoluciones", function() {
+    expect(res.getBody().venta.estado).to.equal("confirmada");
+  });
+}
+
+script:post-response {
+  bru.setVar("ventaParaCorregirId", res.getBody().venta.id);
+}

@@ -34,8 +34,13 @@ script:pre-request {
   const crear = await bru.sendRequest({
     url: base + "/clientes",
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({
       primerNombre: "Don",
       apellidos: "ParaDoble",
       tipoDocumento: "CC",
@@ -43,13 +48,18 @@ script:pre-request {
       tipo: "residencial",
     }),
   });
-  bru.setVar("clienteParaDobleId", crear.body.id);
+  bru.setVar("clienteParaDobleId", crear.data.id);
 
   await bru.sendRequest({
-    url: base + `/clientes/${crear.body.id}/desactivar`,
+    url: base + `/clientes/${crear.data.id}/desactivar`,
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+    // `sendRequest` no comparte el cookie jar de la colección: sin esta
+    // línea sale sin sesión y devuelve 401 (ver el login, 01-Auth/02).
+    headers: {
+      "content-type": "application/json",
+      cookie: bru.getVar("cookieSesion"),
+    },
+    data: ({
       motivo: "primera desactivación para preparar el test 41",
     }),
   });

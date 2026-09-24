@@ -1,5 +1,5 @@
 meta {
-  name: Desactivar con motivo corto — 422
+  name: Desactivar con motivo corto — 400
   type: http
   seq: 40
 }
@@ -24,7 +24,15 @@ docs {
 }
 
 tests {
-  test("responde 422", function() {
-    expect(res.getStatus()).to.equal(422);
+  /*
+   * 400 y no 422: el largo mínimo del motivo vive en `esquemaDeDesactivacion`,
+   * y un rechazo de Zod es un 400. Los 422 son de reglas de negocio, que tienen
+   * su propio mensaje y su propio código.
+   *
+   * Mismo criterio que `09-Ventas/25-Anular-sin-motivo`, que es la misma regla
+   * sobre otro recurso.
+   */
+  test("responde 400", function() {
+    expect(res.getStatus()).to.equal(400);
   });
 }

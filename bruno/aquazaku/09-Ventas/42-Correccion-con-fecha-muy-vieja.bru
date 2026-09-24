@@ -1,11 +1,11 @@
 meta {
   name: Corrección con fecha > 90 días se rechaza
   type: http
-  seq: 41
+  seq: 42
 }
 
 post {
-  url: {{baseUrl}}/ventas/{{ventaContadoId}}/correccion
+  url: {{baseUrl}}/ventas/{{ventaParaCorregirId}}/correccion
   body: json
 }
 
