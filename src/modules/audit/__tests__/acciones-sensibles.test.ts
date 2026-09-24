@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildApp } from '@/app'
 import { closeDb, db } from '@/db/client'
-import { auditLog, clientes, productos } from '@/db/schema'
+import { auditLog, clientes, lineasDeVenta, productos } from '@/db/schema'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
@@ -98,6 +98,28 @@ describe('una venta normal deja fila en la bitácora', () => {
 
     expect(filas).toHaveLength(1)
     expect(filas[0]!.userId).toBe(admin.usuario.id)
+
+    /*
+     * ── Y la fila DICE QUÉ VENTA FUE ────────────────────────────────────────
+     *
+     * Esto es lo que la fila del middleware no podía dar: se escribía en el
+     * `preHandler`, antes de que la venta existiera, así que salía sin
+     * `resourceId` y sin `payload`.
+     *
+     * Medido en producción: 225 filas de `ventas:crear`, las 225 con las dos
+     * columnas en NULL. Servían para decir «alguien con permiso intentó
+     * vender» — no cuál venta, ni si llegó a hacerse. Con un total que no
+     * cuadra contra una copia impresa, eso no explica nada.
+     *
+     * Por eso se asertan los CAMPOS y no solo la existencia de la fila: una
+     * fila vacía existe igual, y el test pasaría sin que la bitácora sirva.
+     */
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: res.json().venta.id,
+      total: res.json().venta.total,
+      medioDePago: 'efectivo',
+      lineas: 1,
+    })
     expect(filas[0]!.resource).toBe('ventas')
   })
 
@@ -206,5 +228,119 @@ describe('las rutas que se auditan solas, cumplen', () => {
       basesDevueltas: expect.any(Number),
       botellonesDevueltos: expect.any(Number),
     })
+  })
+})
+
+/**
+ * Una devolución NO es una venta, y la bitácora tiene que poder distinguirlas.
+ *
+ * ── El defecto ──────────────────────────────────────────────────────────────
+ *
+ * `POST /devoluciones` comparte el permiso `ventas:crear` —devolver es parte de
+ * vender, y la matriz lo dice ahí—. Con la fila automática del middleware, eso
+ * la dejaba registrada con ESE nombre: dos hechos opuestos bajo la misma
+ * etiqueta.
+ *
+ * Quien audite «cuántas ventas se hicieron» contaba devoluciones adentro. Y
+ * quien busque una devolución no la encuentra por su nombre.
+ */
+describe('una devolución deja su propia fila', () => {
+  it('`ventas:devolucion`, con lo que volvió y lo que se acreditó', async () => {
+    const venta = await app.inject({
+      method: 'POST',
+      url: '/ventas',
+      headers: { cookie: admin.cookie },
+      payload: { medioDePago: 'efectivo', items: [{ productoId, cantidad: 2 }] },
+    })
+
+    /*
+     * El id de la línea sale de la BASE: `POST /ventas` devuelve las líneas
+     * como resumen —lote, producto, cantidad, precio— y no sus ids, porque a
+     * quien cobra no le sirven.
+     */
+    const [linea] = await db
+      .select({ id: lineasDeVenta.id })
+      .from(lineasDeVenta)
+      .where(eq(lineasDeVenta.ventaId, venta.json().venta.id))
+
+    const lineaId = linea!.id
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/devoluciones',
+      headers: { cookie: admin.cookie },
+      payload: {
+        lineaId,
+        cantidad: 1,
+        estadoProducto: 'sano',
+        motivo: 'el cliente se llevó dos y una no le entraba en el carro',
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    /* No se llama `ventas:crear`: eso es lo que se vino a arreglar. */
+    expect(await filasDe('ventas:devolucion')).toHaveLength(1)
+
+    const fila = (await filasDe('ventas:devolucion'))[0]!
+
+    /*
+     * Las dos CONSECUENCIAS, no solo el hecho: cuánto se le bajó de la deuda y
+     * si el producto volvió al stock. Un «sano» vuelve, un «dañado» no — y esa
+     * diferencia es la que explica un inventario tres meses después.
+     */
+    expect(fila.payload).toMatchObject({
+      lineaId,
+      cantidad: 1,
+      estadoProducto: 'sano',
+      volvioAlStock: true,
+    })
+  })
+})
+
+/**
+ * `productos:desactivar` — la última exención que quedaba sin comprobar.
+ *
+ * Las diez rutas con `auditaLaRuta: true` prometen escribir su propia fila.
+ * `opt-out-de-auditoria` vigila que la promesa esté DECLARADA; que se cumpla lo
+ * vigila un caso como este, y hasta hoy esta era la única sin uno.
+ *
+ * Apagar un producto lo saca del catálogo: deja de poder venderse. El `codigo`
+ * va en la fila porque es cómo se lo nombra en la planta — un UUID no le dice
+ * nada a quien tres meses después pregunta por qué no aparece el botellón de 20.
+ */
+describe('desactivar un producto deja fila con su código', () => {
+  it('`productos:desactivar`', async () => {
+    /*
+     * Un producto PROPIO, sin lote ni stock: el del archivo tiene cien unidades
+     * y apagarlo devuelve 409 —no se saca del catálogo algo que está en bodega—.
+     * Ese rechazo es correcto y no es lo que este caso mira.
+     */
+    const [suelto] = await db
+      .insert(productos)
+      .values({
+        codigo: 'PARA_APAGAR',
+        nombre: 'Producto para apagar',
+        presentacion: 'botellon',
+        contenidoMl: 20000,
+        unidades: 1,
+        precioResidencial: '10000.00',
+        precioComercial: '9000.00',
+        precioMinimo: '8000.00',
+      })
+      .returning()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/productos/${suelto!.id}/desactivar`,
+      headers: { cookie: admin.cookie },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('productos:desactivar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({ codigo: res.json().codigo })
   })
 })
