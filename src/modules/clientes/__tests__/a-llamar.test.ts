@@ -578,3 +578,66 @@ describe('el orden', () => {
     expect(botellones.map((f) => f.nombre)).toEqual(['Tienda La Esquina', 'Yeimy Padilla'])
   })
 })
+
+/**
+ * ── Corregir la vieja la funde con la nueva ─────────────────────────────────
+ *
+ * El caso que reportó la operación, y que la lista tiene que resolver sola:
+ *
+ *   1. Una venta de hace 40 días sin dirección → fila «Asignar una dirección»,
+ *      arriba de todo con 40 días.
+ *   2. El cliente compra HOY, y esa venta sí registra su dirección → segunda
+ *      fila, abajo, con 0 días.
+ *   3. Alguien usa el lápiz y le asigna a la vieja la única dirección del
+ *      cliente.
+ *
+ * A partir de ahí las dos ventas son de la misma puerta, así que son UNA fila,
+ * y manda la más reciente: 0 días. La fila de 40 tiene que DESAPARECER — ya no
+ * hay nada que hacer ahí, el cliente acaba de comprar.
+ *
+ * Si no desapareciera, la lista mandaría a llamar a alguien que compró hoy, y
+ * el primer lugar de la lista —el que más se mira— estaría ocupado por trabajo
+ * que no existe.
+ */
+describe('cuando la venta vieja recibe su dirección', () => {
+  it('la fila vieja desaparece y queda la del día de la compra nueva', async () => {
+    /* La vieja, sin dirección: se inserta antes de que exista la dirección. */
+    await comprar({ cliente: residencial, haceDias: 40 })
+
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 0, direccionId: casa })
+
+    /* Antes de corregir: dos filas, la vieja arriba. */
+    const antes = await clientesALlamar(HOY)
+    expect(antes.botellones.map((f) => [f.direccionId, f.diasSinComprar])).toEqual([
+      [null, 40],
+      [casa, 0],
+    ])
+
+    /*
+     * La corrección de verdad la hace `corregirVenta`, que anula la vieja y
+     * registra una nueva con SU MISMA fecha y la dirección puesta. Acá se
+     * reproduce ese estado final, que es lo que la lista tiene que leer.
+     */
+    const [vieja] = await db
+      .select({ id: ventas.id })
+      .from(ventas)
+      .where(and(eq(ventas.clienteId, residencial), isNull(ventas.direccionId)))
+
+    await db
+      .update(ventas)
+      .set({ estado: 'corregida', anuladaEn: new Date(), motivoAnulacion: 'se le asignó dirección' })
+      .where(eq(ventas.id, vieja!.id))
+    await comprar({ cliente: residencial, haceDias: 40, direccionId: casa })
+
+    const despues = await clientesALlamar(HOY)
+
+    expect(despues.botellones).toHaveLength(1)
+    expect(despues.botellones[0]).toMatchObject({
+      direccionId: casa,
+      diasSinComprar: 0,
+      ventaSinDireccion: false,
+      urgencia: 'al-dia',
+    })
+  })
+})
