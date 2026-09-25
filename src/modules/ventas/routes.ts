@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
+import { type SQL, and, desc, eq, inArray, ne, sql } from 'drizzle-orm'
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { db } from '@/db/client'
 import { clientes, direcciones, lineasDeVenta, productos, users, ventas } from '@/db/schema'
@@ -111,104 +111,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
        * venta de mostrador no tiene cliente, y borrar una cuenta deja la venta
        * en pie con su autor en `null`.
        */
-      const consulta = db
-        .select({
-          id: ventas.id,
-          clienteId: ventas.clienteId,
-          clienteNombre: clientes.nombre,
-          /*
-           * El documento viaja para PRECARGAR el modal de corrección — RN-VEN-16.
-           *
-           * El buscador de clientes muestra nombre y documento juntos: es cómo
-           * quien atiende confirma que es esa persona y no otra con el mismo
-           * apellido. Sin él, corregir una venta abriría el modal con medio
-           * cliente y la duda de si es el correcto.
-           *
-           * Sale del mismo `leftJoin` que ya se hacía. Es una columna más, no
-           * una consulta más.
-           */
-          clienteTipoDocumento: clientes.tipoDocumento,
-          clienteNumeroDocumento: clientes.numeroDocumento,
-          tipoClienteAlMomento: ventas.tipoClienteAlMomento,
-          medioDePago: ventas.medioDePago,
-          canal: ventas.canal,
-          tipo: ventas.tipo,
-          estado: ventas.estado,
-          total: ventas.total,
-          codigoDescuentoId: ventas.codigoDescuentoId,
-          requiereFacturaElectronica: ventas.requiereFacturaElectronica,
-          registradoPor: ventas.registradoPor,
-          registradoPorNombre: users.name,
-          createdAt: ventas.createdAt,
-          anuladaPor: ventas.anuladaPor,
-          anuladaEn: ventas.anuladaEn,
-          motivoAnulacion: ventas.motivoAnulacion,
-          /*
-           * Las dos puntas del reemplazo — RN-VEN-16. Sin ellas, la lista
-           * dibuja una venta corregida como una anulada cualquiera y la nueva
-           * como una venta suelta que apareció a la misma hora: dos tarjetas
-           * que se contradicen y nada que explique por qué.
-           */
-          corrigeAId: ventas.corrigeAId,
-          corregidaPorId: ventas.corregidaPorId,
-          /*
-           * Los botellones de la transacción — RN-VEN-17.
-           *
-           * Viajan en el listado, no solo en `GET /ventas/:id`, porque el
-           * modal de corrección los pre-carga con los valores originales
-           * (ver `correccionDesde` en `web/src/components/ventas/mostrador.tsx`).
-           * Sin estos dos campos en la respuesta, el modal abre con los
-           * contadores en cero aunque la venta original tuviera cinco
-           * botellones despachados.
-           */
-          botellonesEntregados: ventas.botellonesEntregados,
-          botellonesRecibidos: ventas.botellonesRecibidos,
-
-          /*
-           * A dónde se entregó — RN-VEN-18.
-           *
-           * Viaja por las mismas dos razones que el documento del cliente: se
-           * muestra en la lista, y PRECARGA el modal de corrección. Sin el id,
-           * corregir una venta obligaría a volver a elegir la dirección, y
-           * quien corrige un tipeo en la cantidad no tiene por qué acordarse
-           * de a cuál de los tres locales fue el pedido.
-           *
-           * Va la ETIQUETA y no la dirección armada: `legible` se compone en
-           * TypeScript a partir de nueve columnas, y traerlas para cien filas
-           * de una lista es mucha consulta para lo que se lee de un vistazo.
-           * «la casa» o «el local» es exactamente lo que se mira acá; la
-           * nomenclatura completa ya la tiene el modal, que carga las
-           * direcciones del cliente igual.
-           */
-          direccionId: ventas.direccionId,
-          direccionEtiqueta: direcciones.etiqueta,
-        })
-        .from(ventas)
-        .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
-        .leftJoin(direcciones, eq(direcciones.id, ventas.direccionId))
-        .leftJoin(users, eq(users.id, ventas.registradoPor))
-        .orderBy(desc(ventas.createdAt))
-        .limit(100)
-
-      const filas = await (condicion ? consulta.where(condicion) : consulta)
-      if (filas.length === 0) return filas
-
-      const porVenta = await lineasResumidasDe(filas.map((venta) => venta.id))
-
-      return filas.map(({ clienteTipoDocumento, clienteNumeroDocumento, ...venta }) => ({
-        ...venta,
-        /*
-         * Armado acá y no en el cliente: la forma de un documento —el DV del
-         * NIT, los puntos de miles— es una regla del dominio y ya vive en
-         * `documentoParaMostrar`. Mandar las dos partes sueltas obligaría a
-         * reimplementarla del otro lado, y a que las dos versiones se separen.
-         */
-        clienteDocumento:
-          clienteTipoDocumento && clienteNumeroDocumento
-            ? documentoParaMostrar(clienteTipoDocumento, clienteNumeroDocumento)
-            : null,
-        lineas: porVenta.get(venta.id) ?? [],
-      }))
+      return ventasDelListado(condicion)
     },
   )
 
@@ -217,7 +120,21 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requirePermission('ventas', 'ver')] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
-      const [venta] = await db.select().from(ventas).where(eq(ventas.id, id))
+
+      /*
+       * La MISMA proyección que la lista, no un `select()` crudo.
+       *
+       * Devolvía la fila pelada de `ventas`: sin `clienteNombre`, sin
+       * `tipoClienteAlMomento`, y con las líneas sin el nombre del producto.
+       * Nadie lo notó mientras la única pantalla que corregía una venta la
+       * tomaba de la LISTA, que sí viene enriquecida.
+       *
+       * Se notó cuando Seguimientos quiso abrir el mismo mostrador pidiendo la
+       * venta por id: el modal abría sin cliente. Y no lo atrapó el typecheck,
+       * porque del otro lado la respuesta se tipa a mano — un cast en el borde
+       * del fetch es una afirmación, no una comprobación.
+       */
+      const [venta] = await ventasDelListado(eq(ventas.id, id))
 
       if (!venta) {
         return reply.code(404).send({ code: 'VENTA_NO_ENCONTRADA', mensaje: 'esa venta no existe' })
@@ -225,6 +142,18 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
       return {
         ...venta,
+        /*
+         * Las líneas CRUDAS, con su `id`, pisando el resumen de la lista.
+         *
+         * El resumen AGRUPA por producto —`sum(cantidad)`— así que no tiene un
+         * id por fila, y `POST /devoluciones` necesita apuntar a una línea
+         * concreta. Acá se devuelven enteras.
+         *
+         * Al mostrador de corrección le sirven igual: usa `productoId`,
+         * `cantidad`, `precioFinal` y `precioManual`, y las cuatro están en la
+         * fila cruda. Lo único que no trae es el nombre del producto, que ese
+         * formulario saca del catálogo.
+         */
         lineas: await db.select().from(lineasDeVenta).where(eq(lineasDeVenta.ventaId, id)),
         devoluciones: await devolucionesDe(id),
       }
@@ -757,6 +686,72 @@ type LineaResumida = {
   cantidad: number
   precioFinal: string
   precioManual: boolean
+}
+
+/**
+ * Una venta como la muestran las pantallas: con el nombre del cliente, su
+ * documento armado, quién la registró y sus líneas con el nombre del producto.
+ *
+ * ── Por qué es UNA función y no dos consultas parecidas ─────────────────────
+ *
+ * La lista la construía a mano y `GET /ventas/:id` devolvía la fila cruda de
+ * `ventas`. Las dos «funcionaban», porque la única pantalla que corregía una
+ * venta la tomaba de la lista. Cuando Seguimientos quiso abrir el mismo
+ * mostrador pidiéndola por id, el modal abrió sin cliente: `correccionDesde`
+ * necesita `clienteNombre` y ahí no venía.
+ *
+ * Dos proyecciones de la misma cosa se separan en silencio, y el que se rompe
+ * es el que se usa menos.
+ */
+async function ventasDelListado(condicion: SQL | undefined) {
+  const consulta = db
+    .select({
+      id: ventas.id,
+      clienteId: ventas.clienteId,
+      clienteNombre: clientes.nombre,
+      clienteTipoDocumento: clientes.tipoDocumento,
+      clienteNumeroDocumento: clientes.numeroDocumento,
+      tipoClienteAlMomento: ventas.tipoClienteAlMomento,
+      medioDePago: ventas.medioDePago,
+      canal: ventas.canal,
+      tipo: ventas.tipo,
+      estado: ventas.estado,
+      total: ventas.total,
+      codigoDescuentoId: ventas.codigoDescuentoId,
+      requiereFacturaElectronica: ventas.requiereFacturaElectronica,
+      registradoPor: ventas.registradoPor,
+      registradoPorNombre: users.name,
+      createdAt: ventas.createdAt,
+      anuladaPor: ventas.anuladaPor,
+      anuladaEn: ventas.anuladaEn,
+      motivoAnulacion: ventas.motivoAnulacion,
+      corrigeAId: ventas.corrigeAId,
+      corregidaPorId: ventas.corregidaPorId,
+      botellonesEntregados: ventas.botellonesEntregados,
+      botellonesRecibidos: ventas.botellonesRecibidos,
+      direccionId: ventas.direccionId,
+      direccionEtiqueta: direcciones.etiqueta,
+    })
+    .from(ventas)
+    .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
+    .leftJoin(direcciones, eq(direcciones.id, ventas.direccionId))
+    .leftJoin(users, eq(users.id, ventas.registradoPor))
+    .orderBy(desc(ventas.createdAt))
+    .limit(100)
+
+  const filas = await (condicion ? consulta.where(condicion) : consulta)
+  if (filas.length === 0) return []
+
+  const porVenta = await lineasResumidasDe(filas.map((venta) => venta.id))
+
+  return filas.map(({ clienteTipoDocumento, clienteNumeroDocumento, ...venta }) => ({
+    ...venta,
+    clienteDocumento:
+      clienteTipoDocumento && clienteNumeroDocumento
+        ? documentoParaMostrar(clienteTipoDocumento, clienteNumeroDocumento)
+        : null,
+    lineas: porVenta.get(venta.id) ?? [],
+  }))
 }
 
 async function lineasResumidasDe(ventaIds: string[]): Promise<Map<string, LineaResumida[]>> {

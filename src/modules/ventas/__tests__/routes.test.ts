@@ -880,6 +880,61 @@ describe('los códigos de descuento son del admin — RN-VEN-13', () => {
   })
 })
 
+/**
+ * ── `GET /ventas/:id` trae lo mismo que la lista ────────────────────────────
+ *
+ * Devolvía la fila PELADA de `ventas`: sin el nombre del cliente, sin su tipo
+ * al momento, sin quién la registró. Nadie lo notó durante meses porque la
+ * única pantalla que corregía una venta la tomaba de la LISTA, que sí viene
+ * enriquecida.
+ *
+ * Se notó cuando Seguimientos quiso abrir ese mismo mostrador pidiendo la venta
+ * por id: el modal abría **sin cliente**, porque `correccionDesde` necesita
+ * `clienteNombre` y ahí no venía.
+ *
+ * No lo atrapó el typecheck: del otro lado la respuesta se tipa a mano, y un
+ * cast en el borde del fetch es una afirmación, no una comprobación. Por eso
+ * la comprobación vive acá.
+ */
+describe('el detalle de una venta', () => {
+  it('trae el cliente con su nombre y su tipo al momento', async () => {
+    /* Con cliente a propósito: es justamente lo que faltaba en la respuesta. */
+    const venta = (
+      await comoAdmin({
+        method: 'POST',
+        url: '/ventas',
+        payload: conProducto({ clienteId, direccionId }),
+      })
+    ).json()
+
+    const detalle = (
+      await comoAdmin({ method: 'GET', url: `/ventas/${venta.venta.id}` })
+    ).json()
+
+    expect(detalle).toMatchObject({
+      clienteNombre: expect.any(String),
+      tipoClienteAlMomento: expect.any(String),
+    })
+  })
+
+  it('trae el id de cada línea: la devolución apunta a una línea concreta', async () => {
+    const venta = (
+      await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })
+    ).json()
+
+    const detalle = (
+      await comoAdmin({ method: 'GET', url: `/ventas/${venta.venta.id}` })
+    ).json()
+
+    /*
+     * El resumen de la lista agrupa las líneas por producto con `sum(cantidad)`,
+     * así que no tiene id por fila. Acá tienen que venir enteras o
+     * `POST /devoluciones` se queda sin a qué apuntar.
+     */
+    expect(detalle.lineas[0].id).toEqual(expect.any(String))
+  })
+})
+
 describe('la devolución', () => {
   it('vuelve al stock y queda colgada de la venta', async () => {
     const venta = (await comoAdmin({ method: 'POST', url: '/ventas', payload: conProducto() })).json()
