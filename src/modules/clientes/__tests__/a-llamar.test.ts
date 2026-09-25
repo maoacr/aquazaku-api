@@ -257,7 +257,7 @@ describe('la fila es la dirección, no el cliente', () => {
  * se entrega`. Ese error es este comentario.
  */
 describe('las ventas viejas, sin dirección registrada', () => {
-  it('cuentan para TODAS las direcciones del cliente, y quedan marcadas', async () => {
+  it('dan UNA fila, no una por cada dirección del cliente', async () => {
     await comprar({ cliente: residencial, haceDias: 20 })
 
     await direccionNueva(residencial, 'la casa')
@@ -265,41 +265,71 @@ describe('las ventas viejas, sin dirección registrada', () => {
 
     const { botellones } = await clientesALlamar(HOY)
 
-    expect(botellones).toHaveLength(2)
-    expect(botellones.every((f) => f.diasSinComprar === 20)).toBe(true)
-    expect(botellones.every((f) => f.ventaSinDireccion)).toBe(true)
+    /*
+     * Ésta es la regla que reemplazó al reparto.
+     *
+     * Antes esta venta generaba DOS filas, una por dirección, cada una con el
+     * mismo número al lado de una puerta distinta. Se leía como «acá se
+     * entregó hace 20 días» dos veces, y eso nadie lo sabe: la venta no lo
+     * dice. Dos filas idénticas reclamando dos puertas es peor que una fila
+     * que admite no saber.
+     */
+    expect(botellones).toHaveLength(1)
+    expect(botellones[0]).toMatchObject({
+      clienteId: residencial,
+      direccionId: null,
+      etiqueta: null,
+      direccion: null,
+      diasSinComprar: 20,
+      ventaSinDireccion: true,
+    })
   })
 
-  it('una venta CON dirección más reciente le gana, y la marca desaparece', async () => {
+  it('conviven con las direcciones que SÍ tienen ventas propias, como filas aparte', async () => {
     await comprar({ cliente: residencial, haceDias: 20 })
 
     const casa = await direccionNueva(residencial, 'la casa')
     await comprar({ cliente: residencial, haceDias: 9, direccionId: casa })
 
-    expect((await clientesALlamar(HOY)).botellones).toMatchObject([
-      { diasSinComprar: 9, ventaSinDireccion: false },
+    const { botellones } = await clientesALlamar(HOY)
+
+    /*
+     * Son dos hechos distintos y merecen dos filas: «en la casa se entregó hace
+     * 9 días» y «hay una venta de hace 20 que no dice dónde se entregó». La
+     * segunda no es una llamada: es un dato que falta, y la pantalla ofrece
+     * completarlo ahí mismo.
+     */
+    expect(botellones).toHaveLength(2)
+    expect(botellones.map((f) => [f.etiqueta, f.diasSinComprar, f.ventaSinDireccion])).toEqual([
+      [null, 20, true],
+      ['la casa', 9, false],
     ])
   })
 
-  it('si la venta sin dirección es la más reciente, ella fija el reloj y marca la fila', async () => {
-    await comprar({ cliente: residencial, haceDias: 9 })
+  it('varias ventas viejas del mismo cliente son UNA fila, con la más reciente', async () => {
+    await comprar({ cliente: residencial, haceDias: 30 })
+    await comprar({ cliente: residencial, haceDias: 20 })
 
-    const casa = await direccionNueva(residencial, 'la casa')
-    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await direccionNueva(residencial, 'la casa')
 
-    expect((await clientesALlamar(HOY)).botellones).toMatchObject([
-      { diasSinComprar: 9, ventaSinDireccion: true },
-    ])
+    const { botellones } = await clientesALlamar(HOY)
+
+    expect(botellones).toHaveLength(1)
+    expect(botellones[0]!.diasSinComprar).toBe(20)
   })
 
-  it('empatadas el mismo día, gana la que SÍ registró dirección', async () => {
-    await comprar({ cliente: residencial, haceDias: 9 })
+  it('no se infiere nada aunque el cliente tenga UNA sola dirección', async () => {
+    await comprar({ cliente: residencial, haceDias: 20 })
 
-    const casa = await direccionNueva(residencial, 'la casa')
-    await comprar({ cliente: residencial, haceDias: 9, direccionId: casa })
+    await direccionNueva(residencial, 'la casa')
 
+    /*
+     * Con una sola dirección la deducción sería tentadora —no hay otro lugar
+     * posible— pero la venta sigue sin decirlo, y la pantalla mostraría una
+     * dirección que nadie registró. O tiene dirección o no la tiene.
+     */
     expect((await clientesALlamar(HOY)).botellones).toMatchObject([
-      { diasSinComprar: 9, ventaSinDireccion: false },
+      { direccionId: null, ventaSinDireccion: true },
     ])
   })
 })
@@ -328,42 +358,39 @@ describe('cuál venta fijó el reloj', () => {
     expect(f!.ventaId).toBe(reciente!.id)
   })
 
-  it('cuando la fila está marcada, apunta a la venta SIN dirección', async () => {
-    await comprar({ cliente: residencial, haceDias: 9 })
+  it('la fila marcada apunta a la venta SIN dirección, que es la que hay que corregir', async () => {
+    await comprar({ cliente: residencial, haceDias: 20 })
 
     const casa = await direccionNueva(residencial, 'la casa')
-    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 9, direccionId: casa })
 
-    const [f] = (await clientesALlamar(HOY)).botellones
+    const marcada = (await clientesALlamar(HOY)).botellones.find((f) => f.ventaSinDireccion)
     const [sinDireccion] = await db
       .select({ id: ventas.id })
       .from(ventas)
       .where(and(eq(ventas.clienteId, residencial), isNull(ventas.direccionId)))
 
-    expect(f!.ventaSinDireccion).toBe(true)
-    expect(f!.ventaId).toBe(sinDireccion!.id)
+    expect(marcada!.ventaId).toBe(sinDireccion!.id)
   })
 })
 
-describe('un cliente sin ninguna dirección cargada', () => {
+describe('un cliente sin NINGUNA dirección cargada', () => {
   /*
-   * No puede desaparecer. Es el mismo criterio que «sin teléfono cargado igual
-   * aparece»: la lista existe para mostrar trabajo, y acá el trabajo es cargarle
-   * la dirección. Una fila que se va sola es trabajo que nadie ve.
+   * Con el reparto, este caso necesitaba una rama aparte: había que decidir qué
+   * hacer cuando no existía ninguna dirección a la que repartir. Sin reparto
+   * dejó de ser un caso especial —la venta no dice dónde fue, y punto— pero el
+   * test se queda: lo que protege es que la fila NO desaparezca.
+   *
+   * Es el mismo criterio que «sin teléfono cargado igual aparece»: la lista
+   * existe para mostrar trabajo, y acá el trabajo es cargarle la dirección. Una
+   * fila que se va sola es trabajo que nadie ve.
    */
-  it('aparece igual, con la dirección en null', async () => {
+  it('aparece igual, sin dirección y marcada', async () => {
     await comprar({ cliente: residencial, haceDias: 20 })
 
     expect((await clientesALlamar(HOY)).botellones).toMatchObject([
-      { clienteId: residencial, direccionId: null, diasSinComprar: 20 },
+      { clienteId: residencial, direccionId: null, diasSinComprar: 20, ventaSinDireccion: true },
     ])
-  })
-
-  it('no se duplica cuando tiene varias ventas viejas', async () => {
-    await comprar({ cliente: residencial, haceDias: 20 })
-    await comprar({ cliente: residencial, haceDias: 30 })
-
-    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
   })
 })
 

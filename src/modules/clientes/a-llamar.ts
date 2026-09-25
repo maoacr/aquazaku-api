@@ -213,10 +213,6 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
 
   const porId = new Map(fichas.map((f) => [f.id, f]))
 
-  const direccionesDe = new Map<string, (typeof activas)[number][]>()
-  for (const d of activas) {
-    direccionesDe.set(d.clienteId, [...(direccionesDe.get(d.clienteId) ?? []), d])
-  }
   const direccionPorId = new Map(activas.map((d) => [d.id, d]))
 
   const porCliente = new Map<string, TelefonoParaLlamar[]>()
@@ -233,25 +229,36 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
   }
 
   /**
-   * Anota un reloj contra una dirección, quedándose con el que manda.
+   * Anota el reloj de un grupo, quedándose con el más reciente.
    *
-   * Gana el más reciente. Y **a igual día gana la venta que SÍ registró
-   * dirección**: si el mismo día hubo una con dirección y una sin, la primera
-   * es la que sabe algo, así que la fila no se marca. Sin ese desempate el
-   * resultado dependería del orden en que Postgres devolvió las filas.
+   * La clave incluye la dirección —o su ausencia— porque son filas distintas:
+   * «lo que se entregó en la casa» y «lo que no dice dónde se entregó» son dos
+   * hechos separados, y mezclarlos taparía uno de los dos.
    */
   const anotar = (canal: Canal, c: Candidata) => {
     const clave = `${c.clienteId}|${c.direccionId ?? ''}`
     const actual = candidatas[canal].get(clave)
 
-    const manda =
-      actual === undefined ||
-      c.dias < actual.dias ||
-      (c.dias === actual.dias && actual.ventaSinDireccion && !c.ventaSinDireccion)
-
-    if (manda) candidatas[canal].set(clave, c)
+    if (actual === undefined || c.dias < actual.dias) candidatas[canal].set(clave, c)
   }
 
+  /*
+   * ── La fila es la venta COMO QUEDÓ REGISTRADA ────────────────────────────
+   *
+   * Hubo una versión que repartía las ventas sin dirección entre TODAS las
+   * direcciones activas del cliente, para no perder su reloj. La idea era no
+   * esconder trabajo, pero el resultado mentía de dos formas a la vez:
+   *
+   *   1. Cada fila mostraba una dirección concreta al lado de un conteo que no
+   *      era de esa puerta. Se leía como «acá se entregó hace 43 días», y eso
+   *      nadie lo sabe.
+   *   2. Un cliente con dos direcciones y solo ventas viejas aparecía DOS
+   *      veces, con el mismo número, reclamando dos puertas distintas.
+   *
+   * Ahora no se infiere nada: si la venta dice a qué dirección fue, la fila es
+   * esa dirección; si no lo dice, la fila es «sin dirección asignada» y la
+   * pantalla ofrece asignársela. O tiene dirección o no la tiene.
+   */
   for (const g of grupos) {
     const clienteId = g.clienteId!
     if (!porId.has(clienteId)) continue
@@ -259,52 +266,19 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
     const canal: Canal = g.presentacion === 'botellon' ? 'botellones' : 'otros'
     const dias = Number(g.dias)
 
-    if (g.direccionId !== null) {
-      /*
-       * Una venta a una dirección DESACTIVADA no cuenta para nada: ya no se
-       * entrega ahí, y darle su reloj a las direcciones vivas del cliente
-       * sería inventar una entrega que no pasó.
-       */
-      if (direccionPorId.has(g.direccionId)) {
-        anotar(canal, {
-          clienteId,
-          direccionId: g.direccionId,
-          dias,
-          ventaSinDireccion: false,
-          ventaId: g.ventaId,
-        })
-      }
-      continue
-    }
+    /*
+     * Una venta a una dirección DESACTIVADA no genera fila: ya no se entrega
+     * ahí, y llamar a una puerta dada de baja es trabajo inventado.
+     */
+    if (g.direccionId !== null && !direccionPorId.has(g.direccionId)) continue
 
-    const propias = direccionesDe.get(clienteId) ?? []
-
-    if (propias.length === 0) {
-      /*
-       * Cliente con compras y sin ninguna dirección cargada. No puede
-       * desaparecer: es el mismo criterio que «sin teléfono cargado igual
-       * aparece». La lista existe para mostrar trabajo, y acá el trabajo es
-       * cargarle la dirección. Una fila que se va sola es trabajo que nadie ve.
-       */
-      anotar(canal, {
-        clienteId,
-        direccionId: null,
-        dias,
-        ventaSinDireccion: true,
-        ventaId: g.ventaId,
-      })
-      continue
-    }
-
-    for (const d of propias) {
-      anotar(canal, {
-        clienteId,
-        direccionId: d.id,
-        dias,
-        ventaSinDireccion: true,
-        ventaId: g.ventaId,
-      })
-    }
+    anotar(canal, {
+      clienteId,
+      direccionId: g.direccionId,
+      dias,
+      ventaSinDireccion: g.direccionId === null,
+      ventaId: g.ventaId,
+    })
   }
 
   const armar = (canal: Canal): DireccionALlamar[] =>
