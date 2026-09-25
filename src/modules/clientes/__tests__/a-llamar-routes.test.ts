@@ -46,7 +46,13 @@ describe('el ruteo', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual([])
+    /*
+     * Los dos canales vienen en la MISMA respuesta y no en dos peticiones: la
+     * pantalla muestra el conteo de las dos pestañas antes de que nadie toque
+     * ninguna, así que pedirlas por separado sería un viaje para pintar un
+     * número que ya se podía traer.
+     */
+    expect(res.json()).toEqual({ botellones: [], otros: [] })
   })
 
   /*
