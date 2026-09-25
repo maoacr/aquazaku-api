@@ -73,7 +73,15 @@ export interface DireccionALlamar {
   /** Ya legible, armada por `direccionLegible` — acá no se formatea nada. */
   direccion: string | null
   diasSinComprar: number
-  urgencia: 'aviso' | 'urgente'
+  /**
+   * En qué franja cae esta dirección — RN-CLI-18.
+   *
+   * `al-dia` existe porque la lista dejó de ser solo «a quién llamar» y pasó a
+   * ser el padrón completo: quien compró hace dos días también aparece, en
+   * verde. Sin ese estado, la única forma de ver a un cliente era que estuviera
+   * atrasado, y para consultarlo había que esperar a que se atrasara.
+   */
+  urgencia: 'al-dia' | 'aviso' | 'urgente'
   /**
    * La venta que fijó ESTE reloj no registró a qué dirección se entregó.
    *
@@ -213,10 +221,6 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
 
   const porId = new Map(fichas.map((f) => [f.id, f]))
 
-  const direccionesDe = new Map<string, (typeof activas)[number][]>()
-  for (const d of activas) {
-    direccionesDe.set(d.clienteId, [...(direccionesDe.get(d.clienteId) ?? []), d])
-  }
   const direccionPorId = new Map(activas.map((d) => [d.id, d]))
 
   const porCliente = new Map<string, TelefonoParaLlamar[]>()
@@ -233,25 +237,36 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
   }
 
   /**
-   * Anota un reloj contra una dirección, quedándose con el que manda.
+   * Anota el reloj de un grupo, quedándose con el más reciente.
    *
-   * Gana el más reciente. Y **a igual día gana la venta que SÍ registró
-   * dirección**: si el mismo día hubo una con dirección y una sin, la primera
-   * es la que sabe algo, así que la fila no se marca. Sin ese desempate el
-   * resultado dependería del orden en que Postgres devolvió las filas.
+   * La clave incluye la dirección —o su ausencia— porque son filas distintas:
+   * «lo que se entregó en la casa» y «lo que no dice dónde se entregó» son dos
+   * hechos separados, y mezclarlos taparía uno de los dos.
    */
   const anotar = (canal: Canal, c: Candidata) => {
     const clave = `${c.clienteId}|${c.direccionId ?? ''}`
     const actual = candidatas[canal].get(clave)
 
-    const manda =
-      actual === undefined ||
-      c.dias < actual.dias ||
-      (c.dias === actual.dias && actual.ventaSinDireccion && !c.ventaSinDireccion)
-
-    if (manda) candidatas[canal].set(clave, c)
+    if (actual === undefined || c.dias < actual.dias) candidatas[canal].set(clave, c)
   }
 
+  /*
+   * ── La fila es la venta COMO QUEDÓ REGISTRADA ────────────────────────────
+   *
+   * Hubo una versión que repartía las ventas sin dirección entre TODAS las
+   * direcciones activas del cliente, para no perder su reloj. La idea era no
+   * esconder trabajo, pero el resultado mentía de dos formas a la vez:
+   *
+   *   1. Cada fila mostraba una dirección concreta al lado de un conteo que no
+   *      era de esa puerta. Se leía como «acá se entregó hace 43 días», y eso
+   *      nadie lo sabe.
+   *   2. Un cliente con dos direcciones y solo ventas viejas aparecía DOS
+   *      veces, con el mismo número, reclamando dos puertas distintas.
+   *
+   * Ahora no se infiere nada: si la venta dice a qué dirección fue, la fila es
+   * esa dirección; si no lo dice, la fila es «sin dirección asignada» y la
+   * pantalla ofrece asignársela. O tiene dirección o no la tiene.
+   */
   for (const g of grupos) {
     const clienteId = g.clienteId!
     if (!porId.has(clienteId)) continue
@@ -259,57 +274,39 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
     const canal: Canal = g.presentacion === 'botellon' ? 'botellones' : 'otros'
     const dias = Number(g.dias)
 
-    if (g.direccionId !== null) {
-      /*
-       * Una venta a una dirección DESACTIVADA no cuenta para nada: ya no se
-       * entrega ahí, y darle su reloj a las direcciones vivas del cliente
-       * sería inventar una entrega que no pasó.
-       */
-      if (direccionPorId.has(g.direccionId)) {
-        anotar(canal, {
-          clienteId,
-          direccionId: g.direccionId,
-          dias,
-          ventaSinDireccion: false,
-          ventaId: g.ventaId,
-        })
-      }
-      continue
-    }
+    /*
+     * Una venta a una dirección DESACTIVADA no genera fila: ya no se entrega
+     * ahí, y llamar a una puerta dada de baja es trabajo inventado.
+     */
+    if (g.direccionId !== null && !direccionPorId.has(g.direccionId)) continue
 
-    const propias = direccionesDe.get(clienteId) ?? []
+    anotar(canal, {
+      clienteId,
+      direccionId: g.direccionId,
+      dias,
+      ventaSinDireccion: g.direccionId === null,
+      ventaId: g.ventaId,
+    })
+  }
 
-    if (propias.length === 0) {
-      /*
-       * Cliente con compras y sin ninguna dirección cargada. No puede
-       * desaparecer: es el mismo criterio que «sin teléfono cargado igual
-       * aparece». La lista existe para mostrar trabajo, y acá el trabajo es
-       * cargarle la dirección. Una fila que se va sola es trabajo que nadie ve.
-       */
-      anotar(canal, {
-        clienteId,
-        direccionId: null,
-        dias,
-        ventaSinDireccion: true,
-        ventaId: g.ventaId,
-      })
-      continue
-    }
+  /**
+   * Los dos umbrales, ahora como tres franjas.
+   *
+   * Antes `aviso` decidía quién ENTRABA a la lista: por debajo, la dirección no
+   * existía para nadie. Eso convertía una consulta —«¿cuándo compró éste?»— en
+   * algo que había que esperar a que se pusiera urgente.
+   *
+   * Ahora entran todos los que alguna vez compraron y el umbral solo pinta.
+   */
+  const franja = (dias: number): DireccionALlamar['urgencia'] => {
+    if (dias >= urgente) return 'urgente'
+    if (dias >= aviso) return 'aviso'
 
-    for (const d of propias) {
-      anotar(canal, {
-        clienteId,
-        direccionId: d.id,
-        dias,
-        ventaSinDireccion: true,
-        ventaId: g.ventaId,
-      })
-    }
+    return 'al-dia'
   }
 
   const armar = (canal: Canal): DireccionALlamar[] =>
     [...candidatas[canal].values()]
-      .filter((c) => c.dias >= aviso)
       .map((c) => {
         const ficha = porId.get(c.clienteId)!
         const d = c.direccionId === null ? undefined : direccionPorId.get(c.direccionId)
@@ -326,8 +323,12 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
            * `>=` y no `>`: con el umbral en 8, el día 8 YA es urgente. Con `>`
            * esa dirección saldría como aviso y nadie la vería hasta el día
            * siguiente — un día entero de retraso escondido en un símbolo.
+           *
+           * `aviso` dejó de FILTRAR y quedó solo como el corte entre verde y
+           * amarillo. La lista muestra todo el que alguna vez compró, y el
+           * umbral decide el color, no quién entra.
            */
-          urgencia: c.dias >= urgente ? ('urgente' as const) : ('aviso' as const),
+          urgencia: franja(c.dias),
           ventaSinDireccion: c.ventaSinDireccion,
           ventaId: c.ventaId,
           telefonos: porCliente.get(c.clienteId) ?? [],
