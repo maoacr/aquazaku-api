@@ -108,7 +108,12 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   )
 
   /**
-   * Los clientes a los que hay que llamar — M15.
+   * A qué DIRECCIONES hay que llamar — M15.
+   *
+   * La ruta no cambió de nombre pero sí de forma: contesta
+   * `{ botellones, otros }`, y cada fila es una dirección, no un cliente. El
+   * por qué de las dos cosas vive en `a-llamar.ts`, que es donde está la regla
+   * — acá solo se expone.
    *
    * Va ANTES de `/clientes/:id` por costumbre de lectura, no por necesidad:
    * find-my-way prefiere el segmento estático sobre el parámetro, así que
