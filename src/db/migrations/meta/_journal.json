@@ -169,6 +169,13 @@
       "when": 1790910000000,
       "tag": "0023_cliente_solo_con_nombre",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790920000000,
+      "tag": "0024_cliente_de_mostrador",
+      "breakpoints": true
     }
   ]
 }

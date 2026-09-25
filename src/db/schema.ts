@@ -991,6 +991,19 @@ export const clientes = pgTable(
     verificadoEn: tstz('verificado_en'),
     verificacionMetodo: verificacionMetodoEnum('verificacion_metodo'),
 
+    /**
+     * Este cliente representa ventas a gente que NO quiso registrarse.
+     *
+     * No es una persona: adentro conviven cientos. No se le llama, su cartera
+     * no le pertenece a nadie y su historial no predice nada — por eso queda
+     * fuera de Seguimientos (RN-CLI-21).
+     *
+     * `false` por defecto y a propósito: marcar un cliente como tacho es una
+     * decisión rara y deliberada. Con el default al revés, un alta mal hecha
+     * escondería a un cliente real de la lista de llamadas, que es justo el
+     * fallo silencioso que esa pantalla existe para evitar.
+     */
+    esMostrador: boolean('es_mostrador').notNull().default(false),
     creditoHabilitado: boolean('credito_habilitado').notNull().default(false),
     /** `null` es SIN TOPE, y es el default — RN-CLI-12. */
     creditoLimite: numeric('credito_limite', { precision: 12, scale: 2 }),

@@ -192,7 +192,32 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
     db
       .select({ id: clientes.id, nombre: clientes.nombre, documento: clientes.numeroDocumento })
       .from(clientes)
-      .where(and(inArray(clientes.id, ids), eq(clientes.activo, true))),
+      .where(
+        and(
+          inArray(clientes.id, ids),
+          eq(clientes.activo, true),
+          /*
+           * El tacho queda afuera — RN-CLI-21.
+           *
+           * «POS Aquazaku» no es un cliente: es donde caen las ventas a gente
+           * que no quiso registrarse. Adentro conviven cientos de personas, así
+           * que NO HAY A QUIÉN LLAMAR — y como es el que más ventas tiene y las
+           * más viejas, salía PRIMERO en los dos canales. El lugar que más se
+           * mira, ocupado por la única fila que no se puede accionar.
+           *
+           * Se excluye por la columna y no por el nombre: en una sola
+           * conversación con la operación ese cliente apareció escrito de tres
+           * formas distintas. Filtrar por texto deja el ruido a una renombrada
+           * de distancia, y al volver no falla nada — simplemente reaparece.
+           *
+           * Va acá, sobre las FICHAS, y no sobre los grupos de ventas: más
+           * abajo se descarta todo grupo cuyo cliente no esté en `porId`, así
+           * que el filtro alcanza también a las filas sin dirección, que son
+           * justo las que el tacho ponía arriba de todo.
+           */
+          eq(clientes.esMostrador, false),
+        ),
+      ),
 
     /*
      * Las direcciones activas de todos en UN viaje. Son el sujeto de la lista:
