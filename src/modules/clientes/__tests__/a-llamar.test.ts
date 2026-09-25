@@ -401,6 +401,65 @@ describe('un cliente sin NINGUNA dirección cargada', () => {
   })
 })
 
+/**
+ * ── El tacho no se llama ────────────────────────────────────────────────────
+ *
+ * «POS Aquazaku» no es un cliente: es el cajón donde caen las ventas a gente
+ * que no quiso registrarse. Adentro conviven cientos de personas, así que no
+ * hay a quién llamar.
+ *
+ * Y aparecía PRIMERO en las dos listas, porque es el que más ventas tiene y
+ * las más viejas: el lugar que más se mira, ocupado por la única fila que no se
+ * puede accionar.
+ *
+ * Se excluye por la columna `es_mostrador` y no por el nombre. En una sola
+ * conversación con la operación ese cliente apareció escrito de tres formas
+ * distintas — filtrar por texto deja el ruido a una renombrada de distancia, y
+ * al volver no falla nada: simplemente reaparece.
+ */
+describe('el cliente de mostrador', () => {
+  it('no aparece en ninguno de los dos canales', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa, productos: ['paca'] })
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
+    expect((await clientesALlamar(HOY)).otros).toHaveLength(1)
+
+    await db.update(clientes).set({ esMostrador: true }).where(eq(clientes.id, residencial))
+
+    const { botellones, otros } = await clientesALlamar(HOY)
+
+    expect(botellones).toHaveLength(0)
+    expect(otros).toHaveLength(0)
+  })
+
+  it('tampoco cuando su venta no registró dirección', async () => {
+    await comprar({ cliente: residencial, haceDias: 40 })
+    await db.update(clientes).set({ esMostrador: true }).where(eq(clientes.id, residencial))
+
+    /*
+     * La fila «Asignar una dirección» es la que más arriba sale. Si el filtro
+     * viviera solo del lado de las direcciones cargadas, el tacho seguiría
+     * primero — que es exactamente el síntoma que esto viene a sacar.
+     */
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+  })
+
+  it('marcar uno no esconde a los demás', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    const tienda = await direccionNueva(comercial, 'la tienda')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: comercial, haceDias: 15, direccionId: tienda })
+
+    await db.update(clientes).set({ esMostrador: true }).where(eq(clientes.id, residencial))
+
+    expect((await clientesALlamar(HOY)).botellones).toMatchObject([
+      { clienteId: comercial, diasSinComprar: 15 },
+    ])
+  })
+})
+
 describe('los dos canales', () => {
   it('el botellón va a `botellones` y la paca a `otros`', async () => {
     const casa = await direccionNueva(residencial, 'la casa')
