@@ -73,7 +73,15 @@ export interface DireccionALlamar {
   /** Ya legible, armada por `direccionLegible` — acá no se formatea nada. */
   direccion: string | null
   diasSinComprar: number
-  urgencia: 'aviso' | 'urgente'
+  /**
+   * En qué franja cae esta dirección — RN-CLI-18.
+   *
+   * `al-dia` existe porque la lista dejó de ser solo «a quién llamar» y pasó a
+   * ser el padrón completo: quien compró hace dos días también aparece, en
+   * verde. Sin ese estado, la única forma de ver a un cliente era que estuviera
+   * atrasado, y para consultarlo había que esperar a que se atrasara.
+   */
+  urgencia: 'al-dia' | 'aviso' | 'urgente'
   /**
    * La venta que fijó ESTE reloj no registró a qué dirección se entregó.
    *
@@ -281,9 +289,24 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
     })
   }
 
+  /**
+   * Los dos umbrales, ahora como tres franjas.
+   *
+   * Antes `aviso` decidía quién ENTRABA a la lista: por debajo, la dirección no
+   * existía para nadie. Eso convertía una consulta —«¿cuándo compró éste?»— en
+   * algo que había que esperar a que se pusiera urgente.
+   *
+   * Ahora entran todos los que alguna vez compraron y el umbral solo pinta.
+   */
+  const franja = (dias: number): DireccionALlamar['urgencia'] => {
+    if (dias >= urgente) return 'urgente'
+    if (dias >= aviso) return 'aviso'
+
+    return 'al-dia'
+  }
+
   const armar = (canal: Canal): DireccionALlamar[] =>
     [...candidatas[canal].values()]
-      .filter((c) => c.dias >= aviso)
       .map((c) => {
         const ficha = porId.get(c.clienteId)!
         const d = c.direccionId === null ? undefined : direccionPorId.get(c.direccionId)
@@ -300,8 +323,12 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
            * `>=` y no `>`: con el umbral en 8, el día 8 YA es urgente. Con `>`
            * esa dirección saldría como aviso y nadie la vería hasta el día
            * siguiente — un día entero de retraso escondido en un símbolo.
+           *
+           * `aviso` dejó de FILTRAR y quedó solo como el corte entre verde y
+           * amarillo. La lista muestra todo el que alguna vez compró, y el
+           * umbral decide el color, no quién entra.
            */
-          urgencia: c.dias >= urgente ? ('urgente' as const) : ('aviso' as const),
+          urgencia: franja(c.dias),
           ventaSinDireccion: c.ventaSinDireccion,
           ventaId: c.ventaId,
           telefonos: porCliente.get(c.clienteId) ?? [],

@@ -200,8 +200,15 @@ describe('la fila es la dirección, no el cliente', () => {
 
     const { botellones } = await clientesALlamar(HOY)
 
-    /* La casa no califica (1 día). El local sí, y por eso esto existe. */
-    expect(botellones).toMatchObject([{ etiqueta: 'el local', diasSinComprar: 20 }])
+    /*
+     * El bug que motivó todo el cambio: con una fila por cliente, el local
+     * llevaba veinte días seco detrás de una casa que pidió ayer. Las dos
+     * direcciones aparecen, cada una con SU reloj y su franja.
+     */
+    expect(botellones.map((f) => [f.etiqueta, f.diasSinComprar, f.urgencia])).toEqual([
+      ['el local', 20, 'urgente'],
+      ['la casa', 1, 'al-dia'],
+    ])
   })
 
   it('una dirección desactivada no se llama: no se entrega ahí', async () => {
@@ -433,11 +440,12 @@ describe('los dos canales', () => {
     const { botellones, otros } = await clientesALlamar(HOY)
 
     /*
-     * Éste es el test que justifica el cambio. Con un reloj compartido, el
-     * botellón de hace 3 días tapaba la paca de hace 20 y `otros` salía vacío.
+     * Éste es el test que justifica el corte por canal. Con un reloj
+     * compartido, la paca de hace 20 días mostraba 3 —el del botellón— y salía
+     * en verde: el atraso quedaba invisible.
      */
-    expect(botellones).toHaveLength(0)
-    expect(otros).toMatchObject([{ diasSinComprar: 20 }])
+    expect(botellones).toMatchObject([{ diasSinComprar: 3, urgencia: 'al-dia' }])
+    expect(otros).toMatchObject([{ diasSinComprar: 20, urgencia: 'urgente' }])
   })
 
   it('tres botellones en la misma venta no son tres filas', async () => {
@@ -473,11 +481,18 @@ describe('qué cuenta como haber comprado', () => {
     expect((await clientesALlamar(HOY)).botellones).toMatchObject([{ diasSinComprar: 20 }])
   })
 
-  it('quien compró anteayer no está: todavía tiene agua', async () => {
+  it('quien compró anteayer SÍ está, en verde: la lista es el padrón completo', async () => {
     const casa = await direccionNueva(residencial, 'la casa')
     await comprar({ cliente: residencial, haceDias: 2, direccionId: casa })
 
-    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+    /*
+     * Antes esta dirección no existía para nadie hasta ponerse urgente, así que
+     * consultar «¿cuándo compró éste?» exigía esperar a que se atrasara. Ahora
+     * entra todo el que alguna vez compró y el umbral solo decide el color.
+     */
+    expect((await clientesALlamar(HOY)).botellones).toMatchObject([
+      { diasSinComprar: 2, urgencia: 'al-dia' },
+    ])
   })
 
   it('quien nunca compró no aparece', async () => {
@@ -507,15 +522,20 @@ describe('las dos franjas', () => {
     expect((await clientesALlamar(HOY)).botellones).toMatchObject([{ urgencia: 'aviso' }])
   })
 
-  it('subir el aviso saca de la lista a quien ya no califica', async () => {
+  it('subir el aviso cambia el COLOR, ya no saca de la lista a nadie', async () => {
     const casa = await direccionNueva(residencial, 'la casa')
     await comprar({ cliente: residencial, haceDias: 6, direccionId: casa })
 
-    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
+    expect((await clientesALlamar(HOY)).botellones).toMatchObject([{ urgencia: 'aviso' }])
 
     await db.update(parametros).set({ valor: 7 }).where(eq(parametros.clave, 'dias_recompra_aviso'))
 
-    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+    /*
+     * La fila SIGUE ahí. `aviso` dejó de decidir quién entra y quedó solo como
+     * el corte entre verde y amarillo — que es lo que siempre debió ser: un
+     * umbral de atención, no un filtro de existencia.
+     */
+    expect((await clientesALlamar(HOY)).botellones).toMatchObject([{ urgencia: 'al-dia' }])
   })
 })
 
