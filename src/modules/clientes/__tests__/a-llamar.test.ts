@@ -307,9 +307,10 @@ describe('las ventas viejas, sin dirección registrada', () => {
      * completarlo ahí mismo.
      */
     expect(botellones).toHaveLength(2)
+    /* La sin dirección va ÚLTIMA aunque su número sea mayor: no es una llamada. */
     expect(botellones.map((f) => [f.etiqueta, f.diasSinComprar, f.ventaSinDireccion])).toEqual([
-      [null, 20, true],
       ['la casa', 9, false],
+      [null, 20, true],
     ])
   })
 
@@ -417,6 +418,115 @@ describe('un cliente sin NINGUNA dirección cargada', () => {
  * distintas — filtrar por texto deja el ruido a una renombrada de distancia, y
  * al volver no falla nada: simplemente reaparece.
  */
+/**
+ * ── La fila sin dirección cuenta VENTAS, no días ────────────────────────────
+ *
+ * El error que la operación reportó tres veces: corregir una venta hacía SUBIR
+ * el número. 40, luego 47, luego 54. Se veía como si corregir no hubiera
+ * servido — o peor, como si hubiera empeorado algo.
+ *
+ * No estaba roto: esa fila agrupa TODAS las ventas viejas del cliente y
+ * mostraba los días de la más reciente. Al corregir esa, salía del grupo y la
+ * fila pasaba a la siguiente, más vieja. El número subía porque la fila ya era
+ * de otra venta.
+ *
+ * El dato que esa fila tiene que dar es CUÁNTAS faltan. Ese baja: 3, 2, 1, y la
+ * fila se va.
+ */
+describe('dónde va la fila sin dirección', () => {
+  it('al final, aunque su número sea el más alto', async () => {
+    /* La vieja sin dirección: se inserta antes de que exista la dirección. */
+    await comprar({ cliente: residencial, haceDias: 60 })
+
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 9, direccionId: casa })
+
+    const { botellones } = await clientesALlamar(HOY)
+
+    /*
+     * Ordenadas por días, la de 60 iría primera. Pero no es una llamada: es
+     * una venta que no dice dónde se entregó, y ocupaba el lugar que más se
+     * mira empujando hacia abajo a las puertas que de verdad esperan agua.
+     */
+    expect(botellones.map((f) => [f.ventaSinDireccion, f.diasSinComprar])).toEqual([
+      [false, 9],
+      [true, 60],
+    ])
+  })
+})
+
+describe('cuántas ventas hay detrás de una fila', () => {
+  it('la fila sin dirección cuenta todas las ventas viejas del cliente', async () => {
+    await comprar({ cliente: residencial, haceDias: 40 })
+    await comprar({ cliente: residencial, haceDias: 47 })
+    await comprar({ cliente: residencial, haceDias: 54 })
+
+    await direccionNueva(residencial, 'la casa')
+
+    expect((await clientesALlamar(HOY)).botellones).toMatchObject([
+      { direccionId: null, cuantasVentas: 3, diasSinComprar: 40 },
+    ])
+  })
+
+  it('una venta con dos productos del mismo canal se cuenta UNA vez', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+
+    /*
+     * El `join` con las líneas multiplica la venta por cada producto. Sin
+     * `count(distinct)` y sin agrupar por canal, esta fila diría «2 ventas»
+     * donde hay una que llevó dos cosas.
+     */
+    await comprar({
+      cliente: residencial,
+      haceDias: 20,
+      direccionId: casa,
+      productos: ['botellon', 'botellon'],
+    })
+
+    expect((await clientesALlamar(HOY)).botellones).toMatchObject([{ cuantasVentas: 1 }])
+  })
+
+  it('cada canal cuenta lo suyo', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 25, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 30, direccionId: casa, productos: ['paca'] })
+
+    const { botellones, otros } = await clientesALlamar(HOY)
+
+    expect(botellones).toMatchObject([{ cuantasVentas: 2 }])
+    expect(otros).toMatchObject([{ cuantasVentas: 1 }])
+  })
+
+  it('corregir una BAJA el conteo en vez de subir los días', async () => {
+    await comprar({ cliente: residencial, haceDias: 40 })
+    await comprar({ cliente: residencial, haceDias: 47 })
+
+    const casa = await direccionNueva(residencial, 'la casa')
+
+    expect((await clientesALlamar(HOY)).botellones[0]).toMatchObject({ cuantasVentas: 2 })
+
+    /* Se corrige la más reciente: pasa a la dirección y sale del grupo. */
+    const [reciente] = await db
+      .select({ id: ventas.id })
+      .from(ventas)
+      .where(and(eq(ventas.clienteId, residencial), isNull(ventas.direccionId)))
+      .orderBy(desc(ventas.createdAt))
+      .limit(1)
+
+    await db
+      .update(ventas)
+      .set({ estado: 'corregida', anuladaEn: new Date(), motivoAnulacion: 'se le asignó dirección' })
+      .where(eq(ventas.id, reciente!.id))
+    await comprar({ cliente: residencial, haceDias: 40, direccionId: casa })
+
+    const sinDireccion = (await clientesALlamar(HOY)).botellones.find((f) => f.ventaSinDireccion)
+
+    expect(sinDireccion).toMatchObject({ cuantasVentas: 1 })
+  })
+})
+
 describe('el cliente de mostrador', () => {
   it('no aparece en ninguno de los dos canales', async () => {
     const casa = await direccionNueva(residencial, 'la casa')
@@ -669,8 +779,8 @@ describe('cuando la venta vieja recibe su dirección', () => {
     /* Antes de corregir: dos filas, la vieja arriba. */
     const antes = await clientesALlamar(HOY)
     expect(antes.botellones.map((f) => [f.direccionId, f.diasSinComprar])).toEqual([
-      [null, 40],
       [casa, 0],
+      [null, 40],
     ])
 
     /*

@@ -100,6 +100,15 @@ export interface DireccionALlamar {
    * buscarla al listado de ventas.
    */
   ventaId: string
+  /**
+   * Cuántas ventas hay detrás de esta fila.
+   *
+   * Solo importa cuando `ventaSinDireccion` es `true`: ahí la fila no es una
+   * puerta esperando agua, sino un montón de ventas que no dicen dónde se
+   * entregaron, y lo que hay que ver es cuántas faltan por corregir — un número
+   * que BAJA mientras se trabaja.
+   */
+  cuantasVentas: number
   telefonos: TelefonoParaLlamar[]
 }
 
@@ -119,6 +128,7 @@ interface Candidata {
   dias: number
   ventaSinDireccion: boolean
   ventaId: string
+  cuantasVentas: number
 }
 
 export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar> {
@@ -128,7 +138,14 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
   ])
 
   /*
-   * La última compra VÁLIDA por cliente, dirección y presentación.
+   * El corte entre canales, escrito UNA vez y usado en el select y en el
+   * `GROUP BY`. Se pregunta por lo que NO es botellón —y no por `= 'paca'`—
+   * para que una presentación nueva caiga en «otros» sin tocar este archivo.
+   */
+  const esBotellon = sql<boolean>`${productos.presentacion} = 'botellon'`
+
+  /*
+   * La última compra VÁLIDA por cliente, dirección y canal.
    *
    * Las tres condiciones del `where` son las mismas del índice parcial de la
    * migración 0017, y tienen que seguir siéndolo: si divergen, el índice deja
@@ -153,7 +170,19 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
     .select({
       clienteId: ventas.clienteId,
       direccionId: ventas.direccionId,
-      presentacion: productos.presentacion,
+      /*
+       * El canal, como CONDICIÓN de agrupado y no como la presentación cruda.
+       *
+       * Antes se agrupaba por `presentacion` y el canal se derivaba después en
+       * TypeScript. Daba lo mismo mientras hubiera una sola presentación que no
+       * es botellón — pero `cuantasVentas` sí lo notaría: contaría las ventas
+       * de cada presentación por separado y la fila diría «2 ventas» donde hay
+       * una que llevó dos cosas distintas.
+       *
+       * Agrupando por el canal, `count(distinct)` cuenta lo que la fila
+       * representa.
+       */
+      esBotellon: esBotellon,
       dias: sql<string>`min(${hoy}::date - ${diaEnLaPlanta(ventas.createdAt)})`,
       /*
        * La venta que FIJA el reloj de este grupo — la más reciente.
@@ -166,6 +195,26 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
        * fila más reciente del grupo sale del mismo barrido que el `min`.
        */
       ventaId: sql<string>`(array_agg(${ventas.id} ORDER BY ${ventas.createdAt} DESC))[1]`,
+      /*
+       * Cuántas ventas hay en el grupo.
+       *
+       * En las filas con dirección no se usa: ahí lo que importa es cuándo fue
+       * la última. En la fila SIN dirección es el dato principal, y la razón es
+       * un error que reportó la operación tres veces.
+       *
+       * Esa fila agrupa todas las ventas viejas del cliente y mostraba los días
+       * de la más reciente. Al corregir una, esa salía del grupo y la fila
+       * pasaba a la siguiente —más vieja—, así que el número SUBÍA: 40, 47, 54.
+       * Se veía como si corregir no hubiera servido de nada, o peor, como si
+       * hubiera empeorado algo.
+       *
+       * Contando ventas, el número baja: 3, 2, 1, y la fila se va. El trabajo
+       * hecho se ve.
+       *
+       * `count(DISTINCT)` porque el `join` con las líneas multiplica una venta
+       * por cada producto que llevó.
+       */
+      cuantasVentas: sql<string>`count(distinct ${ventas.id})`,
     })
     .from(ventas)
     .innerJoin(lineasDeVenta, eq(lineasDeVenta.ventaId, ventas.id))
@@ -177,7 +226,7 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
         isNotNull(ventas.clienteId),
       ),
     )
-    .groupBy(ventas.clienteId, ventas.direccionId, productos.presentacion)
+    .groupBy(ventas.clienteId, ventas.direccionId, esBotellon)
 
   /*
    * Quien nunca compró no aparece, y sale gratis: sin venta no hay fila en este
@@ -296,7 +345,7 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
     const clienteId = g.clienteId!
     if (!porId.has(clienteId)) continue
 
-    const canal: Canal = g.presentacion === 'botellon' ? 'botellones' : 'otros'
+    const canal: Canal = g.esBotellon ? 'botellones' : 'otros'
     const dias = Number(g.dias)
 
     /*
@@ -311,6 +360,7 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
       dias,
       ventaSinDireccion: g.direccionId === null,
       ventaId: g.ventaId,
+      cuantasVentas: Number(g.cuantasVentas),
     })
   }
 
@@ -356,6 +406,7 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
           urgencia: franja(c.dias),
           ventaSinDireccion: c.ventaSinDireccion,
           ventaId: c.ventaId,
+          cuantasVentas: c.cuantasVentas,
           telefonos: porCliente.get(c.clienteId) ?? [],
         }
       })
@@ -367,6 +418,19 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
        */
       .sort(
         (a, b) =>
+          /*
+           * Las filas SIN dirección van al final, siempre.
+           *
+           * No son una llamada: son ventas que no dicen dónde se entregaron. Y
+           * como agrupan lo más viejo del cliente, tenían el número más alto y
+           * se quedaban con el primer lugar — el que más se mira— empujando
+           * hacia abajo a las puertas que de verdad esperan agua.
+           *
+           * Ordenarlas por días era además comparar dos cosas distintas en el
+           * mismo eje: «hace cuánto que esta puerta no recibe» contra «hace
+           * cuánto fue la más reciente de varias ventas sin ubicar».
+           */
+          Number(a.ventaSinDireccion) - Number(b.ventaSinDireccion) ||
           b.diasSinComprar - a.diasSinComprar ||
           a.nombre.localeCompare(b.nombre, 'es') ||
           (a.etiqueta ?? '').localeCompare(b.etiqueta ?? '', 'es'),
