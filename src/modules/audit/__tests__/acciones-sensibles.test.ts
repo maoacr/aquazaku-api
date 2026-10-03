@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildApp } from '@/app'
 import { closeDb, db } from '@/db/client'
-import { auditLog, clientes, lineasDeVenta, productos } from '@/db/schema'
+import { auditLog, clientes, insumos, lineasDeVenta, productos } from '@/db/schema'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
@@ -1154,5 +1154,132 @@ describe('la bitácora de los códigos de descuento dice qué se autorizó', () 
 
     expect(laDelUmbral!.payload).toMatchObject({ despues: 14, etiqueta: expect.any(String) })
     expect(laDelDescuento!.payload).toMatchObject({ codigo: 'VERANO10' })
+  })
+})
+
+/**
+ * Renombrar un producto y cerrar el día de la planta.
+ *
+ * Dos acciones de distinta naturaleza y el mismo hueco: la fila llegaba sin
+ * `payload`. Van juntas porque son las dos últimas rutas sueltas del catálogo
+ * y de producción; los cinco hechos de `insumos:ajustar` van aparte.
+ */
+describe('la bitácora del catálogo dice de qué a qué cambió el nombre', () => {
+  /*
+   * El PATCH general solo cambia el nombre —los precios tienen su propia ruta y
+   * su propio permiso— así que el antes y el después son lo único que hay para
+   * contar, y sin ellos la fila dice «se editó un producto» y nada más.
+   *
+   * El módulo `productos` escribe la columna `resource_id` además del payload,
+   * y esta fila sigue esa convención.
+   */
+  it('`productos:editar` dice el código y el nombre de antes y de después', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/productos/${productoId}`,
+      headers: { cookie: admin.cookie },
+      payload: { nombre: 'Recarga de botellón de 20 litros' },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('productos:editar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.resourceId).toBe(productoId)
+    expect(filas[0]!.payload).toMatchObject({
+      codigo: 'BOT_20L',
+      antes: { nombre: 'Recarga de botellón de 20 L' },
+      despues: { nombre: 'Recarga de botellón de 20 litros' },
+    })
+  })
+})
+
+/**
+ * El cierre del día es el documento que mueve los tres saldos a la vez: agua,
+ * botellones y stock de producto terminado (RN-PRD-23). Es la escritura más
+ * grande del sistema, y dejaba su fila sin decir de qué día era.
+ */
+describe('la bitácora dice qué día se cerró la planta', () => {
+  /*
+   * El cierre pide el catálogo COMPLETO aunque no se envase de todo: el consumo
+   * evalúa la equivalencia de los tres productos y rechaza con 422 si falta
+   * alguno, porque resolver con cero subestimaría el balance del agua en
+   * silencio. Y llenar un botellón consume tapa y sello — RN-PRD-09.
+   */
+  beforeEach(async () => {
+    await db.insert(productos).values([
+      {
+        codigo: 'P20U_600ML',
+        nombre: 'Paca de 20 bolsas de 600 ml',
+        presentacion: 'paca',
+        contenidoMl: 600,
+        unidades: 20,
+        precioResidencial: '10000.00',
+        precioComercial: '9000.00',
+        precioMinimo: '8000.00',
+      },
+      {
+        codigo: 'P50U_300ML',
+        nombre: 'Paca de 50 bolsas de 300 ml',
+        presentacion: 'paca',
+        contenidoMl: 300,
+        unidades: 50,
+        precioResidencial: '10000.00',
+        precioComercial: '9000.00',
+        precioMinimo: '8000.00',
+      },
+    ])
+
+    await db.insert(insumos).values([
+      { codigo: 'TAPA_20L', nombre: 'Tapa para botellón de 20 L', minimo: 200, saldo: 500 },
+      { codigo: 'SELLO_BOTELLON', nombre: 'Sello termoencogible', minimo: 200, saldo: 500 },
+    ])
+  })
+
+  it('`produccion:registrar_cierre` dice la fecha, el agua y los lotes que salieron', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/produccion/cierres',
+      headers: { cookie: admin.cookie },
+      payload: { fecha: '2026-08-26', minutosProcesando: 120, botellonesLlenados: 30 },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('produccion:registrar_cierre')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: res.json().cierre.id,
+      fecha: '2026-08-26',
+      minutosProcesando: 120,
+      litrosProcesados: res.json().cierre.litrosProcesados,
+      litrosConsumidos: res.json().cierre.litrosConsumidos,
+      botellonesLlenados: 30,
+      lotes: res.json().lotes.length,
+    })
+  })
+
+  /*
+   * La FECHA es lo que hace al cierre reclamable, y no es la del request: un
+   * cierre se puede registrar al día siguiente. Si la fila no la trae, saber
+   * qué día se cerró obliga a ir a buscar el documento.
+   */
+  it('la fecha de la fila es la del cierre, no la de hoy', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/produccion/cierres',
+      headers: { cookie: admin.cookie },
+      payload: { fecha: '2026-08-20', minutosProcesando: 60, botellonesLlenados: 10 },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('produccion:registrar_cierre')
+
+    expect(filas).toHaveLength(1)
+    expect((filas[0]!.payload as { fecha: string }).fecha).toBe('2026-08-20')
+    expect((filas[0]!.payload as { fecha: string }).fecha).not.toBe(HOY)
   })
 })

@@ -75,14 +75,36 @@ export async function productoRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch(
     '/productos/:id',
-    { preHandler: [requireAuth, requirePermission('productos', 'editar')] },
+    {
+      preHandler: [requireAuth, requirePermission('productos', 'editar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const id = idDe(req)
       const datos = validar(esquemaEdicionDeProducto, req.body, reply)
       if (!datos) return
 
       try {
-        return await editarProducto(id, datos)
+        /*
+         * El nombre de ANTES se lee acá, antes de escribirlo. Sin él la fila
+         * dice «se editó un producto» y nada más — y este PATCH solo cambia el
+         * nombre, así que el antes y el después son lo único que hay para
+         * contar. Mismo criterio que los umbrales de alertas.
+         *
+         * Son dos lecturas (esta y la que hace el servicio para validar que
+         * existe) y se acepta: la alternativa es que `editarProducto` devuelva
+         * el antes además del después, y eso cambiaría lo que la ruta le
+         * responde al cliente.
+         */
+        const antes = await buscarProducto(id)
+        const actualizado = await editarProducto(id, datos)
+
+        await auditar(req, 'productos:editar', id, {
+          codigo: actualizado.codigo,
+          antes: { nombre: antes?.nombre ?? null },
+          despues: { nombre: actualizado.nombre },
+        })
+
+        return actualizado
       } catch (err) {
         return manejarError(err, req, reply, 'productos:editar', id)
       }

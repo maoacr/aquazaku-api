@@ -87,6 +87,10 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'productos → productos:crear': 'productos/routes.ts — emite con código y nombre',
   'productos → productos:desactivar':
     'productos/routes.ts — emite `desactivar` y `reactivar` con el código',
+  /* El PATCH general solo cambia el nombre: el antes y el después son lo único
+   * que hay para contar. */
+  'productos → productos:editar':
+    'productos/routes.ts — emite con el código y el nombre de antes y de después',
   'productos → productos:editar_precios':
     'productos/service.ts — emite con los precios de antes y después',
   /*
@@ -106,6 +110,14 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    * movimiento haría que la bitácora diga «entraron 0 litros», un número que
    * parece medido.
    */
+  /*
+   * La escritura más grande del sistema: mueve agua, botellones, insumos y
+   * stock de producto terminado en una transacción. La fecha va en la fila
+   * porque no es la del request — un cierre se puede registrar al día
+   * siguiente — y es lo que lo hace reclamable.
+   */
+  'produccion → produccion:registrar_cierre':
+    'produccion/routes.ts — emite con la fecha del cierre, los dos litrajes, los conteos y cuántos lotes salieron',
   'produccion → tanques:registrar_reposicion':
     'produccion/routes.ts — emite con el tanque y el tipo, sin litros: no hay con qué medirlos',
   'produccion → tanques:ajustar':

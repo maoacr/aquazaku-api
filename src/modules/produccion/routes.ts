@@ -87,7 +87,7 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('produccion', 'registrar_cierre'),
+        requirePermission('produccion', 'registrar_cierre', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -95,7 +95,40 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        return reply.code(201).send(await registrarCierre(datos, req.user?.id ?? null))
+        const resultado = await registrarCierre(datos, req.user?.id ?? null)
+
+        /*
+         * El cierre es la escritura más grande del sistema: mueve agua,
+         * botellones, insumos y stock de producto terminado en una sola
+         * transacción (RN-PRD-23).
+         *
+         * La FECHA va en la fila porque no es la del request — un cierre se
+         * puede registrar al día siguiente—, y es lo que lo hace reclamable.
+         * Los dos litrajes van juntos porque el balance del agua se revisa
+         * comparándolos: `litrosProcesados` puede ser null si no se midió el
+         * caudal (RN-PRD-11), y eso también es un dato.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'produccion:registrar_cierre',
+          resource: 'produccion',
+          result: 'ok',
+          payload: {
+            resourceId: resultado.cierre.id,
+            fecha: resultado.cierre.fecha,
+            minutosProcesando: resultado.cierre.minutosProcesando,
+            litrosProcesados: resultado.cierre.litrosProcesados,
+            litrosConsumidos: resultado.cierre.litrosConsumidos,
+            pacas600: resultado.cierre.pacas600,
+            pacas300: resultado.cierre.pacas300,
+            botellonesLlenados: resultado.cierre.botellonesLlenados,
+            botellonesLavados: resultado.cierre.botellonesLavados,
+            lotes: resultado.lotes.length,
+          },
+        })
+
+        return reply.code(201).send(resultado)
       } catch (err) {
         return manejarError(err, req, reply, 'produccion:registrar_cierre', datos.fecha)
       }
