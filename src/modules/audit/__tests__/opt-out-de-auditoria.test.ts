@@ -97,6 +97,19 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    * de lo que se le debe a los proveedores dejaba una fila que se lee como una
    * compra que nunca pasó.
    */
+  /*
+   * El agua es el único inventario que no se puede contar: no hay medidor ni
+   * regleta (RN-PRD-11), así que el libro de los tanques es la única fuente y
+   * un ajuste sin rastro vuelve el saldo una opinión.
+   *
+   * La reposición emite SIN litros a propósito — escribir el cero del
+   * movimiento haría que la bitácora diga «entraron 0 litros», un número que
+   * parece medido.
+   */
+  'produccion → tanques:registrar_reposicion':
+    'produccion/routes.ts — emite con el tanque y el tipo, sin litros: no hay con qué medirlos',
+  'produccion → tanques:ajustar':
+    'produccion/routes.ts — emite con el delta CON SIGNO, el motivo y el saldo que quedó',
   'proveedores → compras:crear':
     'proveedores/routes.ts — emite el registro y el pago, separados por `operacion`; la consulta de lo vencido se exime por ser lectura',
   'proveedores → proveedores:crear':

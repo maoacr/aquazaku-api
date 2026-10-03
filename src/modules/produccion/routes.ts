@@ -145,35 +145,77 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('tanques', 'registrar_reposicion'),
+        requirePermission('tanques', 'registrar_reposicion', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeReposicion, req.body, reply)
       if (!datos) return
 
-      return reply
-        .code(201)
-        .send(await registrarIngreso(datos.tanque as Tanque, req.user?.id ?? null))
+      const movimiento = await registrarIngreso(datos.tanque as Tanque, req.user?.id ?? null)
+
+      /*
+       * La fila dice el tanque y el TIPO del movimiento, y no lleva litros.
+       * No es un olvido: es RN-PRD-11 llegando hasta la bitácora. El
+       * movimiento entra con cero litros porque no hay con qué medirlo, y
+       * escribir ese cero en el payload haría que la columna «Detalles» diga
+       * «entraron 0 litros» —un número que parece medido— en vez de «llegó
+       * agua de la red».
+       */
+      await auditarSinBloquear(req, {
+        userId: req.user?.id ?? null,
+        rolEjercido: req.user?.roles ?? [],
+        action: 'tanques:registrar_reposicion',
+        resource: 'tanques',
+        result: 'ok',
+        payload: { resourceId: movimiento.id, tanque: movimiento.tanque, tipo: movimiento.tipo },
+      })
+
+      return reply.code(201).send(movimiento)
     },
   )
 
   app.post(
     '/tanques/ajuste',
     {
-      preHandler: [requireAuth, requirePermission('tanques', 'ajustar')],
+      preHandler: [requireAuth, requirePermission('tanques', 'ajustar', { auditaLaRuta: true })],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeAjusteDeAgua, req.body, reply)
       if (!datos) return
 
       try {
-        return await ajustarAgua(
+        const saldo = await ajustarAgua(
           datos.tanque as Tanque,
           datos.litros,
           datos.motivo,
           req.user?.id ?? null,
         )
+
+        /*
+         * El ajuste es la única escritura que CORRIGE el libro, y el libro es
+         * la única fuente del saldo de agua (RN-PRD-14). Van los dos números:
+         * el delta CON SIGNO —«faltaban 2000» y «sobraban 2000» son hechos
+         * opuestos— y el saldo en que quedó, para que reconstruir el estado del
+         * tanque en una fecha no obligue a sumar todos los movimientos
+         * anteriores.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'tanques:ajustar',
+          resource: 'tanques',
+          result: 'ok',
+          payload: {
+            resourceId: saldo.tanque,
+            litros: datos.litros,
+            motivo: datos.motivo,
+            saldo: saldo.litros,
+            nivelCalculado: saldo.nivelCalculado,
+          },
+        })
+
+        return saldo
       } catch (err) {
         return manejarError(err, req, reply, 'tanques:ajustar', datos.tanque)
       }
