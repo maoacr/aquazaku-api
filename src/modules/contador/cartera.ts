@@ -81,7 +81,14 @@ export async function carteraPorEdad(hoy: string): Promise<CarteraDeCliente[]> {
         eq(ventas.tipo, 'producto'),
       ),
     )
-    .orderBy(asc(ventas.createdAt))
+    /*
+     * El desempate importa MÁS acá que en una pantalla: este orden es el que
+     * imputa los pagos. Con dos ventas a crédito del mismo día empatadas al
+     * mediodía, qué venta queda saldada y qué venta queda debiendo lo decidía el
+     * plan que eligiera Postgres — y podía cambiar entre dos corridas del mismo
+     * reporte. Ver `primerRegistroEn` en el esquema.
+     */
+    .orderBy(asc(ventas.createdAt), asc(ventas.primerRegistroEn))
 
   if (aCredito.length === 0) return []
 

@@ -118,6 +118,16 @@ export async function extracto({ desde, hasta, tipos }: Filtros): Promise<Extrac
       .from(ventas)
       .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
       .where(and(enRango(ventas.createdAt), eq(ventas.estado, 'confirmada')))
+      /*
+       * El orden sale de acá y no del `sort` de abajo.
+       *
+       * El `sort` compara solo `fecha`, y es estable: conserva el orden en que
+       * llegaron las filas. Sin `ORDER BY`, ese orden lo elegía el plan, y dos
+       * ventas del mismo día pasado —empatadas al mediodía por `ocurrioEn`—
+       * salían en el extracto en un orden que podía cambiar entre dos corridas
+       * del mismo reporte. Ver `primerRegistroEn` en el esquema.
+       */
+      .orderBy(asc(ventas.createdAt), asc(ventas.primerRegistroEn))
 
     for (const f of filas) {
       const tipo: TipoDeMovimiento = f.tipo === 'dano_base' ? 'recargo' : 'venta'

@@ -124,6 +124,20 @@ export async function corregirVenta(
 
     const resultado = await registrarVentaEn(tx, datos, usuario.id, {
       createdAt: fechaOverride ?? original.createdAt,
+      /*
+       * El desempate se HEREDA siempre, incluso cuando `ocurrioEn` corrige la
+       * fecha del hecho.
+       *
+       * Son dos preguntas distintas: `createdAt` dice cuándo compró —y eso sí
+       * se puede estar corrigiendo acá— mientras `primerRegistroEn` dice cuándo
+       * entró al sistema, y eso ya pasó y no se corrige.
+       *
+       * Sin esta línea, corregir una venta la movería de lugar en la lista
+       * entre las del mismo día: la ficha del cliente pasaría a contar el orden
+       * en que alguien arregló tipeos en vez del orden en que el cliente
+       * compró.
+       */
+      primerRegistroEn: original.primerRegistroEn,
       corrigeAId: original.id,
     })
 

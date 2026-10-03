@@ -220,6 +220,16 @@ export interface Reemplazo {
    * reporte que ya se emitió dejaría de cuadrar por el arreglo de un tipeo.
    */
   createdAt: Date
+
+  /**
+   * El desempate del orden, heredado tal cual.
+   *
+   * No se deriva de `createdAt` ni se vuelve a calcular: la venta nueva tiene
+   * que quedar EXACTAMENTE donde estaba la vieja en la lista, y para eso la
+   * clave de orden tiene que ser la misma. Ver `primerRegistroEn` en el esquema.
+   */
+  primerRegistroEn: Date
+
   /** La venta que esta reemplaza. */
   corrigeAId: string
 }
@@ -508,7 +518,20 @@ export async function registrarVentaEn(
        * día —ni de un mes— a otro.
        */
       ...(reemplazo ? { createdAt: reemplazo.createdAt } : ocurrioEn && { createdAt: ocurrioEn }),
-      ...(reemplazo && { corrigeAId: reemplazo.corrigeAId }),
+      /*
+       * `primerRegistroEn` NO se toca acá cuando la venta nace del mostrador o
+       * con `ocurrioEn`: lo pone la base con `defaultNow()`, y eso es justo lo
+       * que se quiere. `ocurrioEn` ancla `createdAt` al mediodía de la planta y
+       * borra el instante real; esta columna lo conserva, y es lo único que
+       * desempata dos ventas cargadas con la misma fecha pasada.
+       *
+       * La corrección es la única que lo escribe, heredándolo, para no moverse
+       * de lugar en la lista.
+       */
+      ...(reemplazo && {
+        primerRegistroEn: reemplazo.primerRegistroEn,
+        corrigeAId: reemplazo.corrigeAId,
+      }),
       /*
        * Botellones despachados / devueltos en esta venta — RN-VEN-17. La
        * corrección los lee de la original para calcular su delta; la anulación

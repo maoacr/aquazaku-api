@@ -843,7 +843,21 @@ async function ventasDelListado(condicion: SQL | undefined) {
     .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
     .leftJoin(direcciones, eq(direcciones.id, ventas.direccionId))
     .leftJoin(users, eq(users.id, ventas.registradoPor))
-    .orderBy(desc(ventas.createdAt))
+    /*
+     * ── Las DOS columnas, y el `LIMIT` es la razón de la segunda ─────────────
+     *
+     * `createdAt` sola no alcanza: `ocurrioEn` ancla la venta al mediodía de la
+     * planta, así que todas las de un mismo día pasado quedan empatadas al
+     * microsegundo — y sobre un empate el `ORDER BY` no define nada. Medido, el
+     * mismo dato devolvía dos listas distintas según el plan: con seq scan la
+     * venta recién cargada caía DEBAJO de las viejas; recorriendo el índice
+     * hacia atrás, una corrección saltaba al TOPE.
+     *
+     * Y con `LIMIT 100` encima, un orden indefinido no solo desordena: una fila
+     * empatada en el borde del corte puede aparecer dos veces —o ninguna— entre
+     * dos recargas de la misma pantalla.
+     */
+    .orderBy(desc(ventas.createdAt), desc(ventas.primerRegistroEn))
     .limit(100)
 
   const filas = await (condicion ? consulta.where(condicion) : consulta)

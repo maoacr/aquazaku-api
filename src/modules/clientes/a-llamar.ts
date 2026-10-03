@@ -193,8 +193,13 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
        *
        * `array_agg(... ORDER BY ...)` y no una subconsulta correlacionada: la
        * fila más reciente del grupo sale del mismo barrido que el `min`.
+       *
+       * Y ordena por DOS columnas: entre dos ventas del mismo día pasado
+       * —empatadas al mediodía por `ocurrioEn`— «la más reciente» no estaba
+       * definida, y el lápiz de la fila podía abrir cualquiera de las dos. Ver
+       * `primerRegistroEn` en el esquema.
        */
-      ventaId: sql<string>`(array_agg(${ventas.id} ORDER BY ${ventas.createdAt} DESC))[1]`,
+      ventaId: sql<string>`(array_agg(${ventas.id} ORDER BY ${ventas.createdAt} DESC, ${ventas.primerRegistroEn} DESC))[1]`,
       /*
        * Cuántas ventas hay en el grupo.
        *
