@@ -183,6 +183,13 @@
       "when": 1790930000000,
       "tag": "0025_orden_del_listado_de_ventas",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790940000000,
+      "tag": "0026_primer_registro_desde_la_raiz",
+      "breakpoints": true
     }
   ]
 }
