@@ -45,6 +45,16 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    */
   'clientes → clientes:editar':
     'clientes/routes.ts — emite `clientes:desactivar` con el motivo y los conteos devueltos',
+  'clientes → clientes:crear': 'clientes/routes.ts — emite con el nombre, el documento y el tipo',
+  /*
+   * Verificar y revertir comparten el permiso, así que comparten el nombre de
+   * la acción. Las dos filas se distinguen por `revertida` en el payload: son
+   * hechos opuestos y la bitácora tiene que poder decir cuál fue.
+   */
+  'clientes → clientes:verificar_documento':
+    'clientes/routes.ts — emite con el método, y con `revertida` + motivo al revertir',
+  'clientes → clientes:habilitar_credito':
+    'clientes/routes.ts — emite con si quedó habilitado y con qué tope',
   'productos → productos:crear': 'productos/routes.ts — emite con código y nombre',
   'productos → productos:desactivar':
     'productos/routes.ts — emite `desactivar` y `reactivar` con el código',

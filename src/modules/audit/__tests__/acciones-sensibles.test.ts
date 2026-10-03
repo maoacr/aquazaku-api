@@ -154,7 +154,127 @@ describe('el resto de los módulos que estaban mudos', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(await filasDe('clientes:crear')).toHaveLength(1)
+
+    const filas = await filasDe('clientes:crear')
+
+    expect(filas).toHaveLength(1)
+
+    /*
+     * Acá también decía solo `toHaveLength(1)`. La fila existía con `payload`
+     * en NULL y el test pasaba: un alta de cliente registrada sin decir a QUIÉN
+     * se dio de alta.
+     *
+     * El documento va porque es la identidad con la que el cliente entra al
+     * sistema, y el índice único lo hace irrepetible: es la forma de encontrar
+     * la fila cuando alguien pregunta por un alta concreta.
+     */
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: res.json().id,
+      nombre: 'Ferney',
+      documento: '1020304050',
+    })
+    expect(filas[0]!.resource).toBe('clientes')
+  })
+
+  /**
+   * Verificar un documento es alguien afirmando que lo tuvo en la mano
+   * (RN-CLI-14). La fila tiene que decir CON QUÉ MÉTODO, porque no pesan
+   * igual: `admin_oficial` es una ratificación contra el documento oficial y
+   * `seller_manual` es un cotejo en la calle.
+   */
+  it('`clientes:verificar_documento` dice con qué método', async () => {
+    const [sinVerificar] = await db
+      .insert(clientes)
+      .values({ nombreLibre: 'Deyanira', tipoDocumento: 'CC', numeroDocumento: '52987654' })
+      .returning()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/clientes/${sinVerificar!.id}/verificacion`,
+      headers: { cookie: admin.cookie },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('clientes:verificar_documento')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: sinVerificar!.id,
+      metodo: 'admin_oficial',
+      revertida: false,
+    })
+  })
+
+  /**
+   * Y la REVERSIÓN comparte el nombre de la acción con la verificación, porque
+   * comparten el permiso. Si la fila no distingue la dirección, la bitácora no
+   * puede decir si alguien respondió por un documento o retiró ese respaldo —
+   * que son hechos opuestos.
+   *
+   * Lo resuelve el payload y no un nombre de acción nuevo: renombrarla tocaría
+   * el catálogo de `web/` y cambiaría los filtros de la pantalla de auditoría.
+   */
+  it('`clientes:verificar_documento` distingue la reversión', async () => {
+    /*
+     * Un cliente verificado y SIN crédito: `RN-CLI-04` prohíbe desmarcar la
+     * verificación de alguien con crédito habilitado, porque el crédito la
+     * exige. El cliente del `beforeEach` tiene crédito, así que no sirve acá.
+     */
+    const [verificado] = await db
+      .insert(clientes)
+      .values({
+        nombreLibre: 'Nubia',
+        tipoDocumento: 'CC',
+        numeroDocumento: '41234567',
+        verificacionEstado: 'verificado',
+        verificadoEn: new Date(),
+        verificacionMetodo: 'admin_oficial',
+      })
+      .returning()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/clientes/${verificado!.id}/verificacion`,
+      headers: { cookie: admin.cookie },
+      payload: { motivo: 'la cédula que se cotejó era de la hermana, no de ella' },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('clientes:verificar_documento')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: verificado!.id,
+      revertida: true,
+      motivo: 'la cédula que se cotejó era de la hermana, no de ella',
+    })
+  })
+
+  /**
+   * Quién extendió crédito y con qué tope es la pregunta de auditoría del
+   * módulo. Sin el tope en la fila, una deuda que creció sin control no se
+   * puede explicar: no se sabe si alguien subió el límite o nunca hubo uno.
+   */
+  it('`clientes:habilitar_credito` dice el tope que quedó', async () => {
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/clientes/${clienteId}/credito`,
+      headers: { cookie: admin.cookie },
+      payload: { habilitado: true, limite: 500000 },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('clientes:habilitar_credito')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: clienteId,
+      habilitado: true,
+      limite: '500000.00',
+    })
   })
 
   it('`cobros:registrar`', async () => {
