@@ -99,7 +99,8 @@ export async function ventasACreditoDe(clienteId: string, ejecutor: Ejecutor = d
         eq(ventas.estado, 'confirmada'),
       ),
     )
-    .orderBy(ventas.createdAt)
+    // Con el desempate, por lo mismo que la cartera: es el orden de imputación.
+    .orderBy(ventas.createdAt, ventas.primerRegistroEn)
 }
 
 /**

@@ -1344,6 +1344,40 @@ export const ventas = pgTable(
     registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
     createdAt: tstz('created_at').notNull().defaultNow(),
 
+    /**
+     * El desempate del orden — RN-VEN-14 + RN-VEN-16.
+     *
+     * ── Por qué `createdAt` no alcanza ───────────────────────────────────────
+     *
+     * `createdAt` contesta «¿cuándo COMPRÓ?», y es la única fecha que las
+     * pantallas y los reportes deben mirar. Pero cuando la venta se carga con
+     * `ocurrioEn`, `exigirFechaRegistrable` la ancla al MEDIODÍA de la planta:
+     * dos ventas cargadas con la misma fecha pasada quedan con el mismo
+     * instante al microsegundo.
+     *
+     * Y `ORDER BY created_at DESC` sobre filas empatadas no tiene ningún orden
+     * definido. No es un detalle teórico: medido, el empate rompe en las DOS
+     * direcciones según el plan que elija Postgres. Con seq scan la venta
+     * recién cargada aparecía DEBAJO de las viejas del mismo día; con un
+     * recorrido del índice hacia atrás, una corrección saltaba al TOPE. El
+     * mismo dato, dos listas distintas, y ninguna es la que la ficha promete.
+     *
+     * ── Qué guarda, exactamente ──────────────────────────────────────────────
+     *
+     * El instante en que este hecho entró al sistema por PRIMERA vez. Nunca lo
+     * toca `ocurrioEn`: su trabajo es justamente conservar lo que el mediodía
+     * borra.
+     *
+     * Y la corrección lo HEREDA de la venta que reemplaza, igual que hereda
+     * `createdAt`. Esa herencia es la columna entera: sin ella, arreglar un
+     * tipeo movería la venta de lugar, y la lista contaría el orden en que
+     * alguien corrigió cosas en vez del orden en que el cliente compró.
+     *
+     * Por eso NO se llama `registradoEn`, que haría par con `registradoPor` y
+     * mentiría: `registradoPor` es quien corrige, y esto es de la venta vieja.
+     */
+    primerRegistroEn: tstz('primer_registro_en').notNull().defaultNow(),
+
     anuladaPor: uuid('anulada_por').references(() => users.id, { onDelete: 'set null' }),
     anuladaEn: tstz('anulada_en'),
     motivoAnulacion: text('motivo_anulacion'),
@@ -1444,7 +1478,15 @@ export const ventas = pgTable(
     index('ventas_corregida_por_idx').on(t.corregidaPorId),
 
     index('ventas_cliente_idx').on(t.clienteId),
-    index('ventas_fecha_idx').on(t.createdAt),
+    /*
+     * Las DOS columnas del orden, en el mismo índice y en ese orden.
+     *
+     * `createdAt` sigue adelante, así que todo lo que filtraba por rango de
+     * fecha —el extracto, la cartera— lo sigue usando igual. Lo que agrega
+     * `primerRegistroEn` es que el listado pueda recorrerlo ya ordenado en vez
+     * de ordenar en memoria con un desempate que el índice no cubría.
+     */
+    index('ventas_fecha_idx').on(t.createdAt, t.primerRegistroEn),
     index('ventas_autor_idx').on(t.registradoPor),
   ],
 )
