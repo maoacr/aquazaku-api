@@ -172,7 +172,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/clientes',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'crear')],
+      preHandler: [requireAuth, requirePermission('clientes', 'crear', { auditaLaRuta: true })],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeAlta, req.body, reply)
@@ -180,6 +180,29 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         const { cliente, aviso, telefono, telefonos, direccion } = await crearCliente(datos)
+
+        /*
+         * La fila del middleware se escribe antes de que el cliente exista, así
+         * que llega sin `resourceId` y sin `payload`: decía que alguien con
+         * permiso dio de alta a ALGUIEN, sin decir a quién.
+         *
+         * El documento va porque es la identidad con la que el cliente entra al
+         * sistema, y el índice único lo hace irrepetible — es con lo que se
+         * encuentra la fila cuando alguien pregunta por un alta concreta.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'clientes:crear',
+          resource: 'clientes',
+          result: 'ok',
+          payload: {
+            resourceId: cliente.id,
+            nombre: cliente.nombre,
+            documento: cliente.numeroDocumento,
+            tipo: cliente.tipo,
+          },
+        })
 
         /*
          * `telefono` en singular sigue viajando: es el primero de la lista, y
@@ -323,16 +346,38 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('clientes', 'verificar_documento'),
+        requirePermission('clientes', 'verificar_documento', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
 
       try {
-        return conDocumento(
-          await verificarDocumento(id, req.user?.id ?? null, req.user?.roles ?? []),
-        )
+        const cliente = await verificarDocumento(id, req.user?.id ?? null, req.user?.roles ?? [])
+
+        /*
+         * El MÉTODO es el detalle que importa — RN-CLI-14. No pesan igual:
+         * `admin_oficial` es una ratificación contra el documento oficial y
+         * `seller_manual` es un cotejo en la calle. Sin eso, la fila dice que
+         * alguien dio por bueno un documento sin decir con cuánto respaldo.
+         *
+         * `revertida` distingue esta fila de la de la reversión, que comparte
+         * el nombre de la acción porque comparte el permiso.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'clientes:verificar_documento',
+          resource: 'clientes',
+          result: 'ok',
+          payload: {
+            resourceId: cliente.id,
+            metodo: cliente.verificacionMetodo,
+            revertida: false,
+          },
+        })
+
+        return conDocumento(cliente)
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:verificar_documento', id)
       }
@@ -344,7 +389,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('clientes', 'verificar_documento'),
+        requirePermission('clientes', 'verificar_documento', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -353,7 +398,28 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        return conDocumento(await revertirVerificacion(id, datos.motivo))
+        const cliente = await revertirVerificacion(id, datos.motivo)
+
+        /*
+         * Verificar y revertir son hechos OPUESTOS bajo el mismo nombre de
+         * acción, porque comparten el permiso. Sin `revertida` la bitácora no
+         * puede decir si alguien respondió por un documento o retiró ese
+         * respaldo, y el motivo es lo único que explica por qué se retiró.
+         *
+         * No se le pone un nombre de acción propio a propósito: renombrarla
+         * tocaría el catálogo de `web/` y cambiaría los filtros de la pantalla
+         * de auditoría. El payload alcanza para distinguirlas.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'clientes:verificar_documento',
+          resource: 'clientes',
+          result: 'ok',
+          payload: { resourceId: cliente.id, revertida: true, motivo: datos.motivo },
+        })
+
+        return conDocumento(cliente)
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:verificar_documento', id)
       }
@@ -365,7 +431,7 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('clientes', 'habilitar_credito'),
+        requirePermission('clientes', 'habilitar_credito', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -374,7 +440,31 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        return conDocumento(await configurarCredito(id, datos))
+        const cliente = await configurarCredito(id, datos)
+
+        /*
+         * El TOPE es la pregunta de auditoría de este módulo. Sin él, una deuda
+         * que creció sin control no se puede explicar: no se sabe si alguien
+         * subió el límite o si nunca hubo uno — y `null` es «sin tope», que es
+         * el default (RN-CLI-12).
+         *
+         * Se lee del cliente devuelto y no de `datos`: deshabilitar borra el
+         * tope, así que lo que quedó guardado no siempre es lo que se mandó.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'clientes:habilitar_credito',
+          resource: 'clientes',
+          result: 'ok',
+          payload: {
+            resourceId: cliente.id,
+            habilitado: cliente.creditoHabilitado,
+            limite: cliente.creditoLimite,
+          },
+        })
+
+        return conDocumento(cliente)
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:habilitar_credito', id)
       }
