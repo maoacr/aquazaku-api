@@ -179,7 +179,31 @@ describe('el resto de los módulos que estaban mudos', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(await filasDe('cobros:registrar')).toHaveLength(1)
+
+    const filas = await filasDe('cobros:registrar')
+
+    expect(filas).toHaveLength(1)
+
+    /*
+     * ── El nombre del test prometía más de lo que el cuerpo cumplía ──────────
+     *
+     * Acá solo decía `toHaveLength(1)`. La fila existía —la escribe el
+     * middleware— y el test pasaba con la columna `payload` en NULL, que es
+     * justo lo que la pantalla de auditoría necesita para mostrar el detalle.
+     *
+     * Un cobro no se edita ni se borra. Si la bitácora no dice de cuánto fue,
+     * por qué medio y cuánta deuda quedó, no hay con qué reconstruir una
+     * cobranza que no cuadra — y el documento que la corregiría tampoco existe.
+     */
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: res.json().cobro.id,
+      monto: '10000.00',
+      medioDePago: 'efectivo',
+      clienteId,
+      deudaRestante: res.json().deudaRestante,
+      quedaSaldada: res.json().quedaSaldada,
+    })
+    expect(filas[0]!.resource).toBe('cobros')
   })
 })
 

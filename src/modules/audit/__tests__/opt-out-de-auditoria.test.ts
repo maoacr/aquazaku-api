@@ -73,6 +73,13 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    */
   'ventas → ventas:anular':
     'ventas/routes.ts — emite con el motivo y los botellones y la base revertidos',
+  /*
+   * Un cobro es inmutable. La fila del middleware decía que alguien con permiso
+   * registró uno, sin monto, sin medio y sin cliente — nada con qué cuadrar la
+   * caja.
+   */
+  'ventas → cobros:registrar':
+    'ventas/routes.ts — emite con el monto, el medio, el cliente y la deuda que queda',
 }
 
 const DECLARA_OPT_OUT =
