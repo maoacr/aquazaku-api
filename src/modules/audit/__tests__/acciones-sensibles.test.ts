@@ -341,6 +341,149 @@ describe('el resto de los módulos que estaban mudos', () => {
  * sin cumplirla— y por eso este no lo atrapaba: nadie contaba las filas de un
  * `POST` real.
  */
+/**
+ * Los botellones son el activo que más sale de la planta.
+ *
+ * Un botellón entregado y no registrado es un activo perdido con papeles, y la
+ * bitácora es lo único que después dice quién lo movió y cuántos. La fila
+ * automática del middleware no dice ni la cantidad ni a qué cliente.
+ */
+describe('la bitácora de botellones dice cuántos y de quién', () => {
+  it('`botellones:entregar` dice cuántos y a qué cliente', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/botellones/compra',
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 50, motivo: 'compra inicial del parque' },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/botellones/entrega',
+      headers: { cookie: admin.cookie },
+      payload: { clienteId, cantidad: 3 },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('botellones:entregar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: clienteId,
+      cantidad: 3,
+      enPoderDelCliente: res.json().enPoderDelCliente,
+      enBodega: res.json().enBodega,
+    })
+    expect(filas[0]!.resource).toBe('botellones')
+  })
+
+  it('`botellones:recibir_retorno` dice cuántos volvieron', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/botellones/compra',
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 50, motivo: 'compra inicial del parque' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: '/botellones/entrega',
+      headers: { cookie: admin.cookie },
+      payload: { clienteId, cantidad: 4 },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/botellones/retorno',
+      headers: { cookie: admin.cookie },
+      payload: { clienteId, cantidad: 2 },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('botellones:recibir_retorno')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: clienteId,
+      cantidad: 2,
+      enPoderDelCliente: res.json().enPoderDelCliente,
+    })
+  })
+
+  it('`botellones:descartar` dice cuántos se dieron de baja y por qué', async () => {
+    await app.inject({
+      method: 'POST',
+      url: '/botellones/compra',
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 50, motivo: 'compra inicial del parque' },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/botellones/descarte',
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 2, motivo: 'se rajaron en el lavado' },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('botellones:descartar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      cantidad: 2,
+      motivo: 'se rajaron en el lavado',
+      enBodega: res.json().enBodega,
+    })
+  })
+
+  /**
+   * Comprar y ajustar comparten el permiso `botellones:registrar`, así que
+   * comparten el nombre de la acción — el mismo caso que verificar y revertir
+   * en clientes. Son hechos distintos: una compra suma parque, un ajuste
+   * corrige un conteo que no cuadraba.
+   *
+   * Sin `operacion`, la bitácora no puede separarlos y «entraron 50» se lee
+   * igual que «faltaban 50».
+   */
+  it('la compra y el ajuste comparten acción, y el payload los distingue', async () => {
+    const compra = await app.inject({
+      method: 'POST',
+      url: '/botellones/compra',
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 50, motivo: 'compra inicial del parque' },
+    })
+
+    expect(compra.statusCode).toBe(201)
+
+    const ajuste = await app.inject({
+      method: 'POST',
+      url: '/botellones/ajuste',
+      headers: { cookie: admin.cookie },
+      payload: { diferencia: -3, motivo: 'el conteo de bodega daba tres menos' },
+    })
+
+    expect(ajuste.statusCode).toBe(201)
+
+    const filas = await filasDe('botellones:registrar')
+
+    expect(filas).toHaveLength(2)
+    expect(filas.map((f) => (f.payload as { operacion: string }).operacion).sort()).toEqual([
+      'ajuste',
+      'compra',
+    ])
+
+    const laDelAjuste = filas.find((f) => (f.payload as { operacion: string }).operacion === 'ajuste')
+
+    expect(laDelAjuste!.payload).toMatchObject({
+      diferencia: -3,
+      motivo: 'el conteo de bodega daba tres menos',
+      saldo: ajuste.json().saldo,
+    })
+  })
+})
+
 describe('la bitácora no duplica la fila de una acción', () => {
   it('`ventas:anular` deja una sola fila, y es la que tiene el detalle', async () => {
     const venta = await app.inject({
