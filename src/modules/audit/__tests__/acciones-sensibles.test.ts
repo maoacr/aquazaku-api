@@ -1283,3 +1283,190 @@ describe('la bitácora dice qué día se cerró la planta', () => {
     expect((filas[0]!.payload as { fecha: string }).fecha).not.toBe(HOY)
   })
 })
+
+/**
+ * Cinco hechos distintos bajo una sola acción.
+ *
+ * `insumos:ajustar` es el permiso de las CINCO rutas de escritura del módulo:
+ * dar de alta, editar, recibir una entrada, ajustar el conteo y descartar. Las
+ * separa `operacion` en el payload, igual que en botellones y en compras — una
+ * acción nueva por cada una obligaría a tocar la matriz y los filtros de la
+ * pantalla de auditoría.
+ *
+ * Y hay un sexto caso que no es ninguno de los cinco: cuando no alcanza. El
+ * saldo de un insumo se descuenta con `descontar`, que devuelve
+ * `{ ok: false, disponible }` en vez de lanzar —que no alcance es un estado
+ * normal de la planta, no un error— así que ese intento NO pasa por el
+ * manejador de errores. Sin una fila propia quedaría sin rastro, y «alguien
+ * intentó descartar 900 tapas de las 500 que hay» es exactamente lo que una
+ * bitácora existe para poder mostrar.
+ */
+describe('la bitácora de insumos separa los cinco hechos de una misma acción', () => {
+  const deniedDe = (accion: string) =>
+    db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, accion), eq(auditLog.result, 'denied')))
+
+  let insumoId: string
+
+  beforeEach(async () => {
+    const [insumo] = await db
+      .insert(insumos)
+      .values({ codigo: 'TAPA_20L', nombre: 'Tapa para botellón de 20 L', minimo: 200, saldo: 500 })
+      .returning()
+    insumoId = insumo!.id
+  })
+
+  it('el alta dice el código, el nombre y el mínimo', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/insumos',
+      headers: { cookie: admin.cookie },
+      payload: { codigo: 'SELLO_BOTELLON', nombre: 'Sello termoencogible', minimo: 200 },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('insumos:ajustar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      operacion: 'alta',
+      resourceId: res.json().id,
+      codigo: 'SELLO_BOTELLON',
+      nombre: 'Sello termoencogible',
+      minimo: 200,
+    })
+  })
+
+  /*
+   * La edición es parcial: el esquema deja mandar solo el campo que cambia. La
+   * fila trae lo que VINO en el request, porque un payload con los cuatro
+   * campos haría ver como que se tocaron todos.
+   */
+  it('la edición dice qué campos se tocaron, no todos', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/insumos/${insumoId}`,
+      headers: { cookie: admin.cookie },
+      payload: { minimo: 350 },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('insumos:ajustar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      operacion: 'editar',
+      resourceId: insumoId,
+      codigo: 'TAPA_20L',
+      cambios: { minimo: 350 },
+    })
+    expect((filas[0]!.payload as { cambios: Record<string, unknown> }).cambios).not.toHaveProperty(
+      'nombre',
+    )
+  })
+
+  it('la entrada dice cuántas unidades llegaron y el saldo que quedó', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/insumos/${insumoId}/entrada`,
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 300 },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('insumos:ajustar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      operacion: 'entrada',
+      resourceId: insumoId,
+      codigo: 'TAPA_20L',
+      cantidad: 300,
+      saldo: 800,
+    })
+  })
+
+  /*
+   * El ajuste va CON SIGNO y con motivo obligatorio, igual que el de los
+   * tanques: «sobraban 40» y «faltaban 40» son hechos opuestos y el signo es
+   * lo único que los distingue.
+   */
+  it('el ajuste dice la diferencia con signo, el motivo y el saldo', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/insumos/${insumoId}/ajuste`,
+      headers: { cookie: admin.cookie },
+      payload: { diferencia: -40, motivo: 'el conteo de bodega daba cuarenta menos' },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('insumos:ajustar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      operacion: 'ajuste',
+      resourceId: insumoId,
+      codigo: 'TAPA_20L',
+      diferencia: -40,
+      motivo: 'el conteo de bodega daba cuarenta menos',
+      saldo: 460,
+    })
+  })
+
+  it('el descarte dice cuántas, por qué causa y el saldo que quedó', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/insumos/${insumoId}/descarte`,
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 25, causa: 'falla_produccion' },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('insumos:ajustar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      operacion: 'descarte',
+      resourceId: insumoId,
+      codigo: 'TAPA_20L',
+      cantidad: 25,
+      causa: 'falla_produccion',
+      saldo: 475,
+    })
+  })
+
+  /*
+   * El sexto caso: no alcanzó. No se movió nada, así que no hay fila `ok` que
+   * escribir — pero el intento existió y queda como `denied`, con lo pedido y
+   * lo que de verdad había.
+   */
+  it('un descarte que no alcanza no deja fila `ok`, deja una `denied` con lo disponible', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/insumos/${insumoId}/descarte`,
+      headers: { cookie: admin.cookie },
+      payload: { cantidad: 900, causa: 'vencido' },
+    })
+
+    expect(res.json().ok).toBe(false)
+    expect(await filasDe('insumos:ajustar')).toHaveLength(0)
+
+    const rechazos = await deniedDe('insumos:ajustar')
+
+    expect(rechazos).toHaveLength(1)
+    expect(rechazos[0]!.payload).toMatchObject({
+      operacion: 'descarte',
+      resourceId: insumoId,
+      codigo: 'TAPA_20L',
+      cantidad: 900,
+      disponible: 500,
+    })
+  })
+})
