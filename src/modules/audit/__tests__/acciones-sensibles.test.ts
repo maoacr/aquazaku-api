@@ -184,6 +184,55 @@ describe('el resto de los módulos que estaban mudos', () => {
 })
 
 /**
+ * Una acción deja UNA fila, no dos.
+ *
+ * ── De dónde salió este bloque ──────────────────────────────────────────────
+ *
+ * `requirePermission` escribe la fila `ok` por su cuenta salvo que la ruta
+ * declare `auditaLaRuta`. Una ruta que emite la suya SIN declararlo deja las
+ * dos, y el resultado es peor que no auditar: contar «cuántas anulaciones
+ * hubo» con `action='ventas:anular' AND result='ok'` devuelve el doble.
+ *
+ * `opt-out-de-auditoria.test.ts` vigila el caso contrario —declarar la exención
+ * sin cumplirla— y por eso este no lo atrapaba: nadie contaba las filas de un
+ * `POST` real.
+ */
+describe('la bitácora no duplica la fila de una acción', () => {
+  it('`ventas:anular` deja una sola fila, y es la que tiene el detalle', async () => {
+    const venta = await app.inject({
+      method: 'POST',
+      url: '/ventas',
+      headers: { cookie: admin.cookie },
+      payload: { medioDePago: 'efectivo', items: [{ productoId, cantidad: 1 }] },
+    })
+
+    expect(venta.statusCode).toBe(201)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/ventas/${venta.json().venta.id}/anulacion`,
+      headers: { cookie: admin.cookie },
+      payload: { motivo: 'se cargó el producto equivocado y el cliente ya se fue' },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('ventas:anular')
+
+    expect(filas).toHaveLength(1)
+
+    /*
+     * Y que la que sobrevive sea la RICA. Con dos filas, quedarse con la del
+     * middleware dejaría la bitácora sin saber qué se revirtió.
+     */
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: venta.json().venta.id,
+      motivo: 'se cargó el producto equivocado y el cliente ya se fue',
+    })
+  })
+})
+
+/**
  * La exención de auditoría se COMPRUEBA, no se declara y ya.
  *
  * ── Por qué hace falta este bloque ──────────────────────────────────────────

@@ -326,7 +326,20 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/ventas/:id/anulacion',
-    { preHandler: [requireAuth, requirePermission('ventas', 'anular')] },
+    /*
+     * `auditaLaRuta` porque el handler escribe su propia fila con el detalle de
+     * lo revertido. Sin esto el middleware escribe la suya también y quedan DOS
+     * filas `ok` por anulación: contar anulaciones con
+     * `action='ventas:anular' AND result='ok'` devolvía el doble.
+     *
+     * El flag se perdió en el refactor de la corrección de ventas y el emit
+     * rico se agregó después sin restaurarlo. Ningún test lo atrapaba porque
+     * nadie contaba las filas de un `POST` real; ahora sí lo hace
+     * `acciones-sensibles.test.ts`.
+     */
+    {
+      preHandler: [requireAuth, requirePermission('ventas', 'anular', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDeAnulacion, req.body, reply)

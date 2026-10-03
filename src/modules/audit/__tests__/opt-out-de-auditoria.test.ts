@@ -66,6 +66,13 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'ventas → ventas:crear':
     'ventas/routes.ts — emite con el id de la venta, el total, el cliente y el medio de pago',
   'ventas → ventas:corregir': 'ventas/routes.ts — emite con el antes y el después',
+  /*
+   * El flag ya existía cuando se escribió el emit rico y se perdió en el
+   * refactor de la corrección de ventas. Durante ese tiempo cada anulación dejó
+   * DOS filas `ok`, y contarlas devolvía el doble.
+   */
+  'ventas → ventas:anular':
+    'ventas/routes.ts — emite con el motivo y los botellones y la base revertidos',
 }
 
 const DECLARA_OPT_OUT =
