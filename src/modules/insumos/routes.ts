@@ -3,6 +3,7 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
+import type { Resultado } from './saldo'
 import {
   ajustarInsumo,
   buscarInsumo,
@@ -78,13 +79,31 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
     async (req, reply) => {
       const datos = validar(esquemaDeAlta, req.body, reply)
       if (!datos) return
 
       try {
-        return reply.code(201).send(await crearInsumo(datos))
+        const creado = await crearInsumo(datos)
+
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'insumos:ajustar',
+          resource: 'insumos',
+          result: 'ok',
+          payload: {
+            operacion: 'alta',
+            resourceId: creado.id,
+            codigo: creado.codigo,
+            nombre: creado.nombre,
+            minimo: creado.minimo,
+            equivalenciaPorKilo: creado.equivalenciaPorKilo,
+          },
+        })
+
+        return reply.code(201).send(creado)
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar')
       }
@@ -93,14 +112,35 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.patch(
     '/insumos/:id',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeEdicion, req.body, reply)
       if (!datos) return
 
       try {
-        return await editarInsumo(id, datos)
+        const editado = await editarInsumo(id, datos)
+
+        /*
+         * `cambios` lleva lo que VINO en el request, no los cuatro campos del
+         * esquema: la edición es parcial, y un payload completo haría ver como
+         * que se tocó todo cuando se movió solo el mínimo.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'insumos:ajustar',
+          resource: 'insumos',
+          result: 'ok',
+          payload: {
+            operacion: 'editar',
+            resourceId: editado.id,
+            codigo: editado.codigo,
+            cambios: datos,
+          },
+        })
+
+        return editado
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar', id)
       }
@@ -109,14 +149,27 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos/:id/entrada',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeEntrada, req.body, reply)
       if (!datos) return
 
       try {
-        return reply.code(201).send(await registrarEntrada(id, datos, req.user?.id ?? null))
+        const codigo = await codigoDe(id)
+        const resultado = await registrarEntrada(id, datos, req.user?.id ?? null)
+
+        /* La entrada llega en unidades O en kilos, nunca las dos: van las dos
+         * claves y una es `null`, para que la fila diga en qué se recibió. */
+        await auditarMovimiento(req, resultado, {
+          operacion: 'entrada',
+          resourceId: id,
+          codigo,
+          cantidad: datos.cantidad ?? null,
+          kilos: datos.kilos ?? null,
+        })
+
+        return reply.code(201).send(resultado)
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar', id)
       }
@@ -125,14 +178,27 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos/:id/ajuste',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeAjuste, req.body, reply)
       if (!datos) return
 
       try {
-        return await ajustarInsumo(id, datos, req.user?.id ?? null)
+        const codigo = await codigoDe(id)
+        const resultado = await ajustarInsumo(id, datos, req.user?.id ?? null)
+
+        /* La diferencia va CON SIGNO, igual que en los tanques: «sobraban 40»
+         * y «faltaban 40» son hechos opuestos y el signo los distingue. */
+        await auditarMovimiento(req, resultado, {
+          operacion: 'ajuste',
+          resourceId: id,
+          codigo,
+          diferencia: datos.diferencia,
+          motivo: datos.motivo,
+        })
+
+        return resultado
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar', id)
       }
@@ -141,19 +207,72 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/insumos/:id/descarte',
-    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar')] },
+    { preHandler: [requireAuth, requirePermission('insumos', 'ajustar', { auditaLaRuta: true })] },
     async (req, reply) => {
       const id = (req.params as { id: string }).id
       const datos = validar(esquemaDeDescarte, req.body, reply)
       if (!datos) return
 
       try {
-        return await descartarInsumo(id, datos, req.user?.id ?? null)
+        const codigo = await codigoDe(id)
+        const resultado = await descartarInsumo(id, datos, req.user?.id ?? null)
+
+        await auditarMovimiento(req, resultado, {
+          operacion: 'descarte',
+          resourceId: id,
+          codigo,
+          cantidad: datos.cantidad,
+          causa: datos.causa,
+          observaciones: datos.observaciones ?? null,
+        })
+
+        return resultado
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar', id)
       }
     },
   )
+}
+
+/**
+ * El código del insumo, para que la fila no diga solo un uuid.
+ *
+ * «entraron 300 TAPA_20L» se lee; «entraron 300 de
+ * 9609053e-8578-4705-9ffc-509ad31f74e9» obliga a ir a buscar cuál era. Es una
+ * lectura extra por movimiento y se acepta por eso.
+ */
+async function codigoDe(id: string): Promise<string | null> {
+  return (await buscarInsumo(id))?.codigo ?? null
+}
+
+/**
+ * Escribe la fila de un movimiento de saldo, se haya movido o no.
+ *
+ * Las tres rutas de movimiento devuelven `Resultado`, y `descontar` responde
+ * `{ ok: false, disponible }` en vez de lanzar: que no alcance es un estado
+ * normal de la planta, no un error. Por eso ese intento NO pasa por
+ * `manejarError`, y sin esta rama quedaría SIN RASTRO —antes dejaba la fila
+ * automática del middleware, que decía `ok` para algo que no movió nada—.
+ *
+ * Queda como `denied` con lo pedido y lo que de verdad había: «intentó
+ * descartar 900 de las 500 que hay» es justo el patrón que una bitácora existe
+ * para poder mostrar.
+ */
+async function auditarMovimiento(
+  req: FastifyRequest,
+  resultado: Resultado,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await auditarSinBloquear(req, {
+    userId: req.user?.id ?? null,
+    rolEjercido: req.user?.roles ?? [],
+    action: 'insumos:ajustar',
+    resource: 'insumos',
+    result: resultado.ok ? 'ok' : 'denied',
+    payload: resultado.ok
+      ? { ...payload, saldo: resultado.saldo }
+      : { ...payload, disponible: resultado.disponible },
+  })
 }
 
 /**

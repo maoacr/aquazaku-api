@@ -89,6 +89,18 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
     'productos/routes.ts — emite `desactivar` y `reactivar` con el código',
   /* El PATCH general solo cambia el nombre: el antes y el después son lo único
    * que hay para contar. */
+  /*
+   * CINCO rutas bajo un permiso: alta, edición, entrada, ajuste y descarte. Las
+   * separa `operacion`. Dar de alta un insumo es configuración y se cubre con
+   * `ajustar` a propósito — un permiso que se usa tres veces al año no justifica
+   * una fila más en la matriz.
+   *
+   * Las tres de movimiento también emiten cuando NO alcanza: `descontar`
+   * devuelve `{ ok: false }` en vez de lanzar, así que ese intento no pasa por
+   * el manejador de errores y sin una fila `denied` quedaría sin rastro.
+   */
+  'insumos → insumos:ajustar':
+    'insumos/routes.ts — emite los cinco hechos separados por `operacion`, y una fila `denied` cuando el saldo no alcanza',
   'productos → productos:editar':
     'productos/routes.ts — emite con el código y el nombre de antes y de después',
   'productos → productos:editar_precios':
