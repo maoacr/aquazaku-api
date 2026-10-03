@@ -86,7 +86,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'registrar'),
+        requirePermission('botellones', 'registrar', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -100,6 +100,23 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
           req.user?.id ?? null,
         )
 
+        /*
+         * ── `operacion` separa dos hechos que comparten nombre de acción ────
+         *
+         * Comprar y ajustar van los dos bajo `botellones:registrar` porque
+         * comparten el permiso. Son cosas distintas: una compra SUMA parque, un
+         * ajuste corrige un conteo que no cuadraba. Sin este campo, «entraron
+         * 50» se lee igual que «faltaban 50».
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'botellones:registrar',
+          resource: 'botellones',
+          result: 'ok',
+          payload: { operacion: 'compra', cantidad: datos.cantidad, motivo: datos.motivo ?? null, enBodega },
+        })
+
         return reply.code(201).send({ enBodega })
       } catch (err) {
         return manejarError(err, req, reply, 'botellones', 'botellones:registrar')
@@ -110,16 +127,39 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/botellones/entrega',
     {
-      preHandler: [requireAuth, requirePermission('botellones', 'entregar')],
+      preHandler: [
+        requireAuth,
+        requirePermission('botellones', 'entregar', { auditaLaRuta: true }),
+      ],
     },
     async (req, reply) => {
       const datos = validar(esquemaDeTransferencia, req.body, reply)
       if (!datos) return
 
       try {
-        return reply
-          .code(201)
-          .send(await entregarBotellones({ ...datos, registradoPor: req.user?.id ?? null }))
+        const saldos = await entregarBotellones({ ...datos, registradoPor: req.user?.id ?? null })
+
+        /*
+         * Un botellón que sale y no queda registrado es un activo perdido con
+         * papeles. La fila dice cuántos, a quién, y cómo quedaron los dos
+         * saldos — los mismos dos que la ficha del cliente muestra, para poder
+         * cotejar sin recalcular.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'botellones:entregar',
+          resource: 'botellones',
+          result: 'ok',
+          payload: {
+            resourceId: datos.clienteId,
+            cantidad: datos.cantidad,
+            enPoderDelCliente: saldos.enPoderDelCliente,
+            enBodega: saldos.enBodega,
+          },
+        })
+
+        return reply.code(201).send(saldos)
       } catch (err) {
         return manejarError(err, req, reply, 'botellones', 'botellones:entregar', datos.clienteId)
       }
@@ -131,7 +171,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'recibir_retorno'),
+        requirePermission('botellones', 'recibir_retorno', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -139,9 +179,26 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        return reply
-          .code(201)
-          .send(await retornarBotellones({ ...datos, registradoPor: req.user?.id ?? null }))
+        const saldos = await retornarBotellones({ ...datos, registradoPor: req.user?.id ?? null })
+
+        /* El reverso de la entrega, y se audita igual: lo que baja la deuda de
+         * envases de un cliente tiene que ser tan reconstruible como lo que la
+         * sube. */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'botellones:recibir_retorno',
+          resource: 'botellones',
+          result: 'ok',
+          payload: {
+            resourceId: datos.clienteId,
+            cantidad: datos.cantidad,
+            enPoderDelCliente: saldos.enPoderDelCliente,
+            enBodega: saldos.enBodega,
+          },
+        })
+
+        return reply.code(201).send(saldos)
       } catch (err) {
         return manejarError(err, req, reply, 'botellones', 'botellones:recibir_retorno', datos.clienteId)
       }
@@ -153,7 +210,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'descartar'),
+        requirePermission('botellones', 'descartar', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -161,9 +218,24 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        return reply.code(201).send({
-          enBodega: await descartarBotellones(datos.cantidad, datos.motivo, req.user?.id ?? null),
+        const enBodega = await descartarBotellones(
+          datos.cantidad,
+          datos.motivo,
+          req.user?.id ?? null,
+        )
+
+        /* Dar de baja un activo es lo que más explicación necesita tres meses
+         * después, y el motivo es lo único que la da. */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'botellones:descartar',
+          resource: 'botellones',
+          result: 'ok',
+          payload: { cantidad: datos.cantidad, motivo: datos.motivo, enBodega },
         })
+
+        return reply.code(201).send({ enBodega })
       } catch (err) {
         return manejarError(err, req, reply, 'botellones', 'botellones:descartar')
       }
@@ -175,7 +247,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('botellones', 'registrar'),
+        requirePermission('botellones', 'registrar', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -183,8 +255,27 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
+        const saldo = await ajustarBotellones(datos, req.user?.id ?? null)
+
+        /* `operacion: 'ajuste'` es lo que lo separa de la compra, que comparte
+         * esta acción. Ver el comentario en `/botellones/compra`. */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'botellones:registrar',
+          resource: 'botellones',
+          result: 'ok',
+          payload: {
+            operacion: 'ajuste',
+            resourceId: datos.clienteId ?? null,
+            diferencia: datos.diferencia,
+            motivo: datos.motivo,
+            saldo,
+          },
+        })
+
         return reply.code(201).send({
-          saldo: await ajustarBotellones(datos, req.user?.id ?? null),
+          saldo,
           /* Después de un ajuste, el estado de la ley es lo que hay que mirar. */
           conservacion: await verificarConservacion(),
         })

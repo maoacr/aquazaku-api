@@ -45,6 +45,20 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    */
   'clientes → clientes:editar':
     'clientes/routes.ts — emite `clientes:desactivar` con el motivo y los conteos devueltos',
+  /*
+   * Comprar y ajustar comparten el permiso, así que comparten el nombre de la
+   * acción. Las separa `operacion` en el payload: una compra suma parque, un
+   * ajuste corrige un conteo. Sin eso, «entraron 50» se lee igual que
+   * «faltaban 50».
+   */
+  'retornables → botellones:registrar':
+    'retornables/routes.ts — emite la compra y el ajuste, separados por `operacion`',
+  'retornables → botellones:entregar':
+    'retornables/routes.ts — emite con el cliente, la cantidad y los dos saldos',
+  'retornables → botellones:recibir_retorno':
+    'retornables/routes.ts — emite con el cliente, la cantidad y los dos saldos',
+  'retornables → botellones:descartar':
+    'retornables/routes.ts — emite con la cantidad, el motivo y lo que queda en bodega',
   'clientes → clientes:crear': 'clientes/routes.ts — emite con el nombre, el documento y el tipo',
   /*
    * Verificar y revertir comparten el permiso, así que comparten el nombre de
