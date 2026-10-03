@@ -936,3 +936,108 @@ describe('la bitácora de proveedores y compras dice a quién y por cuánto', ()
     expect(await filasDe('compras:crear')).toHaveLength(0)
   })
 })
+
+/**
+ * El agua es el único inventario que no se puede contar.
+ *
+ * No hay medidor ni regleta (RN-PRD-11), así que el libro de los tanques es la
+ * ÚNICA fuente: si un ajuste no deja rastro de quién lo hizo y por qué, el
+ * saldo del tanque deja de ser auditable y pasa a ser una opinión. Las dos
+ * rutas emitían con `payload` en NULL.
+ */
+describe('la bitácora de los tanques dice qué se tocó y por qué', () => {
+  /*
+   * «Llegó agua y se llenó el tanque» — SIN cantidad. El movimiento entra con
+   * cero litros a propósito: el payload dice el tanque y el tipo del
+   * movimiento, no una cifra, porque inventar litros acá sería convertir un
+   * hueco conocido en un número que parece medido.
+   */
+  it('`tanques:registrar_reposicion` dice qué tanque, sin inventar litros', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tanques/reposicion',
+      headers: { cookie: admin.cookie },
+      payload: { tanque: 'crudo' },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const filas = await filasDe('tanques:registrar_reposicion')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: res.json().id,
+      tanque: 'crudo',
+      tipo: 'ingreso_red',
+    })
+    expect(filas[0]!.payload).not.toHaveProperty('litros')
+  })
+
+  /*
+   * Un ajuste es la única escritura que CORRIGE el libro, y el motivo es
+   * obligatorio en la ruta. La fila tiene que traer los dos números: el delta
+   * con signo y el saldo en que quedó. Sin el saldo, reconstruir el estado del
+   * tanque en una fecha obliga a sumar todos los movimientos anteriores.
+   */
+  it('`tanques:ajustar` dice el delta con signo, el motivo y el saldo que quedó', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tanques/ajuste',
+      headers: { cookie: admin.cookie },
+      payload: {
+        tanque: 'crudo',
+        litros: 6500,
+        motivo: 'llegó agua de la red y el tanque quedó a medio llenar',
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('tanques:ajustar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: 'crudo',
+      litros: 6500,
+      motivo: 'llegó agua de la red y el tanque quedó a medio llenar',
+      saldo: 6500,
+      nivelCalculado: 'medio',
+    })
+  })
+
+  /*
+   * Un ajuste NEGATIVO es el caso que más importa: es agua que el libro decía
+   * tener y no está. El signo tiene que llegar a la bitácora tal cual, porque
+   * «faltaban 2000» y «sobraban 2000» son hechos opuestos.
+   */
+  it('el ajuste a la baja llega con el signo puesto', async () => {
+    const llenar = await app.inject({
+      method: 'POST',
+      url: '/tanques/ajuste',
+      headers: { cookie: admin.cookie },
+      payload: { tanque: 'crudo', litros: 6500, motivo: 'saldo inicial del libro' },
+    })
+
+    expect(llenar.statusCode).toBe(200)
+
+    const bajar = await app.inject({
+      method: 'POST',
+      url: '/tanques/ajuste',
+      headers: { cookie: admin.cookie },
+      payload: { tanque: 'crudo', litros: -2000, motivo: 'el tanque se ve más bajo que el libro' },
+    })
+
+    expect(bajar.statusCode).toBe(200)
+
+    const filas = await filasDe('tanques:ajustar')
+
+    expect(filas).toHaveLength(2)
+    expect(filas.map((f) => (f.payload as { litros: number }).litros).sort((a, b) => a - b)).toEqual([
+      -2000, 6500,
+    ])
+
+    const laDeLaBaja = filas.find((f) => (f.payload as { litros: number }).litros === -2000)
+
+    expect(laDeLaBaja!.payload).toMatchObject({ saldo: 4500 })
+  })
+})
