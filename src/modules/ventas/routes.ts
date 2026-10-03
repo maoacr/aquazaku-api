@@ -668,7 +668,7 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('configuracion', 'editar'),
+        requirePermission('configuracion', 'editar', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
@@ -676,7 +676,37 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        return reply.code(201).send(await crearCodigo(datos, req.user?.id ?? null))
+        const creado = await crearCodigo(datos, req.user?.id ?? null)
+
+        /*
+         * Un código de descuento es una AUTORIZACIÓN para cobrar menos, y la
+         * fila tiene que traer los términos completos: el valor y hasta cuándo
+         * vale son lo que convierte «se creó un descuento» en algo revisable.
+         *
+         * `operacion` lleva el objeto adentro (`descuento_crear`, no `crear`)
+         * porque `configuracion:editar` lo usan DOS módulos: los umbrales de
+         * alertas y esto. En la bitácora las filas de esta acción vienen de dos
+         * lugares, y tienen que separarse de un vistazo.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'configuracion:editar',
+          resource: 'configuracion',
+          result: 'ok',
+          payload: {
+            operacion: 'descuento_crear',
+            resourceId: creado.id,
+            codigo: creado.codigo,
+            tipo: creado.tipo,
+            valor: creado.valor,
+            vigenciaDesde: creado.vigenciaDesde,
+            vigenciaHasta: creado.vigenciaHasta,
+            usosMaximos: creado.usosMaximos,
+          },
+        })
+
+        return reply.code(201).send(creado)
       } catch (err) {
         return manejarError(err, req, reply, 'configuracion', 'configuracion:editar')
       }
@@ -692,14 +722,36 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
     {
       preHandler: [
         requireAuth,
-        requirePermission('configuracion', 'editar'),
+        requirePermission('configuracion', 'editar', { auditaLaRuta: true }),
       ],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
 
       try {
-        return await desactivarCodigo(id)
+        const dadoDeBaja = await desactivarCodigo(id)
+
+        /*
+         * La fila nombra el CÓDIGO, no solo su id: el id es lo que quedó
+         * referenciado en las ventas viejas, y el nombre es con lo que la gente
+         * lo busca. Desactivar no borra —una venta pasada sigue explicando por
+         * qué costó lo que costó— así que esta fila es el único registro de
+         * cuándo dejó de poder usarse.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'configuracion:editar',
+          resource: 'configuracion',
+          result: 'ok',
+          payload: {
+            operacion: 'descuento_desactivar',
+            resourceId: dadoDeBaja.id,
+            codigo: dadoDeBaja.codigo,
+          },
+        })
+
+        return dadoDeBaja
       } catch (err) {
         return manejarError(err, req, reply, 'configuracion', 'configuracion:editar', id)
       }
