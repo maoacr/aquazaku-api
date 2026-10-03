@@ -66,6 +66,20 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'ventas → ventas:crear':
     'ventas/routes.ts — emite con el id de la venta, el total, el cliente y el medio de pago',
   'ventas → ventas:corregir': 'ventas/routes.ts — emite con el antes y el después',
+  /*
+   * El flag ya existía cuando se escribió el emit rico y se perdió en el
+   * refactor de la corrección de ventas. Durante ese tiempo cada anulación dejó
+   * DOS filas `ok`, y contarlas devolvía el doble.
+   */
+  'ventas → ventas:anular':
+    'ventas/routes.ts — emite con el motivo y los botellones y la base revertidos',
+  /*
+   * Un cobro es inmutable. La fila del middleware decía que alguien con permiso
+   * registró uno, sin monto, sin medio y sin cliente — nada con qué cuadrar la
+   * caja.
+   */
+  'ventas → cobros:registrar':
+    'ventas/routes.ts — emite con el monto, el medio, el cliente y la deuda que queda',
 }
 
 const DECLARA_OPT_OUT =

@@ -326,7 +326,20 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/ventas/:id/anulacion',
-    { preHandler: [requireAuth, requirePermission('ventas', 'anular')] },
+    /*
+     * `auditaLaRuta` porque el handler escribe su propia fila con el detalle de
+     * lo revertido. Sin esto el middleware escribe la suya también y quedan DOS
+     * filas `ok` por anulación: contar anulaciones con
+     * `action='ventas:anular' AND result='ok'` devolvía el doble.
+     *
+     * El flag se perdió en el refactor de la corrección de ventas y el emit
+     * rico se agregó después sin restaurarlo. Ningún test lo atrapaba porque
+     * nadie contaba las filas de un `POST` real; ahora sí lo hace
+     * `acciones-sensibles.test.ts`.
+     */
+    {
+      preHandler: [requireAuth, requirePermission('ventas', 'anular', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDeAnulacion, req.body, reply)
@@ -554,13 +567,55 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/cobros',
-    { preHandler: [requireAuth, requirePermission('cobros', 'registrar')] },
+    /*
+     * `auditaLaRuta` para que la fila la escriba el handler y no el middleware.
+     * La del middleware sale del `preHandler`, antes de que el cobro exista:
+     * llega sin `resourceId` y sin `payload`, y la columna «Detalles» de la
+     * bitácora queda vacía.
+     */
+    {
+      preHandler: [requireAuth, requirePermission('cobros', 'registrar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const datos = validar(esquemaDeCobro, req.body, reply)
       if (!datos) return
 
       try {
-        return reply.code(201).send(await registrarCobro(datos, req.user?.id ?? null))
+        const resultado = await registrarCobro(datos, req.user?.id ?? null)
+
+        /*
+         * ── La bitácora de un cobro dice de cuánto fue ───────────────────────
+         *
+         * Un cobro no tiene `UPDATE` ni `DELETE`: lo que quedó registrado es lo
+         * que pasó, para siempre. Si la bitácora solo dice «alguien con permiso
+         * registró un cobro», una cobranza que no cuadra contra la caja no se
+         * puede reconstruir — y el documento que la corregiría tampoco existe.
+         *
+         * Va DESPUÉS del commit y con `auditarSinBloquear`: el cobro ya está
+         * hecho, y perder la fila de bitácora no puede deshacerlo. Es el mismo
+         * criterio que `ventas:crear`.
+         *
+         * `deudaRestante` y `quedaSaldada` entran porque son lo que convierte la
+         * fila en algo leíble sin recalcular: dicen en qué estado dejó la cuenta
+         * del cliente este cobro y no el siguiente.
+         */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'cobros:registrar',
+          resource: 'cobros',
+          result: 'ok',
+          payload: {
+            resourceId: resultado.cobro.id,
+            monto: resultado.cobro.monto,
+            medioDePago: resultado.cobro.medioDePago,
+            clienteId: resultado.cobro.clienteId,
+            deudaRestante: resultado.deudaRestante,
+            quedaSaldada: resultado.quedaSaldada,
+          },
+        })
+
+        return reply.code(201).send(resultado)
       } catch (err) {
         return manejarError(err, req, reply, 'cobros', 'cobros:registrar', datos.clienteId)
       }
