@@ -346,7 +346,23 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
    */
   app.get(
     '/bases/proximo-codigo',
-    { preHandler: [requireAuth, requirePermission('bases', 'registrar')] },
+    /*
+     * ── `auditaLaRuta` SIN emitir, y acá sí corresponde ──────────────────────
+     *
+     * Normalmente declarar el opt-out y no escribir la fila es el defecto que
+     * `opt-out-de-auditoria` vigila. Esta ruta es la excepción, y por la propia
+     * política del módulo: «todo PERMITIDO se audita, SALVO las lecturas
+     * puras».
+     *
+     * Esto es una lectura pura. Vive bajo `bases:registrar` porque quien no
+     * puede dar de alta no tiene qué hacer con el número siguiente, no porque
+     * registre nada. Sin la exención, cada vez que alguien ABRE el formulario
+     * de alta quedaba una fila `bases:registrar` indistinguible de un alta de
+     * verdad — y el alta sí escribe la suya, con el sticker.
+     */
+    {
+      preHandler: [requireAuth, requirePermission('bases', 'registrar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       try {
         return { proximo: await proximoCodigoDeBase() }
@@ -387,13 +403,28 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases',
-    { preHandler: [requireAuth, requirePermission('bases', 'registrar')] },
+    {
+      preHandler: [requireAuth, requirePermission('bases', 'registrar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const datos = validar(esquemaDeAltaDeBase, req.body, reply)
       if (!datos) return
 
       try {
-        return reply.code(201).send(await darDeAltaBase(datos.idSticker, req.user?.id ?? null))
+        const base = await darDeAltaBase(datos.idSticker, req.user?.id ?? null)
+
+        /* `operacion` separa el alta de una base concreta de la compra de un
+         * lote, que comparten esta acción porque comparten el permiso. */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'bases:registrar',
+          resource: 'bases',
+          result: 'ok',
+          payload: { operacion: 'alta', resourceId: base.id, idSticker: base.idSticker },
+        })
+
+        return reply.code(201).send(base)
       } catch (err) {
         return manejarError(err, req, reply, 'bases', 'bases:registrar')
       }
@@ -413,13 +444,26 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/bases/compra',
-    { preHandler: [requireAuth, requirePermission('bases', 'registrar')] },
+    {
+      preHandler: [requireAuth, requirePermission('bases', 'registrar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const datos = validar(esquemaDeCompraDeBases, req.body, reply)
       if (!datos) return
 
       try {
-        return reply.code(201).send(await comprarBases(datos.cantidad, req.user?.id ?? null))
+        const compradas = await comprarBases(datos.cantidad, req.user?.id ?? null)
+
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'bases:registrar',
+          resource: 'bases',
+          result: 'ok',
+          payload: { operacion: 'compra', cantidad: datos.cantidad },
+        })
+
+        return reply.code(201).send(compradas)
       } catch (err) {
         return manejarError(err, req, reply, 'bases', 'bases:registrar')
       }
@@ -428,14 +472,29 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases/:id/prestamo',
-    { preHandler: [requireAuth, requirePermission('bases', 'prestar')] },
+    {
+      preHandler: [requireAuth, requirePermission('bases', 'prestar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDePrestamo, req.body, reply)
       if (!datos) return
 
       try {
-        return await prestarBase(id, datos.direccionId, req.user?.id ?? null)
+        const prestada = await prestarBase(id, datos.direccionId, req.user?.id ?? null)
+
+        /* A QUÉ DIRECCIÓN, que es lo único que hace reclamable el préstamo: una
+         * base se presta a una puerta, no a un cliente (RN-BAS-03). */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'bases:prestar',
+          resource: 'bases',
+          result: 'ok',
+          payload: { resourceId: id, direccionId: datos.direccionId },
+        })
+
+        return prestada
       } catch (err) {
         return manejarError(err, req, reply, 'bases', 'bases:prestar', id)
       }
@@ -444,12 +503,25 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases/:id/retorno',
-    { preHandler: [requireAuth, requirePermission('bases', 'retirar')] },
+    {
+      preHandler: [requireAuth, requirePermission('bases', 'retirar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string }
 
       try {
-        return await retornarBase(id, req.user?.id ?? null)
+        const retornada = await retornarBase(id, req.user?.id ?? null)
+
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'bases:retirar',
+          resource: 'bases',
+          result: 'ok',
+          payload: { resourceId: id },
+        })
+
+        return retornada
       } catch (err) {
         return manejarError(err, req, reply, 'bases', 'bases:retirar', id)
       }
@@ -475,16 +547,38 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
    */
   app.post(
     '/bases/:id/dano',
-    { preHandler: [requireAuth, requirePermission('bases', 'descartar')] },
+    {
+      preHandler: [requireAuth, requirePermission('bases', 'descartar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDeDano, req.body, reply)
       if (!datos) return
 
       try {
-        return reply
-          .code(201)
-          .send(await marcarBaseDanada({ baseId: id, ...datos }, req.user?.id ?? null))
+        const dano = await marcarBaseDanada({ baseId: id, ...datos }, req.user?.id ?? null)
+
+        /* `operacion: 'dano'` lo separa del descarte, que comparte esta acción
+         * por lo que explica el comentario de arriba. No son lo mismo: una base
+         * dañada SIGUE EXISTIENDO. */
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'bases:descartar',
+          resource: 'bases',
+          result: 'ok',
+          payload: {
+            operacion: 'dano',
+            resourceId: id,
+            motivo: datos.motivo,
+            /* El recargo se registra como venta (RN-BAS-08), así que la fila
+             * dice cuánto se le cobró y por qué medio. */
+            monto: datos.monto,
+            medioDePago: datos.medioDePago,
+          },
+        })
+
+        return reply.code(201).send(dano)
       } catch (err) {
         return manejarError(err, req, reply, 'bases', 'bases:descartar', id)
       }
@@ -493,14 +587,27 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
 
   app.post(
     '/bases/:id/descarte',
-    { preHandler: [requireAuth, requirePermission('bases', 'descartar')] },
+    {
+      preHandler: [requireAuth, requirePermission('bases', 'descartar', { auditaLaRuta: true })],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string }
       const datos = validar(esquemaDeDescarteDeBase, req.body, reply)
       if (!datos) return
 
       try {
-        return await descartarBase(id, datos.motivo, req.user?.id ?? null)
+        const descartada = await descartarBase(id, datos.motivo, req.user?.id ?? null)
+
+        await auditarSinBloquear(req, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          action: 'bases:descartar',
+          resource: 'bases',
+          result: 'ok',
+          payload: { operacion: 'descarte', resourceId: id, motivo: datos.motivo },
+        })
+
+        return descartada
       } catch (err) {
         return manejarError(err, req, reply, 'bases', 'bases:descartar', id)
       }

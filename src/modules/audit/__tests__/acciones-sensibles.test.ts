@@ -484,6 +484,113 @@ describe('la bitácora de botellones dice cuántos y de quién', () => {
   })
 })
 
+/**
+ * Una base hay que ir a BUSCARLA a un lugar concreto (RN-BAS-03), así que la
+ * bitácora de un préstamo tiene que decir a qué dirección fue. Sin eso, una
+ * base prestada deja de ser reclamable.
+ */
+describe('la bitácora de bases dice dónde quedó cada una', () => {
+  const darDeAlta = async (sticker: string) => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/bases',
+      headers: { cookie: admin.cookie },
+      payload: { idSticker: sticker },
+    })
+    expect(res.statusCode).toBe(201)
+    return res.json().id as string
+  }
+
+  it('`bases:prestar` dice qué base y a qué dirección', async () => {
+    const baseId = await darDeAlta('0042')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/bases/${baseId}/prestamo`,
+      headers: { cookie: admin.cookie },
+      payload: { direccionId },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('bases:prestar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({ resourceId: baseId, direccionId })
+    expect(filas[0]!.resource).toBe('bases')
+  })
+
+  /**
+   * Marcar dañada y descartar comparten el permiso `bases:descartar` —está
+   * documentado en la ruta: la matriz no tiene `marcar_dano` y no se inventa
+   * una acción desde acá—. Pero son hechos distintos: una base dañada SIGUE
+   * EXISTIENDO y una descartada no.
+   */
+  it('el daño y el descarte comparten acción, y el payload los distingue', async () => {
+    const dañada = await darDeAlta('0043')
+    const descartada = await darDeAlta('0044')
+
+    await app.inject({
+      method: 'POST',
+      url: `/bases/${dañada}/prestamo`,
+      headers: { cookie: admin.cookie },
+      payload: { direccionId },
+    })
+
+    const dano = await app.inject({
+      method: 'POST',
+      url: `/bases/${dañada}/dano`,
+      headers: { cookie: admin.cookie },
+      payload: {
+        motivo: 'llegó con la tapa partida',
+        monto: '15000.00',
+        medioDePago: 'efectivo',
+      },
+    })
+
+    expect(dano.statusCode).toBe(201)
+
+    const descarte = await app.inject({
+      method: 'POST',
+      url: `/bases/${descartada}/descarte`,
+      headers: { cookie: admin.cookie },
+      payload: { motivo: 'se partió el soporte y no tiene arreglo' },
+    })
+
+    expect(descarte.statusCode).toBe(200)
+
+    const filas = await filasDe('bases:descartar')
+
+    expect(filas).toHaveLength(2)
+    expect(filas.map((f) => (f.payload as { operacion: string }).operacion).sort()).toEqual([
+      'dano',
+      'descarte',
+    ])
+  })
+
+  /**
+   * ── Consultar el próximo código NO es registrar una base ──────────────────
+   *
+   * `GET /bases/proximo-codigo` vive bajo `bases:registrar` a propósito: quien
+   * no puede dar de alta no tiene qué hacer con el número siguiente. Pero es
+   * una LECTURA, y la política del módulo dice que las lecturas puras no dejan
+   * rastro al permitirse.
+   *
+   * Sin la exención, cada vez que alguien abre el formulario de alta queda una
+   * fila `bases:registrar` que se lee como un alta que nunca pasó.
+   */
+  it('consultar el próximo código no ensucia la bitácora con un alta falsa', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/bases/proximo-codigo',
+      headers: { cookie: admin.cookie },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(await filasDe('bases:registrar')).toHaveLength(0)
+  })
+})
+
 describe('la bitácora no duplica la fila de una acción', () => {
   it('`ventas:anular` deja una sola fila, y es la que tiene el detalle', async () => {
     const venta = await app.inject({
