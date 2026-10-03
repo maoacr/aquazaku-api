@@ -51,6 +51,21 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    * ajuste corrige un conteo. Sin eso, «entraron 50» se lee igual que
    * «faltaban 50».
    */
+  /*
+   * Tres rutas comparten `bases:registrar`: el alta de una base concreta, la
+   * compra de un lote y la CONSULTA del próximo código. Las dos primeras
+   * emiten, separadas por `operacion`. La tercera se exime a propósito: es una
+   * lectura pura, y sin la exención cada apertura del formulario de alta
+   * dejaba una fila indistinguible de un alta de verdad.
+   */
+  'retornables → bases:registrar':
+    'retornables/routes.ts — emite el alta y la compra, separadas por `operacion`; la consulta del próximo código se exime por ser lectura',
+  'retornables → bases:prestar':
+    'retornables/routes.ts — emite con la base y la DIRECCIÓN a la que fue',
+  'retornables → bases:retirar': 'retornables/routes.ts — emite con la base que volvió',
+  /* Dañar y descartar comparten permiso; una base dañada sigue existiendo. */
+  'retornables → bases:descartar':
+    'retornables/routes.ts — emite el daño y el descarte, separados por `operacion`',
   'retornables → botellones:registrar':
     'retornables/routes.ts — emite la compra y el ajuste, separados por `operacion`',
   'retornables → botellones:entregar':
