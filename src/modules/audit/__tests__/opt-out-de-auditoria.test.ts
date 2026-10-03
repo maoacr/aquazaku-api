@@ -132,6 +132,17 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    * hacerse. La ruta escribe la suya con el id, el total, el cliente y el medio
    * de pago.
    */
+  /*
+   * La SEGUNDA fuente de `configuracion:editar` — y la que estuvo escondida
+   * toda la revisión. `alertas` declara la misma acción y cumple, así que un
+   * grep por acción daba estas dos rutas por hechas. La clave de esta lista es
+   * `módulo → acción` justamente para que eso no vuelva a pasar.
+   *
+   * `operacion` lleva el objeto adentro (`descuento_crear`, no `crear`): en la
+   * bitácora, las filas de esta acción vienen de dos módulos distintos.
+   */
+  'ventas → configuracion:editar':
+    'ventas/routes.ts — emite el alta y la baja de un código de descuento, separadas por `operacion`',
   'ventas → ventas:crear':
     'ventas/routes.ts — emite con el id de la venta, el total, el cliente y el medio de pago',
   'ventas → ventas:corregir': 'ventas/routes.ts — emite con el antes y el después',

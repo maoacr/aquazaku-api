@@ -1041,3 +1041,118 @@ describe('la bitácora de los tanques dice qué se tocó y por qué', () => {
     expect(laDeLaBaja!.payload).toMatchObject({ saldo: 4500 })
   })
 })
+
+/**
+ * Un código de descuento es una autorización para cobrar menos.
+ *
+ * Y `configuracion:editar` lo usan DOS módulos: los umbrales de alertas, que
+ * ya cumplían, y los códigos de descuento, que no. Eso es justo lo que escondió
+ * estas dos rutas durante toda la revisión: un grep por acción las daba por
+ * hechas, porque `alertas` declara la misma acción.
+ *
+ * Por eso el payload de descuentos lleva `operacion` con el OBJETO adentro
+ * (`descuento_crear`, no `crear`): en la bitácora, las filas de esta acción
+ * vienen de dos lugares distintos y tienen que poder separarse de un vistazo.
+ */
+describe('la bitácora de los códigos de descuento dice qué se autorizó', () => {
+  const unCodigo = {
+    codigo: 'VERANO10',
+    tipo: 'porcentaje' as const,
+    valor: '10.00',
+    vigenciaDesde: '2026-01-01',
+    vigenciaHasta: '2027-12-31',
+  }
+
+  const crear = async (payload: Record<string, unknown> = unCodigo) => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/descuentos',
+      headers: { cookie: admin.cookie },
+      payload,
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    return res.json()
+  }
+
+  it('crear un código dice el código, el tipo, el valor y hasta cuándo vale', async () => {
+    const creado = await crear({ ...unCodigo, usosMaximos: 50 })
+    const filas = await filasDe('configuracion:editar')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      operacion: 'descuento_crear',
+      resourceId: creado.id,
+      codigo: 'VERANO10',
+      tipo: 'porcentaje',
+      valor: '10.00',
+      vigenciaHasta: '2027-12-31',
+      usosMaximos: 50,
+    })
+  })
+
+  /*
+   * Desactivar, no borrar: una venta pasada referencia el código y sigue
+   * explicando por qué costó lo que costó. La fila tiene que nombrar el
+   * código, no solo su id, porque es el id que aparece en la venta vieja.
+   */
+  it('desactivar un código deja su propia fila, separada por `operacion`', async () => {
+    const creado = await crear()
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/descuentos/${creado.id}/desactivar`,
+      headers: { cookie: admin.cookie },
+    })
+
+    expect(res.statusCode).toBe(200)
+
+    const filas = await filasDe('configuracion:editar')
+
+    expect(filas).toHaveLength(2)
+    expect(filas.map((f) => (f.payload as { operacion: string }).operacion).sort()).toEqual([
+      'descuento_crear',
+      'descuento_desactivar',
+    ])
+
+    const laDeLaBaja = filas.find(
+      (f) => (f.payload as { operacion: string }).operacion === 'descuento_desactivar',
+    )
+
+    expect(laDeLaBaja!.payload).toMatchObject({ resourceId: creado.id, codigo: 'VERANO10' })
+  })
+
+  /*
+   * El test que protege la trampa.
+   *
+   * Las dos fuentes de `configuracion:editar` conviven en la misma acción, y la
+   * bitácora tiene que poder decir cuál fue cuál: un umbral de alertas movido
+   * y un descuento autorizado son hechos de distinta naturaleza bajo el mismo
+   * nombre.
+   */
+  it('un umbral de alertas y un descuento comparten acción, y las filas se distinguen', async () => {
+    const umbral = await app.inject({
+      method: 'PUT',
+      url: '/parametros/dias_entrega_bases',
+      headers: { cookie: admin.cookie },
+      payload: { valor: 14 },
+    })
+
+    expect(umbral.statusCode).toBe(200)
+
+    await crear()
+
+    const filas = await filasDe('configuracion:editar')
+
+    expect(filas).toHaveLength(2)
+
+    const laDelUmbral = filas.find((f) => !(f.payload as { operacion?: string }).operacion)
+    const laDelDescuento = filas.find(
+      (f) => (f.payload as { operacion?: string }).operacion === 'descuento_crear',
+    )
+
+    expect(laDelUmbral!.payload).toMatchObject({ despues: 14, etiqueta: expect.any(String) })
+    expect(laDelDescuento!.payload).toMatchObject({ codigo: 'VERANO10' })
+  })
+})
