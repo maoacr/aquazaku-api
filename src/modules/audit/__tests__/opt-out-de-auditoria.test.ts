@@ -89,6 +89,23 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
     'productos/routes.ts — emite `desactivar` y `reactivar` con el código',
   'productos → productos:editar_precios':
     'productos/service.ts — emite con los precios de antes y después',
+  /*
+   * Registrar la compra y marcarla pagada comparten `compras:crear` porque
+   * comparten permiso. Las separa `operacion`: la primera abre una deuda, la
+   * segunda la cierra. La TERCERA ruta del permiso —la consulta de lo vencido—
+   * se exime a propósito: es una lectura pura, y sin la exención cada revisión
+   * de lo que se le debe a los proveedores dejaba una fila que se lee como una
+   * compra que nunca pasó.
+   */
+  'proveedores → compras:crear':
+    'proveedores/routes.ts — emite el registro y el pago, separados por `operacion`; la consulta de lo vencido se exime por ser lectura',
+  'proveedores → proveedores:crear':
+    'proveedores/routes.ts — emite con el nombre, el NIT y el contacto',
+  /* Activar y desactivar son la misma ruta con distinto valor (RN-PRO-01): el
+   * payload dice en cuál quedó, porque desactivar cierra la puerta a comprarle
+   * y reactivar la vuelve a abrir. */
+  'proveedores → proveedores:editar':
+    'proveedores/routes.ts — emite con el estado en que quedó el proveedor',
   'stock → stock:ajustar': 'stock/service.ts — emite con el lote y el delta',
   'stock → stock:descartar': 'stock/service.ts — emite con el lote y el motivo',
   'users → usuarios:crear': 'users/routes.ts — emite con el id nuevo y los roles',

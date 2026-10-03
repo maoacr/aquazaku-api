@@ -787,3 +787,152 @@ describe('desactivar un producto deja fila con su código', () => {
     expect(filas[0]!.payload).toMatchObject({ codigo: res.json().codigo })
   })
 })
+
+/**
+ * Lo que entra por la puerta de atrás también se audita.
+ *
+ * Una compra es dinero que SALE, y la bitácora la registraba sin decir a quién
+ * ni por cuánto: `compras:crear` con `payload` en NULL. Tres meses después,
+ * «se le compró a alguien algo» no sirve para conciliar nada.
+ */
+describe('la bitácora de proveedores y compras dice a quién y por cuánto', () => {
+  const conProveedor = async (nombre = 'Tapas del Valle') => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/proveedores',
+      headers: { cookie: admin.cookie },
+      payload: { nombre, nit: '900123456-1', contacto: 'Don Hernán' },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    return res.json().id as string
+  }
+
+  it('`proveedores:crear` dice qué proveedor quedó', async () => {
+    const id = await conProveedor('Etiquetas Pereira')
+    const filas = await filasDe('proveedores:crear')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: id,
+      nombre: 'Etiquetas Pereira',
+      nit: '900123456-1',
+    })
+  })
+
+  /*
+   * Activar y desactivar son la MISMA ruta con distinto valor (RN-PRO-01), y la
+   * fila tiene que decir en qué estado quedó: reactivar es lo que evita que
+   * alguien cree un duplicado con el mismo NIT, y es una decisión que se
+   * revisa.
+   */
+  it('`proveedores:editar` dice en qué estado quedó el proveedor', async () => {
+    const id = await conProveedor()
+
+    const apagar = await app.inject({
+      method: 'PATCH',
+      url: `/proveedores/${id}/estado`,
+      headers: { cookie: admin.cookie },
+      payload: { activo: false },
+    })
+
+    expect(apagar.statusCode).toBe(200)
+
+    const prender = await app.inject({
+      method: 'PATCH',
+      url: `/proveedores/${id}/estado`,
+      headers: { cookie: admin.cookie },
+      payload: { activo: true },
+    })
+
+    expect(prender.statusCode).toBe(200)
+
+    const filas = await filasDe('proveedores:editar')
+
+    expect(filas).toHaveLength(2)
+    expect(filas.map((f) => (f.payload as { activo: boolean }).activo).sort()).toEqual([
+      false,
+      true,
+    ])
+    expect(filas[0]!.payload).toMatchObject({ resourceId: id })
+  })
+
+  /*
+   * Registrar la compra y marcarla pagada comparten `compras:crear` porque
+   * comparten permiso. Las separa `operacion`: una suma una deuda, la otra la
+   * cierra. Sin eso, «compras:crear» a crédito y su pago se leen como dos
+   * compras.
+   */
+  it('la compra y el pago comparten acción, y el payload los distingue', async () => {
+    const proveedorId = await conProveedor()
+
+    const compra = await app.inject({
+      method: 'POST',
+      url: '/compras',
+      headers: { cookie: admin.cookie },
+      payload: {
+        proveedorId,
+        medioDePago: 'credito',
+        venceEl: '2027-01-15',
+        lineas: [{ botellones: 20, cantidad: 20, costoUnitario: '18000.00' }],
+      },
+    })
+
+    expect(compra.statusCode).toBe(201)
+
+    const compraId = compra.json().compra.id as string
+
+    const pago = await app.inject({
+      method: 'POST',
+      url: `/compras/${compraId}/pago`,
+      headers: { cookie: admin.cookie },
+    })
+
+    expect(pago.statusCode).toBe(200)
+
+    const filas = await filasDe('compras:crear')
+
+    expect(filas).toHaveLength(2)
+    expect(filas.map((f) => (f.payload as { operacion: string }).operacion).sort()).toEqual([
+      'pago',
+      'registrar',
+    ])
+
+    const laDeLaCompra = filas.find(
+      (f) => (f.payload as { operacion: string }).operacion === 'registrar',
+    )
+
+    expect(laDeLaCompra!.payload).toMatchObject({
+      resourceId: compraId,
+      proveedorId,
+      medioDePago: 'credito',
+      total: '360000.00',
+      venceEl: '2027-01-15',
+      lineas: 1,
+    })
+
+    const laDelPago = filas.find((f) => (f.payload as { operacion: string }).operacion === 'pago')
+
+    expect(laDelPago!.payload).toMatchObject({ resourceId: compraId, total: '360000.00' })
+  })
+
+  /*
+   * `GET /compras/vencidas` es una LECTURA, pero vive bajo `compras:crear`
+   * porque no existe `compras:ver` en la matriz y no se inventa un permiso
+   * desde una ruta (ADR-0003). Sin la exención, cada vez que alguien revisa qué
+   * le debe a los proveedores queda una fila que se lee como una compra nueva.
+   *
+   * Es el segundo caso del sistema, después de `GET /bases/proximo-codigo`.
+   */
+  it('revisar lo vencido no ensucia la bitácora con una compra falsa', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/compras/vencidas',
+      headers: { cookie: admin.cookie },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(await filasDe('compras:crear')).toHaveLength(0)
+  })
+})
