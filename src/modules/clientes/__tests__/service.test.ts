@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
-import { clientes } from '@/db/schema'
+import { auditLog, clientes } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { configurarCredito } from '@/modules/clientes/credito'
 import { agregarDireccion, direccionesDe } from '@/modules/clientes/direcciones'
@@ -29,6 +29,13 @@ const UNA_CEDULA = {
   tipoDocumento: 'CC' as const,
   numeroDocumento: '79123456',
 }
+
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const unContexto = (userId: string | null = null) => ({
+  userId,
+  rolEjercido: ['admin'] as const,
+  requestId: 'req-de-prueba',
+})
 
 /** Crea un cliente ya verificado, que es el punto de partida del crédito. */
 async function clienteVerificado() {
@@ -154,7 +161,7 @@ describe('crédito exige verificación — RN-CLI-15', () => {
   it('a un cliente pendiente no se le habilita', async () => {
     const { cliente } = await crearCliente(UNA_CEDULA)
 
-    await expect(configurarCredito(cliente.id, { habilitado: true })).rejects.toMatchObject({
+    await expect(configurarCredito(cliente.id, { habilitado: true }, unContexto())).rejects.toMatchObject({
       code: 'VERIFICACION_REQUERIDA',
     })
   })
@@ -162,7 +169,7 @@ describe('crédito exige verificación — RN-CLI-15', () => {
   it('verificado sí, y sin tope por defecto', async () => {
     const verificado = await clienteVerificado()
 
-    const conCredito = await configurarCredito(verificado.id, { habilitado: true })
+    const conCredito = await configurarCredito(verificado.id, { habilitado: true }, unContexto())
 
     expect(conCredito.creditoHabilitado).toBe(true)
     expect(conCredito.creditoLimite).toBeNull()
@@ -176,7 +183,7 @@ describe('crédito exige verificación — RN-CLI-15', () => {
    */
   it('desverificar a alguien con crédito se rechaza', async () => {
     const verificado = await clienteVerificado()
-    await configurarCredito(verificado.id, { habilitado: true })
+    await configurarCredito(verificado.id, { habilitado: true }, unContexto())
 
     await expect(
       revertirVerificacion(verificado.id, 'la cédula que trajo era de otra persona'),
@@ -198,9 +205,9 @@ describe('crédito exige verificación — RN-CLI-15', () => {
 
   it('deshabilitar borra el tope, para no heredarlo sin revisar', async () => {
     const verificado = await clienteVerificado()
-    await configurarCredito(verificado.id, { habilitado: true, limite: 500000 })
+    await configurarCredito(verificado.id, { habilitado: true, limite: 500000 }, unContexto())
 
-    const sinCredito = await configurarCredito(verificado.id, { habilitado: false })
+    const sinCredito = await configurarCredito(verificado.id, { habilitado: false }, unContexto())
 
     expect(sinCredito.creditoLimite).toBeNull()
   })
@@ -209,7 +216,7 @@ describe('crédito exige verificación — RN-CLI-15', () => {
     const verificado = await clienteVerificado()
 
     await expect(
-      configurarCredito(verificado.id, { habilitado: true, limite: 0 }),
+      configurarCredito(verificado.id, { habilitado: true, limite: 0 }, unContexto()),
     ).rejects.toMatchObject({ code: 'LIMITE_INVALIDO' })
   })
 })
@@ -290,5 +297,68 @@ describe('el tipo cambia, porque un cliente abre un negocio — RN-CLI-16', () =
     const { cliente: editado } = await editarCliente(cliente.id, { tipo: 'comercial' })
 
     expect(editado.tipo).toBe('comercial')
+  })
+})
+
+/**
+ * El crédito y su fila en la bitácora son una sola escritura — ADR-0007.
+ *
+ * Habilitar crédito es una de las acciones que la ADR nombra sensibles: sin
+ * bitácora, **no se ejecuta**. Eso no se cumple emitiendo después del `UPDATE`,
+ * porque si el `INSERT` falla ahí el crédito ya quedó habilitado y lo único que
+ * se puede devolver es un 500 — el cliente tendría crédito y nadie sabría quién
+ * se lo dio.
+ *
+ * El tope es justamente la pregunta que esta bitácora contesta: una deuda que
+ * creció sin control no se puede explicar si no se sabe quién subió el límite.
+ */
+describe('la bitácora del crédito vive en la transacción del cambio — ADR-0007', () => {
+  /*
+   * El modo de falla es artificial —un `user_id` que no es un UUID hace que
+   * Postgres rechace el INSERT— pero el mecanismo que se prueba es el real: no
+   * hay mock de `emit`. La bitácora falla de verdad, en la base, y lo que se
+   * afirma es que el rollback se llevó el crédito con ella.
+   */
+  it('si la bitácora falla, el crédito NO queda habilitado', async () => {
+    const verificado = await clienteVerificado()
+
+    await expect(
+      configurarCredito(
+        verificado.id,
+        { habilitado: true, limite: 500000 },
+        { ...unContexto(), userId: 'no-soy-un-uuid' },
+      ),
+    ).rejects.toThrow()
+
+    const [despues] = await db.select().from(clientes).where(eq(clientes.id, verificado.id))
+
+    expect(despues!.creditoHabilitado).toBe(false)
+    expect(despues!.creditoLimite).toBeNull()
+    expect(await db.select().from(auditLog)).toHaveLength(0)
+  })
+
+  it('cuando sale bien, el cambio y la fila quedan juntos', async () => {
+    const verificado = await clienteVerificado()
+    const admin = await usuarioAutenticado('admin')
+
+    const conCredito = await configurarCredito(
+      verificado.id,
+      { habilitado: true, limite: 500000 },
+      unContexto(admin.usuario.id),
+    )
+
+    expect(conCredito.creditoHabilitado).toBe(true)
+
+    const filas = await db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, 'clientes:habilitar_credito'))
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      resourceId: verificado.id,
+      habilitado: true,
+      limite: '500000.00',
+    })
   })
 })

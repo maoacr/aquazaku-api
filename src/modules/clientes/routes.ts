@@ -440,28 +440,19 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const cliente = await configurarCredito(id, datos)
-
         /*
-         * El TOPE es la pregunta de auditoría de este módulo. Sin él, una deuda
-         * que creció sin control no se puede explicar: no se sabe si alguien
-         * subió el límite o si nunca hubo uno — y `null` es «sin tope», que es
-         * el default (RN-CLI-12).
+         * La fila la escribe el SERVICIO, dentro de su transacción — ADR-0007.
          *
-         * Se lee del cliente devuelto y no de `datos`: deshabilitar borra el
-         * tope, así que lo que quedó guardado no siempre es lo que se mandó.
+         * Acá solo se arma el contexto de quién lo hizo. Emitir desde la ruta
+         * dejaba la bitácora afuera del cambio: si el INSERT fallaba, el
+         * crédito ya estaba habilitado y nadie sabía quién lo había dado.
          */
-        await auditarSinBloquear(req, {
+        const cliente = await configurarCredito(id, datos, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'clientes:habilitar_credito',
-          resource: 'clientes',
-          result: 'ok',
-          payload: {
-            resourceId: cliente.id,
-            habilitado: cliente.creditoHabilitado,
-            limite: cliente.creditoLimite,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return conDocumento(cliente)

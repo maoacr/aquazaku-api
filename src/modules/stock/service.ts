@@ -3,7 +3,7 @@ import { db } from '@/db/client'
 import { type Lote, type MovimientoStock, lotes, productos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
-import { emit } from '@/modules/authz/audit'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { codigoDeLote, vencimientoDe } from './codigo-lote'
 import { type Ejecutor, descontar, enTransaccion, ingresar } from './saldo'
 
@@ -16,13 +16,9 @@ import { type Ejecutor, descontar, enTransaccion, ingresar } from './saldo'
  * van a usar las mismas primitivas de `saldo.ts`.
  */
 
-export interface ContextoDeAuditoria {
-  userId: string | null
-  rolEjercido: readonly string[]
-  requestId: string
-  ip?: string | undefined
-  userAgent?: string | undefined
-}
+/* El dueño es `authz/audit.ts`. Reexportado porque este módulo lo expone en su
+ * firma pública. */
+export type { ContextoDeAuditoria } from '@/modules/authz/audit'
 
 export interface EntradaDeInventario {
   productoId: string

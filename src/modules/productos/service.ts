@@ -2,7 +2,7 @@ import { and, asc, eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { type Producto, productos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
-import { emit } from '@/modules/authz/audit'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { saldoTotalDe } from '@/modules/stock/consultas'
 import { type DatosDeCodigo, generarCodigo } from './codigo'
 
@@ -33,14 +33,9 @@ export interface DatosDePrecios {
   precioMinimo: string
 }
 
-/** Quién hace la acción. Lo arma la ruta; el servicio no conoce a Fastify. */
-export interface ContextoDeAuditoria {
-  userId: string | null
-  rolEjercido: readonly string[]
-  requestId: string
-  ip?: string | undefined
-  userAgent?: string | undefined
-}
+/* El dueño es `authz/audit.ts`. Reexportado porque este módulo lo expone en su
+ * firma pública. */
+export type { ContextoDeAuditoria } from '@/modules/authz/audit'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lecturas
