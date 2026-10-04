@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { db } from '@/db/client'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { type Cliente, clientes } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { clientePorId } from './service'
@@ -32,6 +33,7 @@ export interface DatosDeCredito {
 export async function configurarCredito(
   id: string,
   datos: DatosDeCredito,
+  contexto: ContextoDeAuditoria,
 ): Promise<Cliente> {
   const actual = await clientePorId(id)
 
@@ -51,22 +53,61 @@ export async function configurarCredito(
     )
   }
 
-  const [cliente] = await db
-    .update(clientes)
-    .set({
-      creditoHabilitado: datos.habilitado,
-      /*
-       * Deshabilitar borra el tope. Conservarlo dejaría un número guardado que
-       * no aplica a nada, y el día que alguien vuelva a habilitar el crédito
-       * heredaría en silencio un límite que nadie revisó.
-       */
-      ...(datos.habilitado
-        ? { creditoLimite: datos.limite === undefined ? actual.creditoLimite : datos.limite?.toFixed(2) ?? null }
-        : { creditoLimite: null }),
-      updatedAt: new Date(),
-    })
-    .where(eq(clientes.id, id))
-    .returning()
+  /*
+   * ── El cambio y su fila, una sola escritura — ADR-0007 ────────────────────
+   *
+   * Habilitar crédito es de las acciones que la ADR nombra sensibles: sin
+   * bitácora, **no se ejecuta**. Emitir después del `UPDATE` no puede dar eso
+   * —si el INSERT falla, el crédito ya quedó habilitado y lo único que se
+   * devuelve es un 500— así que las dos van en la misma transacción: si una se
+   * cae, el rollback se lleva la otra.
+   *
+   * Por eso el emit vive acá y no en la ruta: la transacción es de este
+   * servicio, y la ruta no la tiene.
+   */
+  return db.transaction(async (tx) => {
+    const [cliente] = await tx
+      .update(clientes)
+      .set({
+        creditoHabilitado: datos.habilitado,
+        /*
+         * Deshabilitar borra el tope. Conservarlo dejaría un número guardado que
+         * no aplica a nada, y el día que alguien vuelva a habilitar el crédito
+         * heredaría en silencio un límite que nadie revisó.
+         */
+        ...(datos.habilitado
+          ? { creditoLimite: datos.limite === undefined ? actual.creditoLimite : datos.limite?.toFixed(2) ?? null }
+          : { creditoLimite: null }),
+        updatedAt: new Date(),
+      })
+      .where(eq(clientes.id, id))
+      .returning()
 
-  return cliente!
+    /*
+     * El TOPE es la pregunta de auditoría de este módulo. Sin él, una deuda que
+     * creció sin control no se puede explicar: no se sabe si alguien subió el
+     * límite o si nunca hubo uno — y `null` es «sin tope», que es el default
+     * (RN-CLI-12).
+     *
+     * Se lee del cliente devuelto y no de `datos`: deshabilitar borra el tope,
+     * así que lo que quedó guardado no siempre es lo que se mandó.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'clientes:habilitar_credito',
+        resource: 'clientes',
+        resourceId: cliente!.id,
+        result: 'ok',
+        payload: {
+          resourceId: cliente!.id,
+          habilitado: cliente!.creditoHabilitado,
+          limite: cliente!.creditoLimite,
+        },
+      },
+      tx,
+    )
+
+    return cliente!
+  })
 }

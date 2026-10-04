@@ -9,6 +9,22 @@ import type { Action, Resource } from './matrix'
  * se puede insertar, y eso es todo lo que hace falta.
  */
 
+/**
+ * Quién hace la acción. Lo arma la ruta; el servicio no conoce a Fastify.
+ *
+ * Vive acá porque es parte del contrato de la auditoría, no de un módulo de
+ * dominio. Estaba declarado DOS veces —en `productos/service.ts` y en
+ * `stock/service.ts`, idénticos—. Los dos lo reexportan, así que ningún
+ * import existente cambia.
+ */
+export interface ContextoDeAuditoria {
+  userId: string | null
+  rolEjercido: readonly string[]
+  requestId: string
+  ip?: string | undefined
+  userAgent?: string | undefined
+}
+
 export interface AuditInput {
   /** `null` cuando la acción no tiene sesión detrás (ej: login fallido). */
   userId: string | null
