@@ -1345,7 +1345,7 @@ export const ventas = pgTable(
     createdAt: tstz('created_at').notNull().defaultNow(),
 
     /**
-     * El desempate del orden — RN-VEN-14 + RN-VEN-16.
+     * El desempate del orden — RN-VEN-19.
      *
      * ── Por qué `createdAt` no alcanza ───────────────────────────────────────
      *
