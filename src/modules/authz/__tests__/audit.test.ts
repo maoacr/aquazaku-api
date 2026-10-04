@@ -74,13 +74,19 @@ describe('debeAuditarseAlPermitir()', () => {
   })
 })
 
+/*
+ * El pool se cierra cuando termina el ARCHIVO, no cuando termina un `describe`.
+ * Estaba dentro de `describe('emit()')`, y eso dejaba sin conexión a cualquier
+ * bloque declarado después: los tests fallaban por timeout en su `beforeEach`,
+ * sin una sola aserción que mirar.
+ */
+afterAll(async () => {
+  await closeDb()
+})
+
 describe('emit()', () => {
   beforeEach(async () => {
     await resetDb()
-  })
-
-  afterAll(async () => {
-    await closeDb()
   })
 
   it('escribe con solo los campos obligatorios y deja el resto en null', async () => {
@@ -161,5 +167,73 @@ describe('emit()', () => {
 
     const [fila] = await db.select().from(auditLog)
     expect(fila?.createdAt.getTime()).toBeGreaterThan(antes.getTime())
+  })
+})
+
+/**
+ * La fila de una acción sensible vive o muere CON el cambio que registra.
+ *
+ * [ADR-0007](docs: decisiones/0007-auditoria-bloqueante) decide que una acción
+ * sensible sin bitácora **no se ejecuta**. Eso no se puede cumplir emitiendo
+ * después del commit: si el `INSERT` en `audit_log` falla ahí, el cambio YA
+ * está aplicado y lo único que se puede hacer es devolver un 500 sobre algo
+ * que sí ocurrió — el estado real y lo que la persona cree quedan en
+ * desacuerdo, que es peor que no auditar.
+ *
+ * La única forma de que «no se ejecuta» sea verdad es que las dos escrituras
+ * compartan transacción: si una se cae, el rollback se lleva las dos.
+ *
+ * Estos dos casos son la infraestructura que lo habilita. Mover cada acción
+ * sensible adentro de su transacción viene después, módulo por módulo.
+ */
+describe('emit() dentro de una transacción', () => {
+  beforeEach(resetDb)
+
+  const unaFila = {
+    userId: null,
+    rolEjercido: ['admin'],
+    action: 'ventas:anular',
+    resource: 'ventas',
+    result: 'ok' as const,
+    requestId: 'req-de-prueba',
+  }
+
+  it('si la transacción se revierte, NO queda la fila', async () => {
+    await expect(
+      db.transaction(async (tx) => {
+        await emit(unaFila, tx)
+
+        /*
+         * Lo que en producción sería la escritura del cambio fallando después
+         * del emit: una restricción violada, la conexión cortada, un deadlock.
+         * El rollback tiene que llevarse la fila de auditoría con él.
+         */
+        throw new Error('el cambio falló después de auditar')
+      }),
+    ).rejects.toThrow('el cambio falló después de auditar')
+
+    expect(await db.select().from(auditLog)).toHaveLength(0)
+  })
+
+  it('si la transacción termina bien, la fila queda', async () => {
+    await db.transaction(async (tx) => {
+      await emit(unaFila, tx)
+    })
+
+    const filas = await db.select().from(auditLog)
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.action).toBe('ventas:anular')
+  })
+
+  /*
+   * El default sigue siendo `db`: las decenas de llamadas que ya existen no se
+   * tocan, y las que no están dentro de una transacción —los eventos de sesión
+   * y los rechazos, que la ADR deja no bloqueantes— siguen funcionando igual.
+   */
+  it('sin ejecutor explícito, escribe contra la conexión de siempre', async () => {
+    await emit(unaFila)
+
+    expect(await db.select().from(auditLog)).toHaveLength(1)
   })
 })

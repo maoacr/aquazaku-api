@@ -39,6 +39,32 @@ export const db = drizzle(queryClient, { schema })
 
 export type DB = typeof db
 
+/**
+ * `db` o una transacción abierta.
+ *
+ * Vive acá porque «qué es una transacción de esta base» es de la capa de
+ * acceso, no de un módulo de dominio. Estaba declarado DOS veces —en
+ * `stock/saldo.ts` y en `insumos/saldo.ts`, idénticos— y el resto del sistema
+ * importaba el de `stock`, que no tiene por qué ser dueño de esto. Los dos
+ * siguen reexportándolo, así que ningún import existente se entera.
+ */
+export type Transaccion = Parameters<Parameters<DB['transaction']>[0]>[0]
+export type Ejecutor = DB | Transaccion
+
+/**
+ * Abre transacción solo si el ejecutor no es ya una.
+ *
+ * Es lo que permite que una función sirva tanto suelta como adentro de una
+ * transacción ajena, sin que quien la llama tenga que saber cuál de las dos
+ * está pasando.
+ */
+export function enTransaccion<T>(
+  ejecutor: Ejecutor,
+  fn: (tx: Ejecutor) => Promise<T>,
+): Promise<T> {
+  return 'transaction' in ejecutor ? ejecutor.transaction((tx) => fn(tx)) : fn(ejecutor)
+}
+
 /** Cierra el pool. Solo para el shutdown del servidor y el teardown de tests. */
 export async function closeDb(): Promise<void> {
   await queryClient.end()

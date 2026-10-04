@@ -1,4 +1,4 @@
-import { db } from '@/db/client'
+import { type Ejecutor, db } from '@/db/client'
 import { auditLog } from '@/db/schema'
 import type { Action, Resource } from './matrix'
 
@@ -25,8 +25,31 @@ export interface AuditInput {
   payload?: Record<string, unknown> | undefined
 }
 
-export async function emit(input: AuditInput): Promise<void> {
-  await db.insert(auditLog).values({
+/**
+ * Escribe una fila en la bitácora.
+ *
+ * ── El `ejecutor` es lo que hace cumplible a ADR-0007 ───────────────────────
+ *
+ * La ADR decide que una acción SENSIBLE sin bitácora **no se ejecuta**. Eso no
+ * se puede cumplir emitiendo después del commit: si el `INSERT` falla ahí, el
+ * cambio ya está aplicado y lo único que queda es devolver un 500 sobre algo
+ * que SÍ ocurrió — el estado real y lo que la persona cree quedan en
+ * desacuerdo, que es peor que no auditar.
+ *
+ * Pasando la transacción del cambio, las dos escrituras viven o mueren juntas:
+ * si una se cae, el rollback se lleva las dos, y «no se ejecuta» pasa a ser
+ * verdad en vez de una intención.
+ *
+ * Y no era solo que escribiera afuera: con el pool en una conexión —como corre
+ * en los tests— `emit` pidiendo la suya mientras una transacción tiene la
+ * única se **bloquea a sí mismo**. El rojo no era una aserción, era un
+ * timeout.
+ *
+ * El default sigue siendo `db`: los eventos de sesión y los rechazos, que la
+ * ADR deja explícitamente no bloqueantes, no tienen transacción que compartir.
+ */
+export async function emit(input: AuditInput, ejecutor: Ejecutor = db): Promise<void> {
+  await ejecutor.insert(auditLog).values({
     userId: input.userId,
     rolEjercido: [...input.rolEjercido],
     action: input.action,

@@ -1,5 +1,5 @@
 import { and, eq, gte, sql } from 'drizzle-orm'
-import { type DB, db } from '@/db/client'
+import { type Ejecutor, db, enTransaccion } from '@/db/client'
 import { type MovimientoStock, lotes, movimientosStock } from '@/db/schema'
 
 /**
@@ -37,9 +37,10 @@ import { type MovimientoStock, lotes, movimientosStock } from '@/db/schema'
  * ventana.
  */
 
-/** `db` o una transacción abierta. M6 va a necesitar descontar dentro de la suya. */
-export type Transaccion = Parameters<Parameters<DB['transaction']>[0]>[0]
-export type Ejecutor = DB | Transaccion
+/* Reexportados: el dueño es `db/client.ts`, y quien ya los importaba de acá no
+ * se entera del movimiento. */
+export type { Ejecutor, Transaccion } from '@/db/client'
+export { enTransaccion } from '@/db/client'
 
 export interface Salida {
   loteId: string
@@ -181,6 +182,3 @@ function exigirCantidadPositiva(cantidad: number): void {
  * por su cuenta si abrir o no — y la que se equivoque abre una anidada que
  * commitea aparte, que es justo lo que la atomicidad de M4 no puede permitir.
  */
-export function enTransaccion<T>(ejecutor: Ejecutor, fn: (tx: Ejecutor) => Promise<T>): Promise<T> {
-  return 'transaction' in ejecutor ? ejecutor.transaction((tx) => fn(tx)) : fn(ejecutor)
-}
