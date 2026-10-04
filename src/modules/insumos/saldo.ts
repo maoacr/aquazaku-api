@@ -1,5 +1,5 @@
 import { and, eq, gte, sql } from 'drizzle-orm'
-import { type DB, db } from '@/db/client'
+import { type Ejecutor, db, enTransaccion } from '@/db/client'
 import { type MovimientoInsumo, insumos, movimientosInsumo } from '@/db/schema'
 
 /**
@@ -36,9 +36,9 @@ import { type MovimientoInsumo, insumos, movimientosInsumo } from '@/db/schema'
  * ventana.
  */
 
-/** `db` o una transacción abierta. M4 va a necesitar consumir dentro de la suya. */
-type Transaccion = Parameters<Parameters<DB['transaction']>[0]>[0]
-export type Ejecutor = DB | Transaccion
+/* El dueño es `db/client.ts`. Reexportado porque este módulo lo expone en su
+ * firma pública. */
+export type { Ejecutor } from '@/db/client'
 
 /**
  * La conversión de una compra que llegó por peso — RN-INS-02.
@@ -190,7 +190,3 @@ function exigirCantidadPositiva(cantidad: number): void {
   }
 }
 
-/** Abre transacción solo si el ejecutor no es ya una. */
-function enTransaccion<T>(ejecutor: Ejecutor, fn: (tx: Ejecutor) => Promise<T>): Promise<T> {
-  return 'transaction' in ejecutor ? ejecutor.transaction((tx) => fn(tx)) : fn(ejecutor)
-}
