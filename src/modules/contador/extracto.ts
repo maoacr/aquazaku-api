@@ -127,7 +127,7 @@ export async function extracto({ desde, hasta, tipos }: Filtros): Promise<Extrac
        * salían en el extracto en un orden que podía cambiar entre dos corridas
        * del mismo reporte. Ver `primerRegistroEn` en el esquema.
        */
-      .orderBy(asc(ventas.createdAt), asc(ventas.primerRegistroEn))
+      .orderBy(asc(ventas.createdAt), asc(ventas.primerRegistroEn), asc(ventas.id))
 
     for (const f of filas) {
       const tipo: TipoDeMovimiento = f.tipo === 'dano_base' ? 'recargo' : 'venta'
@@ -159,6 +159,17 @@ export async function extracto({ desde, hasta, tipos }: Filtros): Promise<Extrac
       .from(cobros)
       .leftJoin(clientes, eq(clientes.id, cobros.clienteId))
       .where(enRango(cobros.createdAt))
+      /*
+       * El `id` cierra el orden — RN-VEN-19.
+       *
+       * Un cobro lleva el `defaultNow()` del insert, así que empatar al
+       * microsegundo es improbable. Pero «improbable» es exactamente lo que se
+       * dijo del `ORDER BY` de ventas antes de que empatara en producción: un
+       * orden parcial no se cae, se pone de acuerdo con el plan. Con la clave
+       * primaria al final el orden es TOTAL, y deja de depender de una
+       * probabilidad.
+       */
+      .orderBy(asc(cobros.createdAt), asc(cobros.id))
 
     for (const f of filas) {
       movimientos.push({
@@ -187,6 +198,8 @@ export async function extracto({ desde, hasta, tipos }: Filtros): Promise<Extrac
       .innerJoin(ventas, eq(ventas.id, devoluciones.ventaOrigenId))
       .leftJoin(clientes, eq(clientes.id, ventas.clienteId))
       .where(enRango(devoluciones.createdAt))
+      // Orden total, por lo mismo que los cobros — RN-VEN-19.
+      .orderBy(asc(devoluciones.createdAt), asc(devoluciones.id))
 
     for (const f of filas) {
       movimientos.push({
@@ -218,6 +231,8 @@ export async function extracto({ desde, hasta, tipos }: Filtros): Promise<Extrac
       .from(compras)
       .innerJoin(proveedores, eq(proveedores.id, compras.proveedorId))
       .where(and(enRango(compras.createdAt), eq(compras.estado, 'recibida')))
+      // Orden total, por lo mismo que los cobros — RN-VEN-19.
+      .orderBy(asc(compras.createdAt), asc(compras.id))
 
     for (const f of filas) {
       movimientos.push({

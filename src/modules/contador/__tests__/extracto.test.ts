@@ -231,3 +231,56 @@ describe('un rango al revés no es un rango', () => {
     })
   })
 })
+
+/**
+ * El orden del extracto no depende del plan — RN-VEN-19.
+ *
+ * ── Por qué hace falta forzar el empate ─────────────────────────────────────
+ *
+ * Un cobro lleva el `defaultNow()` del insert, así que dos cobros empatados al
+ * microsegundo no pasan en la vida real. Ese es justamente el problema: con
+ * datos normales, un `ORDER BY` incompleto y uno completo devuelven lo mismo, y
+ * un test sobre datos normales no distingue entre los dos.
+ *
+ * Es el mismo error que ya se pagó en ventas: ahí el empate se creía
+ * improbable, hasta que `ocurrioEn` ancló todo al mediodía y el listado empezó a
+ * devolver dos órdenes distintos según el plan que eligiera Postgres.
+ *
+ * Así que el empate se fabrica. Dos cobros con el MISMO `created_at` exacto, y
+ * la afirmación es que el extracto los devuelve siempre en el mismo orden —el
+ * de su clave primaria— y no en el que le quede cómodo al planner.
+ */
+describe('el orden del extracto es total', () => {
+  const MISMO_INSTANTE = new Date('2026-08-15T12:00:00-05:00')
+
+  /*
+   * ── Diez cobros, y no tres ───────────────────────────────────────────────
+   *
+   * El número es la fuerza del test. Los `id` son UUID aleatorios, así que sin
+   * `ORDER BY` las filas vuelven en el orden del heap —el de inserción— y la
+   * afirmación «salen ordenadas por id» pasa de casualidad con probabilidad
+   * `1/n!`.
+   *
+   * Con tres eso es 1 en 6, y se midió: la primera ablación pasó en verde por
+   * pura suerte antes de fallar seis veces seguidas. Un test que acierta una de
+   * cada seis veces no es un guardia, es una moneda.
+   *
+   * Con diez, 1 en 3.628.800.
+   */
+  it('diez cobros del mismo instante salen en orden de id, no al azar', async () => {
+    await db.insert(cobros).values(
+      Array.from({ length: 10 }, (_, i) => ({
+        clienteId,
+        monto: `${(i + 1) * 1000}.00`,
+        medioDePago: 'efectivo' as const,
+        createdAt: MISMO_INSTANTE,
+      })),
+    )
+
+    const { movimientos } = await extracto({ desde: DESDE, hasta: HASTA, tipos: ['cobro'] })
+    expect(movimientos).toHaveLength(10)
+
+    const ids = movimientos.map((m) => m.documentoId)
+    expect(ids).toEqual([...ids].sort())
+  })
+})
