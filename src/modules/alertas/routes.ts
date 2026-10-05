@@ -40,31 +40,24 @@ export async function alertasRoutes(app: FastifyInstance): Promise<void> {
       const datos = validar(esquemaDeParametro, req.body, reply)
       if (!datos) return
 
-      /*
-       * El valor anterior se lee ANTES de cambiarlo: sin él, la bitácora dice
-       * «lo puso en 3» y no «lo bajó de 7 a 3», que es la mitad que importa
-       * cuando se investiga por qué un aviso dejó de sonar.
-       */
-      const previos = await listarParametros()
-      const antes = previos.find((p) => p.clave === clave)?.valor ?? null
-
       try {
-        const nuevo = await cambiarParametro(clave, datos.valor)
-
-        await emit({
+        /*
+         * La fila la escribe el SERVICIO, dentro de su transacción — ADR-0007.
+         * Un umbral guardado sin rastro de quién lo movió es justo el caso que
+         * la bitácora existe para explicar.
+         *
+         * Y con eso se fue una lectura: acá se traía la tabla COMPLETA solo
+         * para encontrar el valor anterior de una clave, y el servicio volvía a
+         * leer la misma fila para validar el rango. Ahora el «antes» sale del
+         * mismo SELECT que valida, así que además es el que se validó.
+         */
+        return await cambiarParametro(clave, datos.valor, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'configuracion:editar',
-          resource: 'configuracion',
-          resourceId: clave,
-          result: 'ok',
           requestId: String(req.id),
           ip: req.ip,
           userAgent: req.headers['user-agent'],
-          payload: { antes, despues: nuevo.valor, etiqueta: nuevo.etiqueta },
         })
-
-        return nuevo
       } catch (err) {
         return manejarError(err, req, reply, clave)
       }

@@ -8,6 +8,9 @@ import {
 } from '@/modules/alertas/parametros'
 import { resetDb } from '@/test/db'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * Los umbrales de las alertas — M12, RN-STK-11.
  *
@@ -70,24 +73,24 @@ describe('leer un umbral', () => {
  */
 describe('cambiar un umbral', () => {
   it('lo cambia, y eso cambia lo que avisan las pantallas', async () => {
-    const p = await cambiarParametro('dias_aviso_vencimiento', 14)
+    const p = await cambiarParametro('dias_aviso_vencimiento', 14, UN_CONTEXTO)
 
     expect(p.valor).toBe(14)
     expect(await leerParametro('dias_aviso_vencimiento')).toBe(14)
   })
 
   it('por debajo del mínimo se rechaza, y explica qué apagaría', async () => {
-    await expect(cambiarParametro('dias_aviso_vencimiento', 0)).rejects.toThrow('apagaría el aviso')
+    await expect(cambiarParametro('dias_aviso_vencimiento', 0, UN_CONTEXTO)).rejects.toThrow('apagaría el aviso')
   })
 
   it('por encima del máximo también, y explica lo contrario', async () => {
-    await expect(cambiarParametro('dias_aviso_vencimiento', 90)).rejects.toThrow(
+    await expect(cambiarParametro('dias_aviso_vencimiento', 90, UN_CONTEXTO)).rejects.toThrow(
       'siempre encendido',
     )
   })
 
   it('el mensaje dice entre qué y qué se puede mover', async () => {
-    await expect(cambiarParametro('dias_aviso_vencimiento', 0)).rejects.toThrow(
+    await expect(cambiarParametro('dias_aviso_vencimiento', 0, UN_CONTEXTO)).rejects.toThrow(
       'va entre 1 y 30 días',
     )
   })
@@ -101,13 +104,13 @@ describe('cambiar un umbral', () => {
      */
     const antes = (await listarParametros()).length
 
-    await expect(cambiarParametro('inventado', 5)).rejects.toThrow('no existe el parámetro')
+    await expect(cambiarParametro('inventado', 5, UN_CONTEXTO)).rejects.toThrow('no existe el parámetro')
 
     expect(await listarParametros()).toHaveLength(antes)
   })
 
   it('los bordes SÍ se aceptan: el límite es inclusivo', async () => {
-    expect((await cambiarParametro('dias_aviso_vencimiento', 1)).valor).toBe(1)
-    expect((await cambiarParametro('dias_aviso_vencimiento', 30)).valor).toBe(30)
+    expect((await cambiarParametro('dias_aviso_vencimiento', 1, UN_CONTEXTO)).valor).toBe(1)
+    expect((await cambiarParametro('dias_aviso_vencimiento', 30, UN_CONTEXTO)).valor).toBe(30)
   })
 })
