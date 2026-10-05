@@ -12,6 +12,9 @@ import { marcarBaseDanada } from '@/modules/retornables/dano'
 import { cambiarParametro, leerParametro } from '@/modules/alertas/parametros'
 import { resetDb } from '@/test/db'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * ¿Alcanzan las bases hasta el próximo pedido? — RN-BAS-13.
  *
@@ -87,11 +90,11 @@ describe('la ventana es la demora del proveedor', () => {
   })
 
   it('cambiar el parámetro cambia la ventana, sin desplegar nada', async () => {
-    await cambiarParametro('dias_entrega_bases', 21)
+    await cambiarParametro('dias_entrega_bases', 21, UN_CONTEXTO)
 
     expect((await disponibilidadDeBases()).diasDeEntrega).toBe(21)
 
-    await cambiarParametro('dias_entrega_bases', 7)
+    await cambiarParametro('dias_entrega_bases', 7, UN_CONTEXTO)
   })
 })
 

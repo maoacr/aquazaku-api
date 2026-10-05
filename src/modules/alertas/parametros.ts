@@ -2,6 +2,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { parametros } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 
 /**
  * Los umbrales de las alertas — M12.
@@ -99,27 +100,66 @@ export async function leerParametro(clave: ClaveDeParametro): Promise<number> {
  * nadie puede leer — y quien lo escribió no sabría entre qué y qué puede
  * moverse (ADR-0006).
  */
-export async function cambiarParametro(clave: string, valor: number): Promise<Parametro> {
-  const [actual] = await db.select().from(parametros).where(eq(parametros.clave, clave))
+export async function cambiarParametro(
+  clave: string,
+  valor: number,
+  contexto: ContextoDeAuditoria,
+): Promise<Parametro> {
+  /*
+   * ── El cambio y su fila, una sola escritura — ADR-0007 ────────────────────
+   *
+   * Un aviso que dejó de sonar tiene dos explicaciones —el problema
+   * desapareció, o alguien movió el número— y meses después no hay forma de
+   * distinguirlas salvo que quede escrito. Si esa fila puede fallar DESPUÉS de
+   * guardar el umbral, el caso que la bitácora existe para explicar es
+   * justamente el que se pierde.
+   *
+   * ── Y el «antes» sale del mismo SELECT que valida ─────────────────────────
+   *
+   * La ruta leía la tabla COMPLETA con `listarParametros()` solo para
+   * encontrar el valor anterior de una clave, y este servicio volvía a leer la
+   * misma fila para validar el rango. Dos lecturas para un dato que estaba en
+   * la primera — y entre una y otra el valor podía cambiar, así que el «antes»
+   * de la bitácora no era necesariamente el que se validó.
+   */
+  return db.transaction(async (tx) => {
+    const [actual] = await tx.select().from(parametros).where(eq(parametros.clave, clave))
 
-  if (!actual) {
-    throw new ErrorDeNegocio('PARAMETRO_DESCONOCIDO', 404, `no existe el parámetro «${clave}»`)
-  }
+    if (!actual) {
+      throw new ErrorDeNegocio('PARAMETRO_DESCONOCIDO', 404, `no existe el parámetro «${clave}»`)
+    }
 
-  if (valor < actual.minimo || valor > actual.maximo) {
-    throw new ErrorDeNegocio(
-      'PARAMETRO_FUERA_DE_RANGO',
-      422,
-      `«${actual.etiqueta}» va entre ${actual.minimo} y ${actual.maximo} ${actual.unidad}. ` +
-        `Un umbral en ${valor} ${valor < actual.minimo ? 'apagaría el aviso' : 'lo dejaría siempre encendido'}, y las dos formas se ven igual desde afuera: nadie reacciona.`,
+    if (valor < actual.minimo || valor > actual.maximo) {
+      throw new ErrorDeNegocio(
+        'PARAMETRO_FUERA_DE_RANGO',
+        422,
+        `«${actual.etiqueta}» va entre ${actual.minimo} y ${actual.maximo} ${actual.unidad}. ` +
+          `Un umbral en ${valor} ${valor < actual.minimo ? 'apagaría el aviso' : 'lo dejaría siempre encendido'}, y las dos formas se ven igual desde afuera: nadie reacciona.`,
+      )
+    }
+
+    const [nuevo] = await tx
+      .update(parametros)
+      .set({ valor, actualizadoEn: new Date() })
+      .where(eq(parametros.clave, clave))
+      .returning()
+
+    /*
+     * `antes` y `despues`, no solo el valor nuevo: «lo puso en 3» no sirve para
+     * investigar por qué un aviso dejó de sonar. «Lo bajó de 7 a 3» sí.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'configuracion:editar',
+        resource: 'configuracion',
+        resourceId: clave,
+        result: 'ok',
+        payload: { antes: actual.valor, despues: nuevo!.valor, etiqueta: nuevo!.etiqueta },
+      },
+      tx,
     )
-  }
 
-  const [nuevo] = await db
-    .update(parametros)
-    .set({ valor, actualizadoEn: new Date() })
-    .where(eq(parametros.clave, clave))
-    .returning()
-
-  return nuevo!
+    return nuevo!
+  })
 }

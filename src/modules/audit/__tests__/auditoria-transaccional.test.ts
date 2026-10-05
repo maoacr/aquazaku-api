@@ -119,10 +119,10 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       acciones: ['(la fila genérica de cualquier acción permitida)'],
       nota: 'NO aplica: emite antes del cambio, por diseño. No hay nada que migrar acá',
     },
-    'alertas/routes.ts': {
-      transaccional: false,
+    'alertas/parametros.ts': {
+      transaccional: true,
       acciones: ['configuracion:editar'],
-      nota: 'pendiente — mover un umbral de alerta es configuración, y la fila dice de cuánto a cuánto',
+      nota: 'el UPDATE y la fila van en la misma transacción; el `antes` sale del mismo SELECT que valida el rango',
     },
     'productos/routes.ts': {
       transaccional: false,
