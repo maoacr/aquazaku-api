@@ -176,33 +176,49 @@ export async function registrarEntrada(
     throw new ErrorDeNegocio('CANTIDAD_INVALIDA', 422, 'la cantidad tiene que ser mayor que cero')
   }
 
-  const [producto] = await db.select().from(productos).where(eq(productos.id, entrada.productoId))
-  if (!producto) {
-    throw new ErrorDeNegocio('PRODUCTO_NO_ENCONTRADO', 404, 'no existe ese producto')
-  }
+  /*
+   * TODO lo que escribe va en una transacción, la fila de auditoría incluida —
+   * ADR-0007. Las lecturas también usan el `tx`: con el pool en una conexión,
+   * leer con `db` adentro de una transacción se bloquea a sí mismo.
+   */
+  return enTransaccion(db, async (tx) => {
+    const [producto] = await tx
+      .select()
+      .from(productos)
+      .where(eq(productos.id, entrada.productoId))
+    if (!producto) {
+      throw new ErrorDeNegocio('PRODUCTO_NO_ENCONTRADO', 404, 'no existe ese producto')
+    }
 
-  const creado = await crearLoteConEntrada(
-    {
-      productoId: entrada.productoId,
-      fechaEmpaque: entrada.fechaEmpaque,
-      cantidad: entrada.cantidad,
-      tipo: 'ajuste',
-      motivo: entrada.motivo,
-      registradoPor: contexto.userId,
-    },
-    db,
-  )
+    const creado = await crearLoteConEntrada(
+      {
+        productoId: entrada.productoId,
+        fechaEmpaque: entrada.fechaEmpaque,
+        cantidad: entrada.cantidad,
+        tipo: 'ajuste',
+        motivo: entrada.motivo,
+        registradoPor: contexto.userId,
+      },
+      tx,
+    )
 
-  await auditar(contexto, 'stock:ajustar', creado.id, {
-    documento: 'entrada_de_inventario',
-    codigo: creado.codigo,
-    producto: producto.codigo,
-    motivo: entrada.motivo,
-    antes: 0,
-    despues: entrada.cantidad,
+    await auditar(
+      contexto,
+      'stock:ajustar',
+      creado.id,
+      {
+        documento: 'entrada_de_inventario',
+        codigo: creado.codigo,
+        producto: producto.codigo,
+        motivo: entrada.motivo,
+        antes: 0,
+        despues: entrada.cantidad,
+      },
+      tx,
+    )
+
+    return creado
   })
-
-  return creado
 }
 
 /**
@@ -226,45 +242,65 @@ export async function ajustarLote(
     )
   }
 
-  const antes = await exigirLote(ajuste.loteId)
+  return enTransaccion(db, async (tx) => {
+    const antes = await exigirLote(ajuste.loteId, tx)
 
-  const resultado =
-    ajuste.cantidad > 0
-      ? await ingresar({
-          loteId: ajuste.loteId,
-          cantidad: ajuste.cantidad,
-          tipo: 'ajuste',
-          motivo: ajuste.motivo,
-          registradoPor: contexto.userId,
-        })
-      : await descontar({
-          loteId: ajuste.loteId,
-          cantidad: -ajuste.cantidad,
-          // `ajuste`, NO `venta`: un conteo que da de menos no vendió nada.
-          // Registrarlo como venta inflaría el reporte de ventas con unidades
-          // que nadie compró.
-          tipo: 'ajuste',
-          motivo: ajuste.motivo,
-          registradoPor: contexto.userId,
-        })
+    const resultado =
+      ajuste.cantidad > 0
+        ? await ingresar(
+            {
+              loteId: ajuste.loteId,
+              cantidad: ajuste.cantidad,
+              tipo: 'ajuste',
+              motivo: ajuste.motivo,
+              registradoPor: contexto.userId,
+            },
+            tx,
+          )
+        : await descontar(
+            {
+              loteId: ajuste.loteId,
+              cantidad: -ajuste.cantidad,
+              // `ajuste`, NO `venta`: un conteo que da de menos no vendió nada.
+              // Registrarlo como venta inflaría el reporte de ventas con
+              // unidades que nadie compró.
+              tipo: 'ajuste',
+              motivo: ajuste.motivo,
+              registradoPor: contexto.userId,
+            },
+            tx,
+          )
 
-  if (!resultado.ok) {
-    throw new ErrorDeNegocio(
-      'STOCK_INSUFICIENTE',
-      409,
-      `el lote tiene ${resultado.disponible} unidades: no se pueden descontar ${-ajuste.cantidad}`,
+    /*
+     * Que no alcance NO es un fallo de auditoría: es un rechazo de negocio, y
+     * lanzarlo acá revierte la transacción entera —incluida la fila— que es
+     * justo lo que corresponde. La ADR deja los rechazos fuera del emit `ok`;
+     * este 409 lo audita `manejarError` en la ruta, sin bloquear.
+     */
+    if (!resultado.ok) {
+      throw new ErrorDeNegocio(
+        'STOCK_INSUFICIENTE',
+        409,
+        `el lote tiene ${resultado.disponible} unidades: no se pueden descontar ${-ajuste.cantidad}`,
+      )
+    }
+
+    await auditar(
+      contexto,
+      'stock:ajustar',
+      ajuste.loteId,
+      {
+        documento: 'ajuste',
+        codigo: antes.codigo,
+        motivo: ajuste.motivo,
+        antes: antes.cantidadDisponible,
+        despues: resultado.saldo,
+      },
+      tx,
     )
-  }
 
-  await auditar(contexto, 'stock:ajustar', ajuste.loteId, {
-    documento: 'ajuste',
-    codigo: antes.codigo,
-    motivo: ajuste.motivo,
-    antes: antes.cantidadDisponible,
-    despues: resultado.saldo,
+    return { saldo: resultado.saldo }
   })
-
-  return { saldo: resultado.saldo }
 }
 
 /**
@@ -288,35 +324,46 @@ export async function descartar(
 
   exigirObservacionesSiLaCausaEsOtro(descarte)
 
-  const antes = await exigirLote(descarte.loteId)
+  return enTransaccion(db, async (tx) => {
+    const antes = await exigirLote(descarte.loteId, tx)
 
-  const resultado = await descontar({
-    loteId: descarte.loteId,
-    cantidad: descarte.cantidad,
-    tipo: 'descarte',
-    causa: descarte.causa,
-    motivo: descarte.observaciones,
-    registradoPor: contexto.userId,
-  })
-
-  if (!resultado.ok) {
-    throw new ErrorDeNegocio(
-      'STOCK_INSUFICIENTE',
-      409,
-      `el lote tiene ${resultado.disponible} unidades: no se pueden descartar ${descarte.cantidad}`,
+    const resultado = await descontar(
+      {
+        loteId: descarte.loteId,
+        cantidad: descarte.cantidad,
+        tipo: 'descarte',
+        causa: descarte.causa,
+        motivo: descarte.observaciones,
+        registradoPor: contexto.userId,
+      },
+      tx,
     )
-  }
 
-  await auditar(contexto, 'stock:descartar', descarte.loteId, {
-    documento: 'descarte',
-    codigo: antes.codigo,
-    causa: descarte.causa,
-    observaciones: descarte.observaciones ?? null,
-    antes: antes.cantidadDisponible,
-    despues: resultado.saldo,
+    if (!resultado.ok) {
+      throw new ErrorDeNegocio(
+        'STOCK_INSUFICIENTE',
+        409,
+        `el lote tiene ${resultado.disponible} unidades: no se pueden descartar ${descarte.cantidad}`,
+      )
+    }
+
+    await auditar(
+      contexto,
+      'stock:descartar',
+      descarte.loteId,
+      {
+        documento: 'descarte',
+        codigo: antes.codigo,
+        causa: descarte.causa,
+        observaciones: descarte.observaciones ?? null,
+        antes: antes.cantidadDisponible,
+        despues: resultado.saldo,
+      },
+      tx,
+    )
+
+    return { saldo: resultado.saldo }
   })
-
-  return { saldo: resultado.saldo }
 }
 
 /**
@@ -325,6 +372,12 @@ export async function descartar(
  * Ajustar y descartar son acciones sensibles: RN-ACC-04 las nombra. Un ajuste
  * que corrige el inventario sin dejar rastro es exactamente lo que la regla
  * existe para impedir, así que si no se puede auditar, la operación falla.
+ *
+ * El `ejecutor` es lo que hace que «la operación falla» sea verdad. Antes esto
+ * bloqueaba pero corría DESPUÉS de mover el saldo: el inventario ya estaba
+ * corregido y lo único que quedaba era un 500 sobre algo que sí pasó. Bloquear
+ * sin atomicidad es el PEOR de los tres resultados — ruidoso y además
+ * inconsistente. Ahora la fila va en la transacción del movimiento.
  *
  * El payload lleva el saldo **antes y después**. Sin eso la bitácora diría que
  * hubo un ajuste pero no de cuánto a cuánto — que es lo primero que se va a
@@ -335,6 +388,7 @@ async function auditar(
   action: string,
   resourceId: string,
   payload: Record<string, unknown>,
+  ejecutor: Ejecutor,
 ): Promise<void> {
-  await emit({ ...contexto, action, resource: 'stock', resourceId, result: 'ok', payload })
+  await emit({ ...contexto, action, resource: 'stock', resourceId, result: 'ok', payload }, ejecutor)
 }

@@ -78,7 +78,7 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       nota: 'pendiente — ojo con las rutas de movimiento: `descontar` devuelve `{ ok: false }` sin lanzar',
     },
     'stock/service.ts': {
-      transaccional: false,
+      transaccional: true,
       acciones: ['stock:ajustar', 'stock:descartar'],
       nota: 'pendiente — su helper `auditar` ya dice «bloqueante», pero bloquear sin atomicidad es el PEOR caso: 500 con el cambio aplicado',
     },
