@@ -83,9 +83,15 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       nota: 'pendiente — su helper `auditar` ya dice «bloqueante», pero bloquear sin atomicidad es el PEOR caso: 500 con el cambio aplicado',
     },
     'productos/service.ts': {
-      transaccional: false,
-      acciones: ['productos:editar_precios'],
-      nota: 'pendiente — este archivo no tiene transacción en ninguna parte; bloquea sin atomicidad',
+      transaccional: true,
+      acciones: [
+        'productos:crear',
+        'productos:editar',
+        'productos:editar_precios',
+        'productos:desactivar',
+        'productos:reactivar',
+      ],
+      nota: 'las cinco emiten dentro de su transacción; el helper `auditar` de la ruta se fue con ellas',
     },
     /*
      * Eventos de SESIÓN — el segundo caso de la ADR, y queda afuera a
@@ -123,11 +129,6 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       transaccional: true,
       acciones: ['configuracion:editar'],
       nota: 'el UPDATE y la fila van en la misma transacción; el `antes` sale del mismo SELECT que valida el rango',
-    },
-    'productos/routes.ts': {
-      transaccional: false,
-      acciones: ['productos:crear', 'productos:desactivar', 'productos:reactivar', 'productos:editar'],
-      nota: 'pendiente — su helper `auditar` es bloqueante y corre después del cambio',
     },
   }
 

@@ -2,7 +2,6 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
-import { emit } from '@/modules/authz/audit'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import {
   buscarProducto,
@@ -62,9 +61,13 @@ export async function productoRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const producto = await crearProducto(datos)
-
-        await auditar(req, 'productos:crear', producto.id, { codigo: producto.codigo, nombre: producto.nombre })
+        const producto = await crearProducto(datos, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
 
         return reply.code(201).send(producto)
       } catch (err) {
@@ -85,26 +88,18 @@ export async function productoRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         /*
-         * El nombre de ANTES se lee acá, antes de escribirlo. Sin él la fila
-         * dice «se editó un producto» y nada más — y este PATCH solo cambia el
-         * nombre, así que el antes y el después son lo único que hay para
-         * contar. Mismo criterio que los umbrales de alertas.
-         *
-         * Son dos lecturas (esta y la que hace el servicio para validar que
-         * existe) y se acepta: la alternativa es que `editarProducto` devuelva
-         * el antes además del después, y eso cambiaría lo que la ruta le
-         * responde al cliente.
+         * El «antes» ya no se lee acá: lo lee el servicio dentro de su propia
+         * transacción, que es la única forma de que sea el nombre que de verdad
+         * se reemplazó. Esta ruta hacía DOS lecturas —esta y la del servicio—
+         * y entre una y otra el nombre podía cambiar.
          */
-        const antes = await buscarProducto(id)
-        const actualizado = await editarProducto(id, datos)
-
-        await auditar(req, 'productos:editar', id, {
-          codigo: actualizado.codigo,
-          antes: { nombre: antes?.nombre ?? null },
-          despues: { nombre: actualizado.nombre },
+        return await editarProducto(id, datos, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
-
-        return actualizado
       } catch (err) {
         return manejarError(err, req, reply, 'productos:editar', id)
       }
@@ -164,11 +159,13 @@ export async function productoRoutes(app: FastifyInstance): Promise<void> {
       const id = idDe(req)
 
       try {
-        const producto = await desactivarProducto(id)
-
-        await auditar(req, 'productos:desactivar', id, { codigo: producto.codigo })
-
-        return producto
+        return await desactivarProducto(id, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
       } catch (err) {
         return manejarError(err, req, reply, 'productos:desactivar', id)
       }
@@ -184,11 +181,13 @@ export async function productoRoutes(app: FastifyInstance): Promise<void> {
       const id = idDe(req)
 
       try {
-        const producto = await reactivarProducto(id)
-
-        await auditar(req, 'productos:reactivar', id, { codigo: producto.codigo })
-
-        return producto
+        return await reactivarProducto(id, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
       } catch (err) {
         return manejarError(err, req, reply, 'productos:reactivar', id)
       }
@@ -200,37 +199,15 @@ function idDe(req: FastifyRequest): string {
   return (req.params as { id: string }).id
 }
 
-/**
- * Escribe en la bitácora una acción sobre el catálogo. **Bloqueante**.
+/*
+ * El helper `auditar` de este archivo se fue con los emits.
  *
- * No usa `auditarSinBloquear`: esa existe para eventos de sesión y se traga los
- * fallos a propósito, porque una bitácora caída no debería impedir entrar al
- * sistema. Acá es al revés — RN-ACC-04 nombra los cambios de precio entre las
- * acciones sensibles, y un precio que cambia sin dejar rastro es exactamente lo
- * que la regla existe para impedir.
- *
- * Si no se puede auditar, la operación falla. Misma regla que en
- * `requirePermission`.
+ * Argumentaba bien —RN-ACC-04 nombra los cambios de catálogo, así que si no se
+ * puede auditar la operación falla— pero corría DESPUÉS del cambio: bloquear
+ * sin atomicidad deja el cambio aplicado y devuelve un 500. Ahora cada servicio
+ * emite dentro de su transacción (ADR-0007), que es donde «la operación falla»
+ * se vuelve verdad.
  */
-async function auditar(
-  req: FastifyRequest,
-  action: string,
-  resourceId: string,
-  payload: Record<string, unknown>,
-): Promise<void> {
-  await emit({
-    userId: req.user?.id ?? null,
-    rolEjercido: req.user?.roles ?? [],
-    action,
-    resource: 'productos',
-    resourceId,
-    result: 'ok',
-    requestId: String(req.id),
-    ip: req.ip,
-    userAgent: req.headers['user-agent'],
-    payload,
-  })
-}
 
 /**
  * Traduce un error de negocio a HTTP y deja el intento fallido en la bitácora.

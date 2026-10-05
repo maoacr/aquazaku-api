@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm'
-import { db } from '@/db/client'
+import { type Ejecutor, db } from '@/db/client'
 import { type Producto, productos } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
@@ -53,13 +53,22 @@ export async function listarProductos(filtro: FiltroActivo = 'activos'): Promise
   return consulta.where(eq(productos.activo, filtro === 'activos')).orderBy(asc(productos.codigo))
 }
 
-export async function buscarProducto(id: string): Promise<Producto | null> {
-  const [fila] = await db.select().from(productos).where(eq(productos.id, id))
+export async function buscarProducto(
+  id: string,
+  ejecutor: Ejecutor = db,
+): Promise<Producto | null> {
+  const [fila] = await ejecutor.select().from(productos).where(eq(productos.id, id))
   return fila ?? null
 }
 
-async function exigirProducto(id: string): Promise<Producto> {
-  const producto = await buscarProducto(id)
+/*
+ * El `ejecutor` en las LECTURAS no es cosmético. Si una de estas se llama con
+ * `db` desde adentro de una transacción, pide su propia conexión del pool
+ * mientras la transacción tiene la única —así corre en los tests— y se bloquea
+ * contra sí misma. El síntoma no es una aserción: es un timeout.
+ */
+async function exigirProducto(id: string, ejecutor: Ejecutor = db): Promise<Producto> {
+  const producto = await buscarProducto(id, ejecutor)
   if (!producto) {
     throw new ErrorDeNegocio('PRODUCTO_NO_ENCONTRADO', 404, 'no existe ese producto')
   }
@@ -105,12 +114,15 @@ function exigirPisoValido(precios: DatosDePrecios): void {
  * códigos, incluidos los de productos inactivos: reciclar el de un producto
  * desactivado haría que un comprobante viejo parezca referirse al nuevo.
  */
-async function codigosTomados(): Promise<string[]> {
-  const filas = await db.select({ codigo: productos.codigo }).from(productos)
+async function codigosTomados(ejecutor: Ejecutor = db): Promise<string[]> {
+  const filas = await ejecutor.select({ codigo: productos.codigo }).from(productos)
   return filas.map((f) => f.codigo)
 }
 
-export async function crearProducto(datos: DatosDeAlta): Promise<Producto> {
+export async function crearProducto(
+  datos: DatosDeAlta,
+  contexto: ContextoDeAuditoria,
+): Promise<Producto> {
   exigirPisoValido(datos)
 
   const paraCodigo: DatosDeCodigo = {
@@ -118,18 +130,38 @@ export async function crearProducto(datos: DatosDeAlta): Promise<Producto> {
     contenidoMl: datos.contenidoMl,
     unidades: datos.unidades,
   }
-  const codigo = generarCodigo(paraCodigo, await codigosTomados())
 
-  const [creado] = await db
-    .insert(productos)
-    .values({ ...datos, codigo })
-    .returning()
+  /*
+   * El código sale de los que YA están tomados, así que leerlo adentro de la
+   * transacción no es solo por el pool: dos altas simultáneas leyendo afuera
+   * podrían generar el mismo código.
+   */
+  return db.transaction(async (tx) => {
+    const codigo = generarCodigo(paraCodigo, await codigosTomados(tx))
 
-  if (!creado) {
-    throw new ErrorDeNegocio('CODIGO_DUPLICADO', 409, 'no se pudo crear el producto')
-  }
+    const [creado] = await tx
+      .insert(productos)
+      .values({ ...datos, codigo })
+      .returning()
 
-  return creado
+    if (!creado) {
+      throw new ErrorDeNegocio('CODIGO_DUPLICADO', 409, 'no se pudo crear el producto')
+    }
+
+    await emit(
+      {
+        ...contexto,
+        action: 'productos:crear',
+        resource: 'productos',
+        resourceId: creado.id,
+        result: 'ok',
+        payload: { codigo: creado.codigo, nombre: creado.nombre },
+      },
+      tx,
+    )
+
+    return creado
+  })
 }
 
 /**
@@ -143,16 +175,41 @@ export async function crearProducto(datos: DatosDeAlta): Promise<Producto> {
 export async function editarProducto(
   id: string,
   cambios: { nombre?: string },
+  contexto: ContextoDeAuditoria,
 ): Promise<Producto> {
-  await exigirProducto(id)
+  return db.transaction(async (tx) => {
+    /*
+     * El nombre de ANTES sale de la misma transacción que lo cambia. La ruta lo
+     * leía por su cuenta y después llamaba al servicio: entre las dos lecturas
+     * el nombre podía cambiar, y la bitácora registraba un «antes» que ya no
+     * era el que se estaba reemplazando.
+     */
+    const antes = await exigirProducto(id, tx)
 
-  const [actualizado] = await db
-    .update(productos)
-    .set(cambios)
-    .where(eq(productos.id, id))
-    .returning()
+    const [actualizado] = await tx
+      .update(productos)
+      .set(cambios)
+      .where(eq(productos.id, id))
+      .returning()
 
-  return actualizado as Producto
+    await emit(
+      {
+        ...contexto,
+        action: 'productos:editar',
+        resource: 'productos',
+        resourceId: id,
+        result: 'ok',
+        payload: {
+          codigo: antes.codigo,
+          antes: { nombre: antes.nombre },
+          despues: { nombre: (actualizado as Producto).nombre },
+        },
+      },
+      tx,
+    )
+
+    return actualizado as Producto
+  })
 }
 
 /**
@@ -167,37 +224,50 @@ export async function editarPrecios(
   nuevos: DatosDePrecios,
   contexto: ContextoDeAuditoria,
 ): Promise<Producto> {
-  const antes = await exigirProducto(id)
   exigirPisoValido(nuevos)
 
-  const [actualizado] = await db
-    .update(productos)
-    .set(nuevos)
-    .where(eq(productos.id, id))
-    .returning()
+  /*
+   * Este emit ya era BLOQUEANTE y el comentario de la ruta lo argumentaba bien
+   * — pero corría después del UPDATE. Bloquear sin atomicidad es el PEOR de los
+   * tres resultados: el precio quedaba cambiado y el usuario recibía un 500
+   * sobre algo que sí pasó. Un emit silencioso al menos deja el sistema
+   * coherente; esto no.
+   */
+  return db.transaction(async (tx) => {
+    const antes = await exigirProducto(id, tx)
 
-  await emit({
-    ...contexto,
-    action: 'productos:editar_precios',
-    resource: 'productos',
-    resourceId: id,
-    result: 'ok',
-    payload: {
-      codigo: antes.codigo,
-      antes: {
-        residencial: antes.precioResidencial,
-        comercial: antes.precioComercial,
-        minimo: antes.precioMinimo,
+    const [actualizado] = await tx
+      .update(productos)
+      .set(nuevos)
+      .where(eq(productos.id, id))
+      .returning()
+
+    await emit(
+      {
+        ...contexto,
+        action: 'productos:editar_precios',
+        resource: 'productos',
+        resourceId: id,
+        result: 'ok',
+        payload: {
+          codigo: antes.codigo,
+          antes: {
+            residencial: antes.precioResidencial,
+            comercial: antes.precioComercial,
+            minimo: antes.precioMinimo,
+          },
+          despues: {
+            residencial: nuevos.precioResidencial,
+            comercial: nuevos.precioComercial,
+            minimo: nuevos.precioMinimo,
+          },
+        },
       },
-      despues: {
-        residencial: nuevos.precioResidencial,
-        comercial: nuevos.precioComercial,
-        minimo: nuevos.precioMinimo,
-      },
-    },
+      tx,
+    )
+
+    return actualizado as Producto
   })
-
-  return actualizado as Producto
 }
 
 /**
@@ -219,14 +289,24 @@ export async function editarPrecios(
  * expone nada que mueva saldo, y no hay ciclo — stock lee la TABLA `productos`,
  * no este módulo.
  */
-export async function desactivarProducto(id: string): Promise<Producto> {
-  const producto = await exigirProducto(id)
+export async function desactivarProducto(
+  id: string,
+  contexto: ContextoDeAuditoria,
+): Promise<Producto> {
+  return db.transaction(async (tx) => {
+  const producto = await exigirProducto(id, tx)
 
   if (!producto.activo) {
     throw new ErrorDeNegocio('PRODUCTO_YA_INACTIVO', 409, 'el producto ya estaba desactivado')
   }
 
-  const enStock = await saldoTotalDe(id)
+  /*
+   * La lectura del stock también va con el `tx`: es de otro módulo y acepta
+   * ejecutor justamente para esto. Leerla con `db` adentro de la transacción
+   * sería un deadlock, y además vería un saldo que podría cambiar antes del
+   * UPDATE.
+   */
+  const enStock = await saldoTotalDe(id, tx)
   if (enStock > 0) {
     throw new ErrorDeNegocio(
       'PRODUCTO_CON_STOCK',
@@ -235,27 +315,61 @@ export async function desactivarProducto(id: string): Promise<Producto> {
     )
   }
 
-  const [actualizado] = await db
+  const [actualizado] = await tx
     .update(productos)
     .set({ activo: false })
     .where(and(eq(productos.id, id), eq(productos.activo, true)))
     .returning()
 
-  return actualizado as Producto
+    await emit(
+      {
+        ...contexto,
+        action: 'productos:desactivar',
+        resource: 'productos',
+        resourceId: id,
+        result: 'ok',
+        payload: { codigo: producto.codigo },
+      },
+      tx,
+    )
+
+    return actualizado as Producto
+  })
 }
 
-export async function reactivarProducto(id: string): Promise<Producto> {
-  const producto = await exigirProducto(id)
+export async function reactivarProducto(
+  id: string,
+  contexto: ContextoDeAuditoria,
+): Promise<Producto> {
+  return db.transaction(async (tx) => {
+    const producto = await exigirProducto(id, tx)
 
-  if (producto.activo) {
-    throw new ErrorDeNegocio('PRODUCTO_YA_ACTIVO', 409, 'el producto ya estaba activo')
-  }
+    if (producto.activo) {
+      throw new ErrorDeNegocio('PRODUCTO_YA_ACTIVO', 409, 'el producto ya estaba activo')
+    }
 
-  const [actualizado] = await db
-    .update(productos)
-    .set({ activo: true })
-    .where(eq(productos.id, id))
-    .returning()
+    const [actualizado] = await tx
+      .update(productos)
+      .set({ activo: true })
+      .where(eq(productos.id, id))
+      .returning()
 
-  return actualizado as Producto
+    /*
+     * Reactivar lleva acción propia aunque comparta el permiso `desactivar`:
+     * son hechos opuestos y la bitácora tiene que poder decir cuál fue.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'productos:reactivar',
+        resource: 'productos',
+        resourceId: id,
+        result: 'ok',
+        payload: { codigo: producto.codigo },
+      },
+      tx,
+    )
+
+    return actualizado as Producto
+  })
 }
