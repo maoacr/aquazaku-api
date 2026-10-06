@@ -2,6 +2,7 @@ import { asc, eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { type Insumo, insumos, movimientosInsumo } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import type { Ejecutor } from '@/modules/stock/saldo'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { type Resultado, descontar, ingresar } from '@/modules/insumos/saldo'
@@ -33,8 +34,11 @@ export async function listarInsumos(incluirInactivos = false): Promise<InsumoLis
     }))
 }
 
-export async function buscarInsumo(id: string): Promise<Insumo | undefined> {
-  const [insumo] = await db.select().from(insumos).where(eq(insumos.id, id))
+export async function buscarInsumo(
+  id: string,
+  ejecutor: Ejecutor = db,
+): Promise<Insumo | undefined> {
+  const [insumo] = await ejecutor.select().from(insumos).where(eq(insumos.id, id))
   return insumo
 }
 
@@ -51,13 +55,17 @@ async function exigirInsumo(id: string, ejecutor: Ejecutor = db): Promise<Insumo
   return insumo
 }
 
-export async function crearInsumo(datos: {
-  codigo: string
-  nombre: string
-  minimo: number
-  equivalenciaPorKilo?: number | undefined
-}): Promise<Insumo> {
-  const [creado] = await db
+export async function crearInsumo(
+  datos: {
+    codigo: string
+    nombre: string
+    minimo: number
+    equivalenciaPorKilo?: number | undefined
+  },
+  contexto: ContextoDeAuditoria,
+): Promise<Insumo> {
+  return db.transaction(async (tx) => {
+  const [creado] = await tx
     .insert(insumos)
     .values({
       codigo: datos.codigo,
@@ -68,7 +76,27 @@ export async function crearInsumo(datos: {
     })
     .returning()
 
-  return creado!
+    await emit(
+      {
+        ...contexto,
+        action: 'insumos:ajustar',
+        resource: 'insumos',
+        resourceId: creado!.id,
+        result: 'ok',
+        payload: {
+          operacion: 'alta',
+          resourceId: creado!.id,
+          codigo: creado!.codigo,
+          nombre: creado!.nombre,
+          minimo: creado!.minimo,
+          equivalenciaPorKilo: creado!.equivalenciaPorKilo,
+        },
+      },
+      tx,
+    )
+
+    return creado!
+  })
 }
 
 export async function editarInsumo(
@@ -79,10 +107,12 @@ export async function editarInsumo(
     equivalenciaPorKilo?: number | undefined
     activo?: boolean | undefined
   },
+  contexto: ContextoDeAuditoria,
 ): Promise<Insumo> {
-  await exigirInsumo(id)
+  return db.transaction(async (tx) => {
+  const previo = await exigirInsumo(id, tx)
 
-  const [actualizado] = await db
+  const [actualizado] = await tx
     .update(insumos)
     .set({
       ...(cambios.nombre !== undefined && { nombre: cambios.nombre }),
@@ -100,7 +130,30 @@ export async function editarInsumo(
     .where(eq(insumos.id, id))
     .returning()
 
-  return actualizado!
+    /*
+     * `cambios` lleva lo que VINO en el request, no los cuatro campos del
+     * esquema: la edición es parcial, y un payload completo haría ver como que
+     * se tocó todo cuando se movió solo el mínimo.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'insumos:ajustar',
+        resource: 'insumos',
+        resourceId: id,
+        result: 'ok',
+        payload: {
+          operacion: 'editar',
+          resourceId: id,
+          codigo: previo.codigo,
+          cambios,
+        },
+      },
+      tx,
+    )
+
+    return actualizado!
+  })
 }
 
 /**
@@ -195,10 +248,8 @@ export async function registrarEntrada(
 export async function ajustarInsumo(
   insumoId: string,
   datos: { diferencia: number; motivo: string },
-  registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<Resultado> {
-  await exigirInsumo(insumoId)
-
   if (!motivoEsSuficiente(datos.motivo)) {
     throw new ErrorDeNegocio(
       'MOTIVO_REQUERIDO',
@@ -207,11 +258,35 @@ export async function ajustarInsumo(
     )
   }
 
-  const comun = { insumoId, tipo: 'ajuste' as const, motivo: datos.motivo, registradoPor }
+  return db.transaction(async (tx) => {
+    const insumo = await exigirInsumo(insumoId, tx)
+    const comun = {
+      insumoId,
+      tipo: 'ajuste' as const,
+      motivo: datos.motivo,
+      registradoPor: contexto.userId,
+    }
 
-  return datos.diferencia > 0
-    ? ingresar({ ...comun, cantidad: datos.diferencia }, db)
-    : descontar({ ...comun, cantidad: -datos.diferencia }, db)
+    const resultado =
+      datos.diferencia > 0
+        ? await ingresar({ ...comun, cantidad: datos.diferencia }, tx)
+        : await descontar({ ...comun, cantidad: -datos.diferencia }, tx)
+
+    await auditarMovimiento(
+      contexto,
+      {
+        operacion: 'ajuste',
+        resourceId: insumoId,
+        codigo: insumo.codigo,
+        diferencia: datos.diferencia,
+        motivo: datos.motivo,
+      },
+      resultado,
+      tx,
+    )
+
+    return resultado
+  })
 }
 
 /**
@@ -227,10 +302,8 @@ export async function descartarInsumo(
     causa: 'falla_produccion' | 'mal_manejo_cliente' | 'vencido' | 'otro'
     observaciones?: string | undefined
   },
-  registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<Resultado> {
-  await exigirInsumo(insumoId)
-
   if (datos.causa === 'otro' && !motivoEsSuficiente(datos.observaciones ?? '')) {
     throw new ErrorDeNegocio(
       'OBSERVACIONES_REQUERIDAS',
@@ -239,18 +312,111 @@ export async function descartarInsumo(
     )
   }
 
-  return descontar(
+  return db.transaction(async (tx) => {
+    const insumo = await exigirInsumo(insumoId, tx)
+
+    const resultado = await descontar(
+      {
+        insumoId,
+        cantidad: datos.cantidad,
+        tipo: 'descarte',
+        causa: datos.causa,
+        // Las observaciones viajan como motivo: el libro tiene un solo campo de
+        // texto libre, y en un descarte lo que explica es la observación.
+        motivo: datos.observaciones,
+        registradoPor: contexto.userId,
+      },
+      tx,
+    )
+
+    await auditarMovimiento(
+      contexto,
+      {
+        operacion: 'descarte',
+        resourceId: insumoId,
+        codigo: insumo.codigo,
+        cantidad: datos.cantidad,
+        causa: datos.causa,
+        observaciones: datos.observaciones ?? null,
+      },
+      resultado,
+      tx,
+    )
+
+    return resultado
+  })
+}
+
+/**
+ * La entrada de la RUTA de insumos — la que deja fila en la bitácora.
+ *
+ * `registrarEntrada` queda como primitiva y sin auditoría porque la comparte
+ * `proveedores/compras.ts`, que la llama DENTRO de la transacción de la compra.
+ * Si el emit viviera ahí, cada compra con insumos dejaría una fila
+ * `insumos:ajustar` además de su `compras:crear`: dos filas para un solo hecho
+ * de negocio, y la bitácora contaría entradas que nadie registró a mano.
+ *
+ * Dos funciones con nombres distintos dicen esa diferencia mejor que un
+ * contexto opcional — que además sería el defecto que el guardián vigila: una
+ * llamada que se olvida el contexto y no audita en silencio.
+ */
+export async function registrarEntradaAuditada(
+  insumoId: string,
+  datos: { cantidad?: number | undefined; kilos?: number | undefined; documentoId?: string | undefined },
+  contexto: ContextoDeAuditoria,
+): Promise<Resultado> {
+  return db.transaction(async (tx) => {
+    const insumo = await exigirInsumo(insumoId, tx)
+    const resultado = await registrarEntrada(insumoId, datos, contexto.userId, tx)
+
+    await auditarMovimiento(
+      contexto,
+      {
+        operacion: 'entrada',
+        resourceId: insumoId,
+        codigo: insumo.codigo,
+        /* Unidades O kilos, nunca las dos: van las dos claves y una es `null`,
+         * para que la fila diga en qué se recibió. */
+        cantidad: datos.cantidad ?? null,
+        kilos: datos.kilos ?? null,
+      },
+      resultado,
+      tx,
+    )
+
+    return resultado
+  })
+}
+
+/**
+ * Escribe la fila de un movimiento de saldo, se haya movido o no.
+ *
+ * `descontar` responde `{ ok: false, disponible }` en vez de lanzar: que no
+ * alcance es un estado normal de la planta, no un error. Por eso ese intento no
+ * pasa por el manejador de errores, y sin esta rama quedaría SIN RASTRO.
+ *
+ * Queda como `denied` con lo pedido y lo que de verdad había: «intentó
+ * descartar 900 de las 500 que hay» es justo el patrón que una bitácora existe
+ * para poder mostrar.
+ */
+async function auditarMovimiento(
+  contexto: ContextoDeAuditoria,
+  payload: Record<string, unknown>,
+  resultado: Resultado,
+  ejecutor: Ejecutor,
+): Promise<void> {
+  await emit(
     {
-      insumoId,
-      cantidad: datos.cantidad,
-      tipo: 'descarte',
-      causa: datos.causa,
-      // Las observaciones viajan como motivo: el libro tiene un solo campo de
-      // texto libre, y en un descarte lo que explica es la observación.
-      motivo: datos.observaciones,
-      registradoPor,
+      ...contexto,
+      action: 'insumos:ajustar',
+      resource: 'insumos',
+      resourceId: String(payload.resourceId),
+      result: resultado.ok ? 'ok' : 'denied',
+      payload: resultado.ok
+        ? { ...payload, saldo: resultado.saldo }
+        : { ...payload, disponible: resultado.disponible },
     },
-    db,
+    ejecutor,
   )
 }
 

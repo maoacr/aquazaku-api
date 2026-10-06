@@ -72,10 +72,10 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       acciones: ['tanques:ajustar', 'produccion:registrar_cierre'],
       nota: 'pendiente — el cierre ya es transaccional; `agua.ts` NO tiene transacción y hay que envolverlo',
     },
-    'insumos/routes.ts': {
-      transaccional: false,
+    'insumos/service.ts': {
+      transaccional: true,
       acciones: ['insumos:ajustar'],
-      nota: 'pendiente — ojo con las rutas de movimiento: `descontar` devuelve `{ ok: false }` sin lanzar',
+      nota: 'las cinco operaciones emiten dentro de su transacción; `registrarEntrada` queda como primitiva SIN auditar porque la comparte la compra a proveedor',
     },
     'stock/service.ts': {
       transaccional: true,
@@ -181,15 +181,28 @@ function llamadasDeAuditoria(fuente: string): Llamada[] {
 }
 
 /**
- * Solo los emits de un hecho que SÍ pasó. Los `denied` la ADR los deja afuera a
- * propósito: si auditar un rechazo fallara y cortara, taparía el 403 o el 422
- * que la persona necesita ver.
+ * Los emits de un hecho que PUDO haber pasado.
+ *
+ * Los `denied` quedan afuera a propósito: la ADR los deja no bloqueantes,
+ * porque si auditar un rechazo fallara y cortara, taparía el 403 o el 422 que
+ * la persona necesita ver.
+ *
+ * ── Por qué «no es `denied`» y no «es `ok`» ─────────────────────────────────
+ *
+ * La primera versión buscaba el literal `result: 'ok'`, y eso dejaba pasar un
+ * emit real: el helper de `insumos` escribe
+ * `result: resultado.ok ? 'ok' : 'denied'` —porque un descarte que no alcanza
+ * no movió nada— así que el literal no aparece y el guardián no lo veía.
+ *
+ * Ahora cuenta todo lo que NO sea `'denied'` literal. Falla hacia MÁS
+ * vigilancia, que es la misma política que `debeAuditarseAlPermitir`: ante la
+ * duda, se audita. Un guardián que se equivoca de menos no sirve para nada.
  *
  * `auditarSinBloquear` recibe el request primero, así que el objeto está en el
- * segundo argumento.
+ * segundo argumento — de ahí el `some` sobre todos los argumentos.
  */
 const emiteOk = (llamada: Llamada) =>
-  llamada.argumentos.some((a) => a.includes("result: 'ok'"))
+  llamada.argumentos.some((a) => /result:/.test(a) && !/result:\s*'denied'/.test(a))
 
 /**
  * Atómico es `emit(datos, ejecutor)` y nada más.

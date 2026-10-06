@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
-import { insumos, movimientosInsumo } from '@/db/schema'
+import { auditLog, insumos, movimientosInsumo } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import {
   ajustarInsumo,
@@ -9,13 +9,19 @@ import {
   descartarInsumo,
   editarInsumo,
   listarInsumos,
-  registrarEntrada,
+  registrarEntrada, registrarEntradaAuditada,
 } from '@/modules/insumos/service'
 import { resetDb } from '@/test/db'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /** Un insumo que se compra por unidad: tapas. */
 async function unaTapa() {
-  return crearInsumo({ codigo: 'TAPA_20L', nombre: 'Tapa para botellón de 20 L', minimo: 200 })
+  return crearInsumo(
+    { codigo: 'TAPA_20L', nombre: 'Tapa para botellón de 20 L', minimo: 200 },
+    UN_CONTEXTO,
+  )
 }
 
 /** Un insumo que se compra por peso. Con equivalencia solo si se la pasan. */
@@ -25,7 +31,7 @@ async function unaBolsa(equivalenciaPorKilo?: number) {
     nombre: 'Bolsa de 600 ml',
     minimo: 1000,
     equivalenciaPorKilo,
-  })
+  }, UN_CONTEXTO)
 }
 
 /** Un error de negocio con su código, o falla el test diciendo qué llegó. */
@@ -82,7 +88,7 @@ describe('el aviso de stock mínimo — RN-INS-03', () => {
 
   it('no lista los inactivos salvo que se pidan', async () => {
     const insumo = await unaTapa()
-    await editarInsumo(insumo.id, { activo: false })
+    await editarInsumo(insumo.id, { activo: false }, UN_CONTEXTO)
 
     expect(await listarInsumos()).toHaveLength(0)
     expect(await listarInsumos(true)).toHaveLength(1)
@@ -153,7 +159,7 @@ describe('la entrada por peso — RN-INS-02', () => {
     const bolsa = await unaBolsa(100)
     await registrarEntrada(bolsa.id, { kilos: 10 }, null)
 
-    await editarInsumo(bolsa.id, { equivalenciaPorKilo: 130 })
+    await editarInsumo(bolsa.id, { equivalenciaPorKilo: 130 }, UN_CONTEXTO)
 
     const [movimiento] = await db.select().from(movimientosInsumo)
     expect(movimiento?.equivalencia).toBe('100.000')
@@ -167,7 +173,7 @@ describe('la entrada por peso — RN-INS-02', () => {
   it('la equivalencia nueva SÍ se usa en la compra siguiente', async () => {
     const bolsa = await unaBolsa(100)
     await registrarEntrada(bolsa.id, { kilos: 10 }, null)
-    await editarInsumo(bolsa.id, { equivalenciaPorKilo: 130 })
+    await editarInsumo(bolsa.id, { equivalenciaPorKilo: 130 }, UN_CONTEXTO)
 
     await registrarEntrada(bolsa.id, { kilos: 10 }, null)
 
@@ -183,7 +189,7 @@ describe('el ajuste exige un motivo que sirva', () => {
     await registrarEntrada(insumo.id, { cantidad: 500 }, null)
 
     const error = await errorDeNegocioDe(
-      ajustarInsumo(insumo.id, { diferencia: -8, motivo: 'x' }, null),
+      ajustarInsumo(insumo.id, { diferencia: -8, motivo: 'x' }, UN_CONTEXTO),
     )
 
     expect(error.code).toBe('MOTIVO_REQUERIDO')
@@ -196,7 +202,7 @@ describe('el ajuste exige un motivo que sirva', () => {
     const resultado = await ajustarInsumo(
       insumo.id,
       { diferencia: -8, motivo: 'conteo físico del lunes, faltaban 8 tapas' },
-      null,
+      UN_CONTEXTO,
     )
 
     expect(resultado.ok).toBe(true)
@@ -210,7 +216,7 @@ describe('el ajuste exige un motivo que sirva', () => {
     const resultado = await ajustarInsumo(
       insumo.id,
       { diferencia: 12, motivo: 'aparecieron 12 tapas en la caja del fondo' },
-      null,
+      UN_CONTEXTO,
     )
 
     expect(resultado.ok).toBe(true)
@@ -224,7 +230,7 @@ describe('el ajuste exige un motivo que sirva', () => {
     const resultado = await ajustarInsumo(
       insumo.id,
       { diferencia: -50, motivo: 'conteo físico, faltan muchas más de las que hay' },
-      null,
+      UN_CONTEXTO,
     )
 
     expect(resultado.ok).toBe(false)
@@ -238,7 +244,7 @@ describe('el descarte exige clasificar', () => {
     await registrarEntrada(insumo.id, { cantidad: 500 }, null)
 
     const error = await errorDeNegocioDe(
-      descartarInsumo(insumo.id, { cantidad: 5, causa: 'otro', observaciones: 'x' }, null),
+      descartarInsumo(insumo.id, { cantidad: 5, causa: 'otro', observaciones: 'x' }, UN_CONTEXTO),
     )
 
     expect(error.code).toBe('OBSERVACIONES_REQUERIDAS')
@@ -251,7 +257,7 @@ describe('el descarte exige clasificar', () => {
     const resultado = await descartarInsumo(
       insumo.id,
       { cantidad: 5, causa: 'mal_manejo_cliente' },
-      null,
+      UN_CONTEXTO,
     )
 
     expect(resultado.ok).toBe(true)
@@ -267,5 +273,57 @@ describe('un insumo que no existe', () => {
 
     expect(error.code).toBe('INSUMO_NO_ENCONTRADO')
     expect(error.status).toBe(404)
+  })
+})
+
+/**
+ * La primitiva NO audita, y eso es una decisión, no un olvido.
+ *
+ * `registrarEntrada` la comparte `proveedores/compras.ts`, que la llama DENTRO
+ * de la transacción de la compra. Si el emit viviera ahí, cada compra con
+ * insumos dejaría una fila `insumos:ajustar` además de su `compras:crear`: dos
+ * filas para un solo hecho de negocio, y la bitácora contaría entradas
+ * manuales que nadie registró.
+ *
+ * La versión auditada es `registrarEntradaAuditada`, que es la que usa la ruta.
+ * Este test existe para que mover el emit a la primitiva —que parece una
+ * simplificación— falle en vez de duplicar la bitácora en silencio.
+ */
+describe('registrarEntrada es la primitiva: no deja fila en la bitácora', () => {
+  it('la entrada por la primitiva no audita', async () => {
+    const insumo = await unaTapa()
+
+    const resultado = await registrarEntrada(insumo.id, { cantidad: 200 }, null)
+
+    expect(resultado.ok).toBe(true)
+
+    /*
+     * Se filtra por `operacion` y no se cuenta el total: el alta del insumo que
+     * arma este caso YA deja su propia fila. Contar todo haría que este test
+     * mida el setup en vez de la primitiva.
+     */
+    const filas = await db.select().from(auditLog).where(eq(auditLog.action, 'insumos:ajustar'))
+
+    expect(filas.filter((f) => (f.payload as { operacion?: string }).operacion === 'entrada')).toHaveLength(0)
+  })
+
+  it('la versión auditada sí deja su fila', async () => {
+    const insumo = await unaTapa()
+
+    const resultado = await registrarEntradaAuditada(insumo.id, { cantidad: 200 }, UN_CONTEXTO)
+
+    expect(resultado.ok).toBe(true)
+
+    const filas = (
+      await db.select().from(auditLog).where(eq(auditLog.action, 'insumos:ajustar'))
+    ).filter((f) => (f.payload as { operacion?: string }).operacion === 'entrada')
+
+    expect(filas).toHaveLength(1)
+    expect(filas[0]!.payload).toMatchObject({
+      operacion: 'entrada',
+      codigo: 'TAPA_20L',
+      cantidad: 200,
+      saldo: 200,
+    })
   })
 })
