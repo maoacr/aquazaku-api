@@ -1,0 +1,121 @@
+meta {
+  name: Las unidades vendidas por producto
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/reportes/ventas-por-producto?desde={{unidadesDesde}}&hasta={{unidadesHasta}}
+}
+
+docs {
+  `GET /reportes/ventas-por-producto` exige `reportes:financieros`. `desde` y
+  `hasta` son **obligatorios**, van como `YYYY-MM-DD`, y `hasta` es inclusivo.
+
+  ── Por qué existe al lado del extracto ───────────────────────────────────────
+
+  El extracto dice cuánta PLATA entró. Esto dice cuántos BOTELLONES salieron. Un
+  mes que creció 14 % creció por volumen o por precio, y con el extracto solo las
+  dos conclusiones se ven idénticas.
+
+  ── Qué se vigila acá ─────────────────────────────────────────────────────────
+
+  `monto` es `precioFinal × cantidad`, sumado. `precioFinal` es el precio
+  UNITARIO —el check `lineas_precio_cuadra` lo ata a `lista − descuento`, sin
+  cantidad adentro—, así que sumar la columna pelada daría el monto de vender UNA
+  unidad de cada línea: un número plausible y falso. Acá se verifica que cada
+  fila con más de una unidad tenga un monto mayor que su precio unitario.
+
+  El orden es por unidades, de mayor a menor, con desempate por `codigo` para que
+  sea TOTAL: sin desempate, dos productos con las mismas unidades salen en el
+  orden que elija el plan de Postgres y puede cambiar entre dos corridas del
+  mismo reporte.
+
+  Un producto que no se vendió NO aparece — al revés que el resumen mensual, que
+  completa los meses vacíos en cero. Acá no hay secuencia que completar, y un
+  catálogo de veinte productos con dos vendidos enterraría los dos que importan
+  debajo de dieciocho ceros.
+}
+
+script:pre-request {
+  // El mismo rango holgado que usa el extracto, y por el mismo motivo: cubre
+  // con margen lo que la colección acaba de generar hoy.
+  const hoy = new Date();
+  // El día de la PLANTA. Colombia es UTC−5 fijo; `Intl` no existe en el
+  // sandbox de Bruno, así que se resta el offset a mano.
+  const iso = (d) => new Date(d.getTime() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+  const antes = new Date(hoy);
+  antes.setDate(antes.getDate() - 40);
+  bru.setVar("unidadesDesde", iso(antes));
+  bru.setVar("unidadesHasta", iso(hoy));
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("devuelve un arreglo", function() {
+    expect(res.getBody()).to.be.an("array");
+  });
+
+  /*
+   * La colección registra ventas de producto antes de llegar acá (09-Ventas),
+   * así que en el rango de 40 días tiene que haber al menos un producto. Es el
+   * mismo supuesto que sostiene el caso del extracto.
+   */
+  test("hay al menos un producto vendido", function() {
+    expect(res.getBody().length).to.be.above(0);
+  });
+
+  test("cada fila se explica sola", function() {
+    const incompletas = res.getBody().filter(
+      (f) =>
+        !f.productoId ||
+        !f.codigo ||
+        !f.nombre ||
+        typeof f.unidades !== "number" ||
+        typeof f.monto !== "string",
+    );
+    expect(incompletas).to.have.lengthOf(0);
+  });
+
+  test("no hay filas en cero: un producto sin ventas no aparece", function() {
+    const enCero = res.getBody().filter((f) => f.unidades <= 0);
+    expect(enCero).to.have.lengthOf(0);
+  });
+
+  test("el monto viene con dos decimales", function() {
+    const malFormados = res.getBody().filter((f) => !/^\d+\.\d{2}$/.test(f.monto));
+    expect(malFormados).to.have.lengthOf(0);
+  });
+
+  /*
+   * ── El orden es por unidades, descendente ────────────────────────────────
+   *
+   * No es cosmética: la pregunta del tablero es «qué vendo», y se contesta por
+   * volumen. Si el orden se rompe, el panel pone adelante lo que menos se mueve.
+   */
+  test("el que más se mueve va primero", function() {
+    const unidades = res.getBody().map((f) => f.unidades);
+    const ordenado = [...unidades].sort((a, b) => b - a);
+    expect(unidades).to.deep.equal(ordenado);
+  });
+
+  /*
+   * ── Lo que esta colección NO puede verificar ─────────────────────────────
+   *
+   * Que `monto` sea `precioFinal × cantidad` y no `sum(precioFinal)` a secas.
+   * Desde esta respuesta los dos son números positivos y no hay nada que los
+   * distinga: haría falta conocer el precio unitario de cada línea, que no
+   * viaja acá.
+   *
+   * Ese invariante lo prueba `ventas-por-producto.test.ts`, donde se siembran
+   * las líneas con un precio conocido. La ablación está confirmada: borrando el
+   * `* cantidad` mueren cuatro casos.
+   *
+   * Se deja escrito para que nadie agregue acá un caso que parezca cubrirlo. El
+   * primer intento fue `monto <= monto / unidades`, que es falso siempre que
+   * `unidades > 1` — un test que pasa pase lo que pase.
+   */
+}

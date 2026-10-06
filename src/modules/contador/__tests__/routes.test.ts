@@ -175,3 +175,78 @@ describe('el resumen mensual', () => {
     expect(res.statusCode).toBe(403)
   })
 })
+
+/**
+ * Unidades vendidas por producto.
+ *
+ * Acá se prueba la CAPA HTTP: permisos, validación de forma y traducción del
+ * error de negocio. La agregación —qué cuenta, qué no, y en qué zona se corta
+ * el día— vive probada en `ventas-por-producto.test.ts`, que es donde puede
+ * sembrar ventas, líneas y lotes sin armar media app.
+ */
+describe('las unidades vendidas por producto', () => {
+  const RANGO = 'desde=2026-06-01&hasta=2026-06-30'
+
+  it('el contador lo consulta y sin ventas viene vacío, que no es un error', async () => {
+    const res = await comoContador({
+      method: 'GET',
+      url: `/reportes/ventas-por-producto?${RANGO}`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([])
+  })
+
+  it('un rango al revés responde 422 y explica por qué', async () => {
+    const res = await comoContador({
+      method: 'GET',
+      url: '/reportes/ventas-por-producto?desde=2026-06-30&hasta=2026-06-01',
+    })
+
+    expect(res.statusCode).toBe(422)
+    expect(res.json().mensaje).toContain('al revés')
+  })
+
+  it('sin rango no hay reporte: el esquema lo frena', async () => {
+    expect(
+      (await comoContador({ method: 'GET', url: '/reportes/ventas-por-producto' })).statusCode,
+    ).toBe(400)
+  })
+
+  it('una fecha con otro formato no pasa', async () => {
+    expect(
+      (
+        await comoContador({
+          method: 'GET',
+          url: '/reportes/ventas-por-producto?desde=01-06-2026&hasta=2026-06-30',
+        })
+      ).statusCode,
+    ).toBe(400)
+  })
+
+  /*
+   * Va bajo `reportes:financieros` y no bajo `operativos` porque devuelve
+   * MONTO además de unidades. El `pos` tiene `operativos` en preparación y no
+   * debería ver la plata del negocio — misma línea que el extracto.
+   */
+  it('el `pos` no lo ve: trae montos, no solo unidades', async () => {
+    expect(
+      (await como('pos', { method: 'GET', url: `/reportes/ventas-por-producto?${RANGO}` }))
+        .statusCode,
+    ).toBe(403)
+  })
+
+  it('el `seller` tampoco', async () => {
+    expect(
+      (await como('seller', { method: 'GET', url: `/reportes/ventas-por-producto?${RANGO}` }))
+        .statusCode,
+    ).toBe(403)
+  })
+
+  it('el `admin` sí: es el dueño del negocio', async () => {
+    expect(
+      (await como('admin', { method: 'GET', url: `/reportes/ventas-por-producto?${RANGO}` }))
+        .statusCode,
+    ).toBe(200)
+  })
+})
