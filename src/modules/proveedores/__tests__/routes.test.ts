@@ -7,6 +7,9 @@ import { crearInsumo } from '@/modules/insumos/service'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 let app: FastifyInstance
 let admin: { cookie: string }
 let tapaId: string
@@ -16,7 +19,7 @@ beforeEach(async () => {
   app = await buildApp()
   await app.ready()
   admin = await usuarioAutenticado('admin')
-  tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 })).id
+  tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 }, UN_CONTEXTO)).id
 })
 
 afterAll(async () => {

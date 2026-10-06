@@ -12,7 +12,7 @@ import {
   editarInsumo,
   listarInsumos,
   movimientosDe,
-  registrarEntrada,
+  registrarEntradaAuditada,
 } from './service'
 import {
   esquemaDeAjuste,
@@ -85,22 +85,16 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const creado = await crearInsumo(datos)
-
-        await auditarSinBloquear(req, {
+        /*
+         * La fila la escribe el SERVICIO, dentro de su transacción — ADR-0007.
+         * Acá solo se arma el contexto de quién lo hizo.
+         */
+        const creado = await crearInsumo(datos, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'insumos:ajustar',
-          resource: 'insumos',
-          result: 'ok',
-          payload: {
-            operacion: 'alta',
-            resourceId: creado.id,
-            codigo: creado.codigo,
-            nombre: creado.nombre,
-            minimo: creado.minimo,
-            equivalenciaPorKilo: creado.equivalenciaPorKilo,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return reply.code(201).send(creado)
@@ -119,28 +113,14 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const editado = await editarInsumo(id, datos)
-
-        /*
-         * `cambios` lleva lo que VINO en el request, no los cuatro campos del
-         * esquema: la edición es parcial, y un payload completo haría ver como
-         * que se tocó todo cuando se movió solo el mínimo.
-         */
-        await auditarSinBloquear(req, {
+        return await editarInsumo(id, datos, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'insumos:ajustar',
-          resource: 'insumos',
-          result: 'ok',
-          payload: {
-            operacion: 'editar',
-            resourceId: editado.id,
-            codigo: editado.codigo,
-            cambios: datos,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
-        return editado
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar', id)
       }
@@ -156,19 +136,16 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const codigo = await codigoDe(id)
-        const resultado = await registrarEntrada(id, datos, req.user?.id ?? null)
+        const resultado = await registrarEntradaAuditada(id, datos, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
 
         /* La entrada llega en unidades O en kilos, nunca las dos: van las dos
          * claves y una es `null`, para que la fila diga en qué se recibió. */
-        await auditarMovimiento(req, resultado, {
-          operacion: 'entrada',
-          resourceId: id,
-          codigo,
-          cantidad: datos.cantidad ?? null,
-          kilos: datos.kilos ?? null,
-        })
-
         return reply.code(201).send(resultado)
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar', id)
@@ -185,19 +162,16 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const codigo = await codigoDe(id)
-        const resultado = await ajustarInsumo(id, datos, req.user?.id ?? null)
+        const resultado = await ajustarInsumo(id, datos, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
 
         /* La diferencia va CON SIGNO, igual que en los tanques: «sobraban 40»
          * y «faltaban 40» son hechos opuestos y el signo los distingue. */
-        await auditarMovimiento(req, resultado, {
-          operacion: 'ajuste',
-          resourceId: id,
-          codigo,
-          diferencia: datos.diferencia,
-          motivo: datos.motivo,
-        })
-
         return resultado
       } catch (err) {
         return manejarError(err, req, reply, 'insumos:ajustar', id)
@@ -214,16 +188,12 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const codigo = await codigoDe(id)
-        const resultado = await descartarInsumo(id, datos, req.user?.id ?? null)
-
-        await auditarMovimiento(req, resultado, {
-          operacion: 'descarte',
-          resourceId: id,
-          codigo,
-          cantidad: datos.cantidad,
-          causa: datos.causa,
-          observaciones: datos.observaciones ?? null,
+        const resultado = await descartarInsumo(id, datos, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return resultado
@@ -234,46 +204,7 @@ export async function insumosRoutes(app: FastifyInstance): Promise<void> {
   )
 }
 
-/**
- * El código del insumo, para que la fila no diga solo un uuid.
- *
- * «entraron 300 TAPA_20L» se lee; «entraron 300 de
- * 9609053e-8578-4705-9ffc-509ad31f74e9» obliga a ir a buscar cuál era. Es una
- * lectura extra por movimiento y se acepta por eso.
- */
-async function codigoDe(id: string): Promise<string | null> {
-  return (await buscarInsumo(id))?.codigo ?? null
-}
 
-/**
- * Escribe la fila de un movimiento de saldo, se haya movido o no.
- *
- * Las tres rutas de movimiento devuelven `Resultado`, y `descontar` responde
- * `{ ok: false, disponible }` en vez de lanzar: que no alcance es un estado
- * normal de la planta, no un error. Por eso ese intento NO pasa por
- * `manejarError`, y sin esta rama quedaría SIN RASTRO —antes dejaba la fila
- * automática del middleware, que decía `ok` para algo que no movió nada—.
- *
- * Queda como `denied` con lo pedido y lo que de verdad había: «intentó
- * descartar 900 de las 500 que hay» es justo el patrón que una bitácora existe
- * para poder mostrar.
- */
-async function auditarMovimiento(
-  req: FastifyRequest,
-  resultado: Resultado,
-  payload: Record<string, unknown>,
-): Promise<void> {
-  await auditarSinBloquear(req, {
-    userId: req.user?.id ?? null,
-    rolEjercido: req.user?.roles ?? [],
-    action: 'insumos:ajustar',
-    resource: 'insumos',
-    result: resultado.ok ? 'ok' : 'denied',
-    payload: resultado.ok
-      ? { ...payload, saldo: resultado.saldo }
-      : { ...payload, disponible: resultado.disponible },
-  })
-}
 
 /**
  * Traduce un error de negocio a su status, y lo deja en la bitácora.

@@ -8,6 +8,9 @@ import { botellonesEnBodega } from '@/modules/retornables/conservacion'
 import { comprasVencidas, marcarPagada, registrarCompra } from '@/modules/proveedores/compras'
 import { resetDb } from '@/test/db'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * La compra a proveedor — M9, RN-PRO-02 a 07.
  *
@@ -29,7 +32,7 @@ beforeEach(async () => {
   proveedorId = p!.id
 
   // Por el servicio real: `insumos.codigo` es NOT NULL y lo pone `crearInsumo`.
-  tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 })).id
+  tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 }, UN_CONTEXTO)).id
 })
 
 afterAll(async () => {

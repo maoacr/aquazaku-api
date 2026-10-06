@@ -6,6 +6,9 @@ import { registrarCompra } from '@/modules/proveedores/compras'
 import { resetDb } from '@/test/db'
 import { extracto } from '@/modules/contador/extracto'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * El extracto de movimientos — M11, RN-CON-03 y 04.
  *
@@ -65,7 +68,7 @@ beforeEach(async () => {
   const [p] = await db.insert(proveedores).values({ nombre: 'Plásticos del Caribe' }).returning()
   proveedorId = p!.id
 
-  tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 })).id
+  tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 }, UN_CONTEXTO)).id
 })
 
 afterAll(async () => {
