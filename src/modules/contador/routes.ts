@@ -5,7 +5,12 @@ import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { carteraPorEdad } from './cartera'
 import { extracto } from './extracto'
 import { resumenMensual } from './mensual'
-import { esquemaDeExtracto, esquemaDeResumenMensual } from './validation'
+import { ventasPorProducto } from './ventas-por-producto'
+import {
+  esquemaDeExtracto,
+  esquemaDeResumenMensual,
+  esquemaDeVentasPorProducto,
+} from './validation'
 import { hoyEnLaPlanta } from '@/lib/dia'
 
 /**
@@ -93,6 +98,43 @@ export async function contadorRoutes(app: FastifyInstance): Promise<void> {
       try {
         return await resumenMensual(datos)
       } catch (err) {
+        if (err instanceof ErrorDeNegocio) {
+          return reply.code(err.status).send({ code: err.code, mensaje: err.message })
+        }
+        throw err
+      }
+    },
+  )
+
+  /**
+   * Unidades vendidas por producto, en un rango.
+   *
+   * ── Por qué existe al lado del extracto ───────────────────────────────────
+   *
+   * El extracto dice cuánta PLATA entró; esto dice cuántos BOTELLONES salieron.
+   * Un mes que creció 14 % creció por volumen o por precio, y con el extracto
+   * solo las dos conclusiones se ven idénticas.
+   *
+   * ── Va bajo `financieros`, y es una decisión ──────────────────────────────
+   *
+   * Devuelve monto además de unidades, así que comparte la puerta del extracto.
+   * Un reporte de unidades PELADAS sería legítimamente `operativos` —el `pos`
+   * podría verlo— pero ese endpoint no existe porque nadie lo pidió todavía.
+   * El día que haga falta se agrega; inventarlo ahora sería una ruta sin
+   * usuario.
+   */
+  app.get(
+    '/reportes/ventas-por-producto',
+    { preHandler: [requireAuth, requirePermission('reportes', 'financieros')] },
+    async (req, reply) => {
+      const datos = validar(esquemaDeVentasPorProducto, req.query, reply)
+      if (!datos) return
+
+      try {
+        return await ventasPorProducto(datos)
+      } catch (err) {
+        // Igual que sus hermanas: se traduce el error de negocio y NO se
+        // audita. Es una consulta, no una acción sensible (ADR-0007).
         if (err instanceof ErrorDeNegocio) {
           return reply.code(err.status).send({ code: err.code, mensaje: err.message })
         }

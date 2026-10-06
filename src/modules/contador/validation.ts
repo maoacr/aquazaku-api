@@ -37,3 +37,19 @@ export const esquemaDeResumenMensual = z.object({
   desde: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'el mes va como 2026-08'),
   hasta: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'el mes va como 2026-08'),
 })
+
+/**
+ * Unidades vendidas por producto.
+ *
+ * Fechas sueltas y no meses, al revés que el resumen mensual: acá no hay una
+ * secuencia que se compare contra sí misma, así que un rango parcial es una
+ * pregunta legítima —«qué vendí esta semana»— y no un mes disfrazado de mes
+ * completo.
+ *
+ * Que el rango no venga al revés lo sigue decidiendo el servicio, por lo mismo
+ * que el extracto: es una regla de negocio con su propio mensaje.
+ */
+export const esquemaDeVentasPorProducto = z.object({
+  desde: fecha,
+  hasta: fecha,
+})
