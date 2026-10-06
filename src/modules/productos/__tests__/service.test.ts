@@ -15,6 +15,9 @@ import {
   reactivarProducto,
 } from '../service'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 const PACA_600 = {
   nombre: 'Paca de 20 bolsas de 600 ml',
   presentacion: 'paca' as const,
@@ -63,7 +66,7 @@ describe('servicio de productos (M1)', () => {
 
   describe('crear — RN-CAT-11', () => {
     it('genera el código a partir de la presentación, el contenido y las unidades', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
       expect(creado.codigo).toBe('P20U_600ML')
       expect(Number(creado.litros)).toBe(12)
@@ -71,26 +74,26 @@ describe('servicio de productos (M1)', () => {
     })
 
     it('un producto idéntico al reintroducirlo es la segunda encarnación', async () => {
-      await crearProducto(PACA_600)
+      await crearProducto(PACA_600, UN_CONTEXTO)
 
-      const segundo = await crearProducto(PACA_600)
+      const segundo = await crearProducto(PACA_600, UN_CONTEXTO)
 
       expect(segundo.codigo).toBe('P20U_600ML_2')
     })
 
     it('la paca de 24 no colisiona con la de 20 — no hace falta desempate', async () => {
-      await crearProducto(PACA_600)
+      await crearProducto(PACA_600, UN_CONTEXTO)
 
-      const veinticuatro = await crearProducto({ ...PACA_600, unidades: 24 })
+      const veinticuatro = await crearProducto({ ...PACA_600, unidades: 24 }, UN_CONTEXTO)
 
       expect(veinticuatro.codigo).toBe('P24U_600ML')
     })
 
     it('un producto desactivado sigue ocupando su código', async () => {
-      const primero = await crearProducto(PACA_600)
-      await desactivarProducto(primero.id)
+      const primero = await crearProducto(PACA_600, UN_CONTEXTO)
+      await desactivarProducto(primero.id, UN_CONTEXTO)
 
-      const segundo = await crearProducto(PACA_600)
+      const segundo = await crearProducto(PACA_600, UN_CONTEXTO)
 
       expect(segundo.codigo).toBe('P20U_600ML_2')
     })
@@ -99,7 +102,7 @@ describe('servicio de productos (M1)', () => {
   describe('el piso de precio — RN-CAT-04', () => {
     it('rechaza un piso que supera el precio residencial, con mensaje legible', async () => {
       const error = await errorDeNegocioDe(
-        crearProducto({ ...PACA_600, precioMinimo: '13000.00' }),
+        crearProducto({ ...PACA_600, precioMinimo: '13000.00' }, UN_CONTEXTO),
       )
 
       expect(error.code).toBe('PRECIO_MINIMO_INVALIDO')
@@ -109,20 +112,20 @@ describe('servicio de productos (M1)', () => {
 
     it('rechaza un piso que supera el precio comercial', async () => {
       const error = await errorDeNegocioDe(
-        crearProducto({ ...PACA_600, precioComercial: '8000.00' }),
+        crearProducto({ ...PACA_600, precioComercial: '8000.00' }, UN_CONTEXTO),
       )
 
       expect(error.code).toBe('PRECIO_MINIMO_INVALIDO')
     })
 
     it('acepta que el piso sea exactamente igual a los precios de lista', async () => {
-      const creado = await crearProducto(BOTELLON)
+      const creado = await crearProducto(BOTELLON, UN_CONTEXTO)
 
       expect(creado.codigo).toBe('BOT_20L')
     })
 
     it('también valida al editar precios, no solo al crear', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
       const error = await errorDeNegocioDe(
         editarPrecios(
@@ -136,7 +139,7 @@ describe('servicio de productos (M1)', () => {
     })
 
     it('no deja el producto tocado cuando el piso es inválido', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
       await errorDeNegocioDe(
         editarPrecios(
@@ -153,7 +156,7 @@ describe('servicio de productos (M1)', () => {
 
   describe('editar precios deja rastro — RN-CAT-06 y RN-ACC-04', () => {
     it('registra el antes y el después, no solo que hubo un cambio', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
       await editarPrecios(
         creado.id,
@@ -181,7 +184,7 @@ describe('servicio de productos (M1)', () => {
     })
 
     it('no escribe en la bitácora si el cambio fue rechazado', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
       await errorDeNegocioDe(
         editarPrecios(
@@ -202,9 +205,9 @@ describe('servicio de productos (M1)', () => {
 
   describe('editar no toca precios — la matriz tiene que seguir significando algo', () => {
     it('cambiar el nombre deja los precios intactos', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
-      const editado = await editarProducto(creado.id, { nombre: 'Paca chica' })
+      const editado = await editarProducto(creado.id, { nombre: 'Paca chica' }, UN_CONTEXTO)
 
       expect(editado.nombre).toBe('Paca chica')
       expect(editado.precioResidencial).toBe('12000.00')
@@ -213,9 +216,9 @@ describe('servicio de productos (M1)', () => {
 
   describe('desactivar, no borrar — RN-CAT-02', () => {
     it('el producto desaparece del listado por defecto y sigue existiendo', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
-      await desactivarProducto(creado.id)
+      await desactivarProducto(creado.id, UN_CONTEXTO)
 
       expect(await listarProductos()).toHaveLength(0)
       expect(await listarProductos('todos')).toHaveLength(1)
@@ -223,28 +226,28 @@ describe('servicio de productos (M1)', () => {
     })
 
     it('desactivar uno ya inactivo avisa en vez de fallar en silencio', async () => {
-      const creado = await crearProducto(PACA_600)
-      await desactivarProducto(creado.id)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
+      await desactivarProducto(creado.id, UN_CONTEXTO)
 
-      const error = await errorDeNegocioDe(desactivarProducto(creado.id))
+      const error = await errorDeNegocioDe(desactivarProducto(creado.id, UN_CONTEXTO))
 
       expect(error.code).toBe('PRODUCTO_YA_INACTIVO')
       expect(error.status).toBe(409)
     })
 
     it('reactivar lo devuelve al listado', async () => {
-      const creado = await crearProducto(PACA_600)
-      await desactivarProducto(creado.id)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
+      await desactivarProducto(creado.id, UN_CONTEXTO)
 
-      await reactivarProducto(creado.id)
+      await reactivarProducto(creado.id, UN_CONTEXTO)
 
       expect(await listarProductos()).toHaveLength(1)
     })
 
     it('reactivar uno que ya está activo también avisa', async () => {
-      const creado = await crearProducto(PACA_600)
+      const creado = await crearProducto(PACA_600, UN_CONTEXTO)
 
-      const error = await errorDeNegocioDe(reactivarProducto(creado.id))
+      const error = await errorDeNegocioDe(reactivarProducto(creado.id, UN_CONTEXTO))
 
       expect(error.code).toBe('PRODUCTO_YA_ACTIVO')
     })
@@ -254,13 +257,13 @@ describe('servicio de productos (M1)', () => {
   const CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
 
   it('con unidades en stock, desactivar devuelve 409 y dice cuántas hay', async () => {
-    const producto = await crearProducto(PACA_600)
+    const producto = await crearProducto(PACA_600, UN_CONTEXTO)
     await registrarEntrada(
       { productoId: producto.id, cantidad: 40, fechaEmpaque: '2026-08-22', motivo: 'carga inicial' },
       CONTEXTO,
     )
 
-    const error = await errorDeNegocioDe(desactivarProducto(producto.id))
+    const error = await errorDeNegocioDe(desactivarProducto(producto.id, UN_CONTEXTO))
 
     expect(error.code).toBe('PRODUCTO_CON_STOCK')
     expect(error.status).toBe(409)
@@ -268,67 +271,67 @@ describe('servicio de productos (M1)', () => {
   })
 
   it('el error dice qué hacer, no solo que no se puede', async () => {
-    const producto = await crearProducto(PACA_600)
+    const producto = await crearProducto(PACA_600, UN_CONTEXTO)
     await registrarEntrada(
       { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'carga inicial de inventario' },
       CONTEXTO,
     )
 
-    const error = await errorDeNegocioDe(desactivarProducto(producto.id))
+    const error = await errorDeNegocioDe(desactivarProducto(producto.id, UN_CONTEXTO))
 
     expect(error.message).toMatch(/vendelas o descartalas/)
   })
 
   it('el producto sigue activo tras el intento fallido', async () => {
-    const producto = await crearProducto(PACA_600)
+    const producto = await crearProducto(PACA_600, UN_CONTEXTO)
     await registrarEntrada(
       { productoId: producto.id, cantidad: 5, fechaEmpaque: '2026-08-22', motivo: 'carga inicial de inventario' },
       CONTEXTO,
     )
 
-    await errorDeNegocioDe(desactivarProducto(producto.id))
+    await errorDeNegocioDe(desactivarProducto(producto.id, UN_CONTEXTO))
 
     expect((await buscarProducto(producto.id))?.activo).toBe(true)
   })
 
   it('descartado el stock, ya se puede desactivar', async () => {
-    const producto = await crearProducto(PACA_600)
+    const producto = await crearProducto(PACA_600, UN_CONTEXTO)
     const lote = await registrarEntrada(
       { productoId: producto.id, cantidad: 12, fechaEmpaque: '2026-08-22', motivo: 'carga inicial de inventario' },
       CONTEXTO,
     )
     await descartar({ loteId: lote.id, cantidad: 12, causa: 'vencido' }, CONTEXTO)
 
-    const desactivado = await desactivarProducto(producto.id)
+    const desactivado = await desactivarProducto(producto.id, UN_CONTEXTO)
 
     expect(desactivado.activo).toBe(false)
   })
 
   it('un lote VENCIDO con saldo también bloquea: el producto sigue en la bodega', async () => {
-    const producto = await crearProducto(PACA_600)
+    const producto = await crearProducto(PACA_600, UN_CONTEXTO)
     // Vencido hace rato, pero las unidades existen y ocupan lugar.
     await registrarEntrada(
       { productoId: producto.id, cantidad: 9, fechaEmpaque: '2020-01-01', motivo: 'lote heredado del inventario anterior' },
       CONTEXTO,
     )
 
-    const error = await errorDeNegocioDe(desactivarProducto(producto.id))
+    const error = await errorDeNegocioDe(desactivarProducto(producto.id, UN_CONTEXTO))
 
     expect(error.code).toBe('PRODUCTO_CON_STOCK')
   })
 
   it('sin stock nunca cargado, desactivar sigue funcionando como en M1', async () => {
-    const producto = await crearProducto(PACA_600)
+    const producto = await crearProducto(PACA_600, UN_CONTEXTO)
 
-    expect((await desactivarProducto(producto.id)).activo).toBe(false)
+    expect((await desactivarProducto(producto.id, UN_CONTEXTO)).activo).toBe(false)
   })
 })
 
 describe('listar', () => {
     it('ordena por código para que la pantalla sea estable entre cargas', async () => {
-      await crearProducto(BOTELLON)
-      await crearProducto(PACA_600)
-      await crearProducto({ ...PACA_600, unidades: 50, contenidoMl: 300 })
+      await crearProducto(BOTELLON, UN_CONTEXTO)
+      await crearProducto(PACA_600, UN_CONTEXTO)
+      await crearProducto({ ...PACA_600, unidades: 50, contenidoMl: 300 }, UN_CONTEXTO)
 
       const codigos = (await listarProductos()).map((p) => p.codigo)
 
@@ -336,9 +339,9 @@ describe('listar', () => {
     })
 
     it('filtra solo los inactivos cuando se pide', async () => {
-      const paca = await crearProducto(PACA_600)
-      await crearProducto(BOTELLON)
-      await desactivarProducto(paca.id)
+      const paca = await crearProducto(PACA_600, UN_CONTEXTO)
+      await crearProducto(BOTELLON, UN_CONTEXTO)
+      await desactivarProducto(paca.id, UN_CONTEXTO)
 
       const inactivos = await listarProductos('inactivos')
 
@@ -354,7 +357,7 @@ describe('listar', () => {
     })
 
     it('desactivar da 404 y no 500', async () => {
-      const error = await errorDeNegocioDe(desactivarProducto(idQueNoExiste))
+      const error = await errorDeNegocioDe(desactivarProducto(idQueNoExiste, UN_CONTEXTO))
 
       expect(error.code).toBe('PRODUCTO_NO_ENCONTRADO')
       expect(error.status).toBe(404)
