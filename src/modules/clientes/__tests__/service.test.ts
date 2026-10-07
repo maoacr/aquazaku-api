@@ -15,6 +15,9 @@ import { revertirVerificacion, verificarDocumento } from '@/modules/clientes/ver
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 beforeEach(async () => {
   await resetDb()
 })
@@ -39,21 +42,21 @@ const unContexto = (userId: string | null = null) => ({
 
 /** Crea un cliente ya verificado, que es el punto de partida del crédito. */
 async function clienteVerificado() {
-  const { cliente } = await crearCliente(UNA_CEDULA)
+  const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
   const admin = await usuarioAutenticado('admin')
 
-  return verificarDocumento(cliente.id, admin.usuario.id, ['admin'])
+  return verificarDocumento(cliente.id, ['admin'], { ...UN_CONTEXTO, userId: admin.usuario.id })
 }
 
 describe('el alta exige documento — RN-CLI-13', () => {
   it('normaliza el número al guardarlo', async () => {
-    const { cliente } = await crearCliente({ ...UNA_CEDULA, numeroDocumento: '79.123.456' })
+    const { cliente } = await crearCliente({ ...UNA_CEDULA, numeroDocumento: '79.123.456' }, UN_CONTEXTO)
 
     expect(cliente.numeroDocumento).toBe('79123456')
   })
 
   it('nace pendiente de verificar y sin crédito', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     expect(cliente.verificacionEstado).toBe('pendiente')
     expect(cliente.creditoHabilitado).toBe(false)
@@ -62,13 +65,13 @@ describe('el alta exige documento — RN-CLI-13', () => {
 
   it('sin dígitos, se rechaza con un mensaje del negocio', async () => {
     await expect(
-      crearCliente({ ...UNA_CEDULA, numeroDocumento: 'después lo traigo' }),
+      crearCliente({ ...UNA_CEDULA, numeroDocumento: 'después lo traigo' }, UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'DOCUMENTO_INVALIDO' })
   })
 
   it('sin nombre, tampoco', async () => {
     await expect(
-      crearCliente({ ...UNA_CEDULA, primerNombre: '   ', apellidos: '   ' }),
+      crearCliente({ ...UNA_CEDULA, primerNombre: '   ', apellidos: '   ' }, UN_CONTEXTO),
     ).rejects.toMatchObject({
       code: 'NOMBRE_REQUERIDO',
     })
@@ -77,9 +80,9 @@ describe('el alta exige documento — RN-CLI-13', () => {
 
 describe('el mismo número con los dos tipos — RN-CLI-08', () => {
   it('el duplicado REAL no entra: mismo tipo y mismo número', async () => {
-    await crearCliente(UNA_CEDULA)
+    await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
-    await expect(crearCliente({ ...UNA_CEDULA, primerNombre: 'Otro' })).rejects.toThrow()
+    await expect(crearCliente({ ...UNA_CEDULA, primerNombre: 'Otro' }, UN_CONTEXTO)).rejects.toThrow()
   })
 
   /**
@@ -93,7 +96,7 @@ describe('el mismo número con los dos tipos — RN-CLI-08', () => {
    * preguntar, y bloquearlo haría imposible un caso legítimo.
    */
   it('el cruce CC/NIT avisa y deja seguir', async () => {
-    await crearCliente(UNA_CEDULA)
+    await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     const { cliente, aviso } = await crearCliente({
       nombreLibre: 'Yeimy Rodríguez SAS',
@@ -101,7 +104,7 @@ describe('el mismo número con los dos tipos — RN-CLI-08', () => {
       apellidos: undefined,
       tipoDocumento: 'NIT',
       numeroDocumento: '79123456',
-    })
+    }, UN_CONTEXTO)
 
     expect(cliente.id).toBeDefined()
     expect(aviso?.clienteExistente.nombre).toBe('Yeimy Rodríguez')
@@ -109,17 +112,17 @@ describe('el mismo número con los dos tipos — RN-CLI-08', () => {
   })
 
   it('sin cruce, no hay aviso', async () => {
-    const { aviso } = await crearCliente(UNA_CEDULA)
+    const { aviso } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     expect(aviso).toBeNull()
   })
 
   /** Los ceros a la izquierda no crean una persona nueva. */
   it('`079123456` es el mismo documento que `79123456`', async () => {
-    await crearCliente(UNA_CEDULA)
+    await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await expect(
-      crearCliente({ ...UNA_CEDULA, primerNombre: 'Otro', numeroDocumento: '079123456' }),
+      crearCliente({ ...UNA_CEDULA, primerNombre: 'Otro', numeroDocumento: '079123456' }, UN_CONTEXTO),
     ).rejects.toThrow()
   })
 })
@@ -140,10 +143,10 @@ describe('la verificación deja quién, cuándo y cómo — RN-CLI-14', () => {
    * peso de una validación contra documento oficial.
    */
   it('el método lo decide el rol de quien verifica', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
     const vendedor = await usuarioAutenticado('seller')
 
-    const verificado = await verificarDocumento(cliente.id, vendedor.usuario.id, ['seller'])
+    const verificado = await verificarDocumento(cliente.id, ['seller'], UN_CONTEXTO)
 
     expect(verificado.verificacionMetodo).toBe('seller_manual')
   })
@@ -151,7 +154,7 @@ describe('la verificación deja quién, cuándo y cómo — RN-CLI-14', () => {
   it('verificar dos veces se rechaza: reemplazaría a quien respondió', async () => {
     const cliente = await clienteVerificado()
 
-    await expect(verificarDocumento(cliente.id, null, ['admin'])).rejects.toMatchObject({
+    await expect(verificarDocumento(cliente.id, ['admin'], UN_CONTEXTO)).rejects.toMatchObject({
       code: 'YA_VERIFICADO',
     })
   })
@@ -159,7 +162,7 @@ describe('la verificación deja quién, cuándo y cómo — RN-CLI-14', () => {
 
 describe('crédito exige verificación — RN-CLI-15', () => {
   it('a un cliente pendiente no se le habilita', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await expect(configurarCredito(cliente.id, { habilitado: true }, unContexto())).rejects.toMatchObject({
       code: 'VERIFICACION_REQUERIDA',
@@ -186,7 +189,7 @@ describe('crédito exige verificación — RN-CLI-15', () => {
     await configurarCredito(verificado.id, { habilitado: true }, unContexto())
 
     await expect(
-      revertirVerificacion(verificado.id, 'la cédula que trajo era de otra persona'),
+      revertirVerificacion(verificado.id, 'la cédula que trajo era de otra persona', unContexto()),
     ).rejects.toMatchObject({ code: 'CREDITO_ACTIVO' })
   })
 
@@ -196,7 +199,7 @@ describe('crédito exige verificación — RN-CLI-15', () => {
    * de arriba — es la línea de ADR-0006.
    */
   it('el CHECK de la base lo impide aunque se esquive el servicio', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await expect(
       db.update(clientes).set({ creditoHabilitado: true }).where(eq(clientes.id, cliente.id)),
@@ -223,7 +226,7 @@ describe('crédito exige verificación — RN-CLI-15', () => {
 
 describe('un cliente no se borra — RN-CLI-02', () => {
   it('se desactiva y sale del listado', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await cambiarEstado(cliente.id, false)
 
@@ -232,7 +235,7 @@ describe('un cliente no se borra — RN-CLI-02', () => {
   })
 
   it('el DELETE está revocado en la base', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await expect(db.delete(clientes).where(eq(clientes.id, cliente.id))).rejects.toThrow()
   })
@@ -240,7 +243,7 @@ describe('un cliente no se borra — RN-CLI-02', () => {
 
 describe('las direcciones son entidades — RN-CLI-07', () => {
   it('un cliente puede tener varias', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await agregarDireccion(cliente.id, { etiqueta: 'La casa', direccion: 'Calle 5 #3-20' })
     await agregarDireccion(cliente.id, { etiqueta: 'El negocio', direccion: 'Carrera 8 #1-11' })
@@ -260,7 +263,7 @@ describe('las direcciones son entidades — RN-CLI-07', () => {
    * cuando tiene que elegir a cuál de los tres locales va.
    */
   it('sin etiqueta no entra: es lo que se busca en la lista', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await expect(
       agregarDireccion(cliente.id, { etiqueta: '', direccion: 'Calle 5' }),
@@ -273,7 +276,7 @@ describe('las direcciones son entidades — RN-CLI-07', () => {
    * nada, que ocupa lugar en la lista y que alguien va a tratar de usar.
    */
   it('con etiqueta pero sin nada que ubique, tampoco', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     await expect(agregarDireccion(cliente.id, { etiqueta: 'la casa' })).rejects.toMatchObject({
       code: 'DIRECCION_NO_UBICABLE',
@@ -292,7 +295,7 @@ describe('las direcciones son entidades — RN-CLI-07', () => {
 
 describe('el tipo cambia, porque un cliente abre un negocio — RN-CLI-16', () => {
   it('de residencial a comercial', async () => {
-    const { cliente } = await crearCliente(UNA_CEDULA)
+    const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
 
     const { cliente: editado } = await editarCliente(cliente.id, { tipo: 'comercial' })
 
@@ -334,7 +337,13 @@ describe('la bitácora del crédito vive en la transacción del cambio — ADR-0
 
     expect(despues!.creditoHabilitado).toBe(false)
     expect(despues!.creditoLimite).toBeNull()
-    expect(await db.select().from(auditLog)).toHaveLength(0)
+    /*
+     * Se filtra por acción: el alta y la verificación que arman este caso YA
+     * dejan sus propias filas. Contar el total mediría el setup.
+     */
+    expect(
+      await db.select().from(auditLog).where(eq(auditLog.action, 'clientes:habilitar_credito')),
+    ).toHaveLength(0)
   })
 
   it('cuando sale bien, el cambio y la fila quedan juntos', async () => {

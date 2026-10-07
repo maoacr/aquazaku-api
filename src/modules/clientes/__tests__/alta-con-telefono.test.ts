@@ -7,6 +7,9 @@ import { telefonosDe } from '@/modules/clientes/telefonos'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * Un teléfono en el mismo momento del alta — RN-ENV-09.
  *
@@ -148,7 +151,7 @@ describe('las dos escrituras son una sola', () => {
         // `numero` es NOT NULL en la base: el insert del teléfono revienta
         // después de que el del cliente ya se escribió.
         telefono: { numero: null as unknown as string },
-      }),
+      }, UN_CONTEXTO),
     ).rejects.toThrow()
 
     expect(await db.select().from(clientes)).toHaveLength(0)

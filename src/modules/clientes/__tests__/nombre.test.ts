@@ -7,6 +7,9 @@ import { crearCliente, editarCliente } from '@/modules/clientes/service'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * El nombre del cliente, partido — RN-CLI-17.
  *
@@ -44,7 +47,7 @@ describe('el nombre lo arma la base con las partes', () => {
       primerNombre: 'Rosa',
       segundoNombre: 'Elena',
       apellidos: 'Padilla Gómez',
-    })
+    }, UN_CONTEXTO)
 
     expect(cliente.nombre).toBe('Rosa Elena Padilla Gómez')
   })
@@ -55,7 +58,7 @@ describe('el nombre lo arma la base con las partes', () => {
       ...CEDULA,
       primerNombre: 'Rosa',
       apellidos: 'Padilla',
-    })
+    }, UN_CONTEXTO)
 
     expect(cliente.nombre).toBe('Rosa Padilla')
   })
@@ -70,7 +73,7 @@ describe('el nombre lo arma la base con las partes', () => {
       numeroDocumento: '900123456',
       nombreLibre: 'Panadería del Centro',
       tipo: 'comercial',
-    })
+    }, UN_CONTEXTO)
 
     expect(cliente.nombre).toBe('Panadería del Centro')
     expect(cliente.primerNombre).toBeNull()
@@ -86,7 +89,7 @@ describe('el nombre lo arma la base con las partes', () => {
       primerNombre: 'Rosa',
       apellidos: 'Padilla',
       apodo: 'Doña Rosa',
-    })
+    }, UN_CONTEXTO)
 
     expect(cliente.apodo).toBe('Doña Rosa')
     expect(cliente.nombre).toBe('Rosa Padilla')
@@ -107,7 +110,7 @@ describe('el nombre lo arma la base con las partes', () => {
       primerNombre: '  Rosa  ',
       apellidos: '  Padilla  ',
       apodo: '  Doña Rosa  ',
-    })
+    }, UN_CONTEXTO)
 
     expect(cliente.nombre).toBe('Rosa Padilla')
     expect(cliente.primerNombre).toBe('Rosa')
@@ -122,7 +125,7 @@ describe('editar reemplaza el nombre entero', () => {
       ...CEDULA,
       primerNombre: 'Rosa',
       apellidos: 'Padilla',
-    })
+    }, UN_CONTEXTO)
 
     const { cliente: editado } = await editarCliente(cliente.id, {
       primerNombre: 'Rosa',
@@ -141,7 +144,7 @@ describe('editar reemplaza el nombre entero', () => {
     const { cliente } = await crearCliente({
       ...CEDULA,
       nombreLibre: 'Rosa Padilla',
-    })
+    }, UN_CONTEXTO)
 
     const { cliente: editado } = await editarCliente(cliente.id, {
       primerNombre: 'Rosa',
@@ -159,7 +162,7 @@ describe('editar reemplaza el nombre entero', () => {
       primerNombre: 'Rosa',
       apellidos: 'Padilla',
       apodo: 'Doña Rosa',
-    })
+    }, UN_CONTEXTO)
 
     const { cliente: editado } = await editarCliente(cliente.id, {
       primerNombre: 'Rosa',
@@ -175,7 +178,7 @@ describe('editar reemplaza el nombre entero', () => {
       primerNombre: 'Rosa',
       apellidos: 'Padilla',
       apodo: 'Doña Rosa',
-    })
+    }, UN_CONTEXTO)
 
     const { cliente: editado } = await editarCliente(cliente.id, { tipo: 'comercial' })
 
@@ -212,7 +215,7 @@ describe('los nombres imposibles', () => {
   ] as const
 
   it.each(casos)('el servicio rechaza «%s»', async (_nombre, partes, code) => {
-    await expect(crearCliente({ ...CEDULA, ...partes })).rejects.toMatchObject({ code })
+    await expect(crearCliente({ ...CEDULA, ...partes }, UN_CONTEXTO)).rejects.toMatchObject({ code })
   })
 
   it.each(casos)('y la base también rechaza «%s»', async (_nombre, partes) => {
@@ -244,7 +247,7 @@ describe('los nombres imposibles', () => {
         ...CEDULA,
         primerNombre: 'Rosa',
         apellidos: 'Padilla',
-      })
+      }, UN_CONTEXTO)
 
       await expect(editarCliente(cliente.id, { ...partes })).rejects.toMatchObject({ code })
     },
@@ -256,7 +259,7 @@ describe('los nombres imposibles', () => {
       ...CEDULA,
       primerNombre: 'Rosa',
       apellidos: 'Padilla',
-    })
+    }, UN_CONTEXTO)
 
     await expect(
       editarCliente(cliente.id, {
