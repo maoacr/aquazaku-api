@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/db/client'
 import { type Cliente, clientes } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import type { Role } from '@/modules/authz/matrix'
 import { clientePorId } from './service'
 
@@ -61,32 +62,66 @@ export function metodoParaRoles(roles: readonly Role[]): 'seller_manual' | 'pos_
 
 export async function verificarDocumento(
   id: string,
-  verificadoPor: string | null,
   roles: readonly Role[],
+  contexto: ContextoDeAuditoria,
 ): Promise<Cliente> {
-  const actual = await clientePorId(id)
+  /*
+   * ── El cotejo y su fila, una sola escritura — ADR-0007 ────────────────────
+   *
+   * Al marcar un documento alguien queda registrado afirmando que lo tuvo en la
+   * mano, y esa trazabilidad es lo único que hace que el flag signifique algo.
+   * Si la fila puede fallar DESPUÉS del UPDATE, queda un documento verificado
+   * sin nadie que responda por él — justo lo que la regla viene a evitar.
+   */
+  return db.transaction(async (tx) => {
+    const actual = await clientePorId(id, tx)
 
-  if (actual.verificacionEstado === 'verificado') {
-    throw new ErrorDeNegocio(
-      'YA_VERIFICADO',
-      422,
-      'ese documento ya está verificado. Volver a marcarlo reemplazaría quién respondió por él',
+    if (actual.verificacionEstado === 'verificado') {
+      throw new ErrorDeNegocio(
+        'YA_VERIFICADO',
+        422,
+        'ese documento ya está verificado. Volver a marcarlo reemplazaría quién respondió por él',
+      )
+    }
+
+    const [cliente] = await tx
+      .update(clientes)
+      .set({
+        verificacionEstado: 'verificado',
+        verificadoPor: contexto.userId,
+        verificadoEn: new Date(),
+        verificacionMetodo: metodoParaRoles(roles),
+        updatedAt: new Date(),
+      })
+      .where(eq(clientes.id, id))
+      .returning()
+
+    /*
+     * El MÉTODO es el detalle que importa — RN-CLI-14. No pesan igual:
+     * `admin_oficial` es una ratificación contra el documento oficial y
+     * `seller_manual` es un cotejo en la calle.
+     *
+     * `revertida` distingue esta fila de la de la reversión, que comparte el
+     * nombre de la acción porque comparte el permiso.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'clientes:verificar_documento',
+        resource: 'clientes',
+        resourceId: cliente!.id,
+        result: 'ok',
+        payload: {
+          resourceId: cliente!.id,
+          metodo: cliente!.verificacionMetodo,
+          revertida: false,
+        },
+      },
+      tx,
     )
-  }
 
-  const [cliente] = await db
-    .update(clientes)
-    .set({
-      verificacionEstado: 'verificado',
-      verificadoPor,
-      verificadoEn: new Date(),
-      verificacionMetodo: metodoParaRoles(roles),
-      updatedAt: new Date(),
-    })
-    .where(eq(clientes.id, id))
-    .returning()
-
-  return cliente!
+    return cliente!
+  })
 }
 
 /**
@@ -101,8 +136,13 @@ export async function verificarDocumento(
  * El servicio lo explica antes de que la base lo grite, pero **no es el servicio
  * quien lo garantiza**: si alguien entra por una consola, el `CHECK` sigue ahí.
  */
-export async function revertirVerificacion(id: string, motivo: string): Promise<Cliente> {
-  const actual = await clientePorId(id)
+export async function revertirVerificacion(
+  id: string,
+  motivo: string,
+  contexto: ContextoDeAuditoria,
+): Promise<Cliente> {
+  return db.transaction(async (tx) => {
+  const actual = await clientePorId(id, tx)
 
   if (actual.creditoHabilitado) {
     throw new ErrorDeNegocio(
@@ -120,7 +160,7 @@ export async function revertirVerificacion(id: string, motivo: string): Promise<
     )
   }
 
-  const [cliente] = await db
+  const [cliente] = await tx
     .update(clientes)
     .set({
       verificacionEstado: 'pendiente',
@@ -132,5 +172,27 @@ export async function revertirVerificacion(id: string, motivo: string): Promise<
     .where(eq(clientes.id, id))
     .returning()
 
-  return cliente!
+    /*
+     * Verificar y revertir son hechos OPUESTOS bajo el mismo nombre de acción,
+     * porque comparten el permiso. Sin `revertida` la bitácora no puede decir
+     * si alguien respondió por un documento o retiró ese respaldo, y el motivo
+     * es lo único que explica por qué se retiró.
+     *
+     * No se le pone un nombre de acción propio a propósito: renombrarla tocaría
+     * el catálogo de `web/` y cambiaría los filtros de la pantalla de auditoría.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'clientes:verificar_documento',
+        resource: 'clientes',
+        resourceId: cliente!.id,
+        result: 'ok',
+        payload: { resourceId: cliente!.id, revertida: true, motivo },
+      },
+      tx,
+    )
+
+    return cliente!
+  })
 }

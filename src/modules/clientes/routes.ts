@@ -179,7 +179,13 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const { cliente, aviso, telefono, telefonos, direccion } = await crearCliente(datos)
+        const { cliente, aviso, telefono, telefonos, direccion } = await crearCliente(datos, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
 
         /*
          * La fila del middleware se escribe antes de que el cliente exista, así
@@ -190,20 +196,6 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
          * sistema, y el índice único lo hace irrepetible — es con lo que se
          * encuentra la fila cuando alguien pregunta por un alta concreta.
          */
-        await auditarSinBloquear(req, {
-          userId: req.user?.id ?? null,
-          rolEjercido: req.user?.roles ?? [],
-          action: 'clientes:crear',
-          resource: 'clientes',
-          result: 'ok',
-          payload: {
-            resourceId: cliente.id,
-            nombre: cliente.nombre,
-            documento: cliente.numeroDocumento,
-            tipo: cliente.tipo,
-          },
-        })
-
         /*
          * `telefono` en singular sigue viajando: es el primero de la lista, y
          * es lo que leen la colección de Bruno y el alta del mostrador. Sacarlo
@@ -288,7 +280,13 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const resultado = await desactivarClienteConReversion(id, datos.motivo, req.user!.id)
+        const resultado = await desactivarClienteConReversion(id, datos.motivo, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
 
         /*
          * Bitácora post-commit con los conteos — change
@@ -307,20 +305,6 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
          * bitácora dejaría al operador creyendo que no se aplicó, y
          * desactivando dos veces.
          */
-        await auditarSinBloquear(req, {
-          userId: req.user!.id,
-          rolEjercido: req.user!.roles ?? [],
-          action: 'clientes:desactivar',
-          resource: 'clientes',
-          result: 'ok',
-          payload: {
-            resourceId: id,
-            motivo: datos.motivo,
-            basesDevueltas: resultado.basesDevueltas,
-            botellonesDevueltos: resultado.botellonesDevueltos,
-          },
-        })
-
         return reply
           .code(200)
           .send({
@@ -353,7 +337,13 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       const { id } = req.params as { id: string }
 
       try {
-        const cliente = await verificarDocumento(id, req.user?.id ?? null, req.user?.roles ?? [])
+        const cliente = await verificarDocumento(id, req.user?.roles ?? [], {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
 
         /*
          * El MÉTODO es el detalle que importa — RN-CLI-14. No pesan igual:
@@ -364,19 +354,6 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
          * `revertida` distingue esta fila de la de la reversión, que comparte
          * el nombre de la acción porque comparte el permiso.
          */
-        await auditarSinBloquear(req, {
-          userId: req.user?.id ?? null,
-          rolEjercido: req.user?.roles ?? [],
-          action: 'clientes:verificar_documento',
-          resource: 'clientes',
-          result: 'ok',
-          payload: {
-            resourceId: cliente.id,
-            metodo: cliente.verificacionMetodo,
-            revertida: false,
-          },
-        })
-
         return conDocumento(cliente)
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:verificar_documento', id)
@@ -398,7 +375,13 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const cliente = await revertirVerificacion(id, datos.motivo)
+        const cliente = await revertirVerificacion(id, datos.motivo, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
 
         /*
          * Verificar y revertir son hechos OPUESTOS bajo el mismo nombre de
@@ -410,15 +393,6 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
          * tocaría el catálogo de `web/` y cambiaría los filtros de la pantalla
          * de auditoría. El payload alcanza para distinguirlas.
          */
-        await auditarSinBloquear(req, {
-          userId: req.user?.id ?? null,
-          rolEjercido: req.user?.roles ?? [],
-          action: 'clientes:verificar_documento',
-          resource: 'clientes',
-          result: 'ok',
-          payload: { resourceId: cliente.id, revertida: true, motivo: datos.motivo },
-        })
-
         return conDocumento(cliente)
       } catch (err) {
         return manejarError(err, req, reply, 'clientes:verificar_documento', id)

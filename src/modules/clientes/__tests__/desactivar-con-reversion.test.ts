@@ -15,6 +15,9 @@ import { darDeAltaBase, prestarBase } from '@/modules/retornables/bases'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 beforeEach(async () => {
   await resetDb()
 })
@@ -36,9 +39,9 @@ async function clienteConDireccion() {
   const { agregarDireccion } = await import('@/modules/clientes/direcciones')
   const { verificarDocumento } = await import('@/modules/clientes/verificacion')
 
-  const { cliente } = await crearCliente(UNA_CEDULA)
+  const { cliente } = await crearCliente(UNA_CEDULA, UN_CONTEXTO)
   const admin = await usuarioAutenticado('admin')
-  await verificarDocumento(cliente.id, admin.usuario.id, ['admin'])
+  await verificarDocumento(cliente.id, ['admin'], UN_CONTEXTO)
 
   const direccion = await agregarDireccion(cliente.id, {
     etiqueta: 'La casa',
@@ -56,7 +59,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const resultado = await desactivarClienteConReversion(
       cliente.id,
       'se mudó de pueblo y no quiere seguir registrado',
-      admin.usuario.id,
+      UN_CONTEXTO,
     )
 
     expect(resultado.cliente.activo).toBe(false)
@@ -82,7 +85,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const resultado = await desactivarClienteConReversion(
       cliente.id,
       'se mudó de pueblo y no quiere seguir registrado',
-      admin.usuario.id,
+      UN_CONTEXTO,
     )
 
     expect(resultado.basesDevueltas).toBe(2)
@@ -120,7 +123,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const resultado = await desactivarClienteConReversion(
       cliente.id,
       'se mudó de pueblo y no quiere seguir registrado',
-      admin.usuario.id,
+      UN_CONTEXTO,
     )
 
     expect(resultado.botellonesDevueltos).toBe(4)
@@ -154,7 +157,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const resultado = await desactivarClienteConReversion(
       cliente.id,
       'se mudó de pueblo y no quiere seguir registrado',
-      admin.usuario.id,
+      UN_CONTEXTO,
     )
 
     expect(resultado.basesDevueltas).toBe(1)
@@ -169,14 +172,14 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     await desactivarClienteConReversion(
       cliente.id,
       'primera desactivación de prueba',
-      admin.usuario.id,
+      UN_CONTEXTO,
     )
 
     await expect(
       desactivarClienteConReversion(
         cliente.id,
         'segunda desactivación de prueba',
-        admin.usuario.id,
+        UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'CLIENTE_YA_INACTIVO' })
   })
@@ -188,7 +191,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
       desactivarClienteConReversion(
         '00000000-0000-0000-0000-000000000000',
         'cliente inexistente de prueba',
-        admin.usuario.id,
+        UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'CLIENTE_NO_ENCONTRADO' })
   })
@@ -211,9 +214,9 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const { cliente: clienteB } = await crearCliente({
       ...UNA_CEDULA,
       numeroDocumento: '79123457',
-    })
+    }, UN_CONTEXTO)
     const admin = await usuarioAutenticado('admin')
-    await verificarDocumento(clienteB.id, admin.usuario.id, ['admin'])
+    await verificarDocumento(clienteB.id, ['admin'], UN_CONTEXTO)
     const dirB = await agregarDireccion(clienteB.id, {
       etiqueta: 'El local',
       direccion: 'Carrera 8',
@@ -228,7 +231,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     await desactivarClienteConReversion(
       clienteA.id,
       'desactivación selectiva de prueba',
-      admin.usuario.id,
+      UN_CONTEXTO,
     )
 
     const [bATras] = await db.select().from(bases).where(eq(bases.id, baseA.id))

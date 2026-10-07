@@ -6,6 +6,9 @@ import { direccionesDe } from '@/modules/clientes/direcciones'
 import { crearCliente } from '@/modules/clientes/service'
 import { resetDb } from '@/test/db'
 
+/** Lo que la ruta le pasa al servicio para que escriba la bitácora. */
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * La dirección en el mismo alta — M16.
  *
@@ -44,7 +47,7 @@ describe('el alta acepta una dirección', () => {
     const { cliente } = await crearCliente({
       ...BASE,
       direccion: { etiqueta: 'La casa', direccion: 'Calle 5 #3-20' },
-    })
+    }, UN_CONTEXTO)
 
     const suyas = await direccionesDe(cliente.id)
 
@@ -56,13 +59,13 @@ describe('el alta acepta una dirección', () => {
     const { direccion } = await crearCliente({
       ...BASE,
       direccion: { etiqueta: 'La casa', direccion: 'Calle 5 #3-20' },
-    })
+    }, UN_CONTEXTO)
 
     expect(direccion).toMatchObject({ etiqueta: 'La casa' })
   })
 
   it('sin dirección, el alta sigue funcionando igual', async () => {
-    const { cliente, direccion } = await crearCliente(BASE)
+    const { cliente, direccion } = await crearCliente(BASE, UN_CONTEXTO)
 
     expect(direccion).toBeNull()
     expect(await direccionesDe(cliente.id)).toHaveLength(0)
@@ -79,7 +82,7 @@ describe('el alta acepta una dirección', () => {
         municipio: 'Campo de la Cruz',
         departamento: 'Atlántico',
       },
-    })
+    }, UN_CONTEXTO)
 
     expect(direccion).toMatchObject({ viaTipo: 'CL', viaNumero: '30' })
   })
@@ -100,7 +103,7 @@ describe('la transacción', () => {
         ...BASE,
         // Solo municipio no ubica nada: a «Suan» no se le puede entregar agua.
         direccion: { etiqueta: 'La casa', municipio: 'Suan' },
-      }),
+      }, UN_CONTEXTO),
     ).rejects.toThrow()
 
     expect(await db.select().from(clientes)).toHaveLength(0)
@@ -112,7 +115,7 @@ describe('la transacción', () => {
       ...BASE,
       telefono: { numero: '300 123 4567', etiqueta: 'el celular' },
       direccion: { etiqueta: 'La casa', direccion: 'Calle 5 #3-20' },
-    })
+    }, UN_CONTEXTO)
 
     expect(telefono).toMatchObject({ numero: '300 123 4567' })
     expect(direccion).toMatchObject({ etiqueta: 'La casa' })
@@ -143,7 +146,7 @@ describe('varios teléfonos', () => {
         { numero: '300 123 4567', etiqueta: 'el celular' },
         { numero: '605 878 1234', etiqueta: 'el fijo del local' },
       ],
-    })
+    }, UN_CONTEXTO)
 
     expect(guardados).toHaveLength(2)
     expect(guardados.map((t) => t.etiqueta)).toEqual(['el celular', 'el fijo del local'])
@@ -158,13 +161,13 @@ describe('varios teléfonos', () => {
     const { telefonos: guardados } = await crearCliente({
       ...BASE,
       telefono: { numero: '300 123 4567', etiqueta: 'el celular' },
-    })
+    }, UN_CONTEXTO)
 
     expect(guardados).toHaveLength(1)
   })
 
   it('sin teléfonos, la lista viene vacía y no rompe', async () => {
-    const { telefonos: guardados } = await crearCliente(BASE)
+    const { telefonos: guardados } = await crearCliente(BASE, UN_CONTEXTO)
 
     expect(guardados).toEqual([])
   })
@@ -178,7 +181,7 @@ describe('varios teléfonos', () => {
       crearCliente({
         ...BASE,
         telefonos: [{ numero: '300 123 4567' }, { numero: '12' }],
-      }),
+      }, UN_CONTEXTO),
     ).rejects.toThrow()
 
     expect(await db.select().from(clientes)).toHaveLength(0)

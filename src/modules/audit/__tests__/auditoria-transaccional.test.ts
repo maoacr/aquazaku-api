@@ -103,10 +103,15 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       acciones: ['auth:login', 'auth:logout'],
       nota: 'NO aplica: son eventos de sesión, que la ADR deja explícitamente no bloqueantes',
     },
-    'clientes/routes.ts': {
-      transaccional: false,
-      acciones: ['clientes:crear', 'clientes:verificar_documento', 'clientes:desactivar'],
-      nota: 'pendiente — `habilitar_credito` ya migró a `credito.ts`; estas tres siguen emitiendo desde la ruta',
+    'clientes/service.ts': {
+      transaccional: true,
+      acciones: ['clientes:crear', 'clientes:desactivar'],
+      nota: 'el alta y la baja ya eran transaccionales; ahora la fila va adentro, y la baja la escribe con los conteos de bases y botellones devueltos',
+    },
+    'clientes/verificacion.ts': {
+      transaccional: true,
+      acciones: ['clientes:verificar_documento'],
+      nota: 'verificar y revertir comparten acción y las separa `revertida` en el payload; el método sale del rol, no del request',
     },
     'proveedores/routes.ts': {
       transaccional: false,

@@ -1,6 +1,6 @@
 import { type SQL, and, desc, eq, like, ne, or, sql } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
-import { db } from '@/db/client'
+import { type Ejecutor, db } from '@/db/client'
 import {
   type Cliente,
   type Direccion,
@@ -13,6 +13,7 @@ import {
   telefonos,
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { botellonesDe } from '@/modules/retornables/conservacion'
 import { type DatosDeDireccion, agregarDireccion } from './direcciones'
 import {
@@ -278,7 +279,10 @@ export function exigirNombreCoherente(n: NombreDeCliente): NombreDeCliente {
   return partes
 }
 
-export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta> {
+export async function crearCliente(
+  datos: DatosDeAlta,
+  contexto: ContextoDeAuditoria,
+): Promise<ResultadoDeAlta> {
   const nombre = exigirNombreCoherente(datos)
 
   /*
@@ -357,6 +361,32 @@ export async function crearCliente(datos: DatosDeAlta): Promise<ResultadoDeAlta>
     const direccion = datos.direccion
       ? await agregarDireccion(cliente!.id, datos.direccion, tx)
       : null
+
+    /*
+     * La fila va DENTRO de la transacción del alta — ADR-0007. La del
+     * middleware se escribía antes de que el cliente existiera: llegaba sin
+     * `resourceId` y sin `payload`, diciendo que alguien dio de alta a ALGUIEN.
+     *
+     * El documento va porque es la identidad con la que el cliente entra al
+     * sistema, y el índice único lo hace irrepetible: es con lo que se
+     * encuentra la fila cuando alguien pregunta por un alta concreta.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'clientes:crear',
+        resource: 'clientes',
+        resourceId: cliente!.id,
+        result: 'ok',
+        payload: {
+          resourceId: cliente!.id,
+          nombre: cliente!.nombre,
+          documento: cliente!.numeroDocumento,
+          tipo: cliente!.tipo,
+        },
+      },
+      tx,
+    )
 
     return { cliente: cliente!, aviso, telefono: guardados[0] ?? null, telefonos: guardados, direccion }
   })
@@ -506,8 +536,10 @@ export interface ResultadoDeDesactivacion {
 export async function desactivarClienteConReversion(
   id: string,
   motivo: string,
-  registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<ResultadoDeDesactivacion> {
+  const registradoPor = contexto.userId
+
   return db.transaction(async (tx) => {
     const cliente = await tx
       .select()
@@ -597,6 +629,37 @@ export async function desactivarClienteConReversion(
       .where(eq(clientes.id, id))
       .returning()
 
+    /*
+     * La acción emitida se llama `clientes:desactivar` aunque el permiso sea
+     * `clientes:editar`: desactivar es escribir una columna, pero arrastra la
+     * devolución de bases y botellones. Los CONTEOS son lo que la hace
+     * auditable tres meses después — «se desactivó a la señora Gómez y
+     * volvieron 2 bases y 8 botellones» se lee de la fila, sin cruzar
+     * `movimientos_base` con `movimientos_botellon`.
+     *
+     * Y va DENTRO de la transacción: si la fila falla, las devoluciones se
+     * revierten con ella. Antes se emitía después, con el argumento de que
+     * tumbar la respuesta dejaría al operador desactivando dos veces — pero
+     * ahora no hay nada que desactivar dos veces: el rollback deja al cliente
+     * activo y el reintento es el camino correcto.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'clientes:desactivar',
+        resource: 'clientes',
+        resourceId: id,
+        result: 'ok',
+        payload: {
+          resourceId: id,
+          motivo,
+          basesDevueltas: basesDelCliente.length,
+          botellonesDevueltos: botellonesEnPoder,
+        },
+      },
+      tx,
+    )
+
     return {
       cliente: clienteActualizado!,
       basesDevueltas: basesDelCliente.length,
@@ -605,8 +668,14 @@ export async function desactivarClienteConReversion(
   })
 }
 
-export async function clientePorId(id: string): Promise<Cliente> {
-  const [cliente] = await db.select().from(clientes).where(eq(clientes.id, id))
+/*
+ * El `ejecutor` no es cosmético: si esta lectura corre con `db` desde adentro de
+ * una transacción, pide una conexión que la transacción ya tiene tomada. Con el
+ * pool de una sola conexión —como en los tests— eso es un deadlock, y se ve
+ * como un test que nunca termina, no como un error.
+ */
+export async function clientePorId(id: string, ejecutor: Ejecutor = db): Promise<Cliente> {
+  const [cliente] = await ejecutor.select().from(clientes).where(eq(clientes.id, id))
 
   if (!cliente) {
     throw new ErrorDeNegocio('CLIENTE_NO_ENCONTRADO', 404, 'ese cliente no existe')
