@@ -25,4 +25,12 @@ tests {
   test("devuelve el x-request-id para poder correlacionar logs", function() {
     expect(res.getHeader("x-request-id")).to.be.a("string");
   });
+
+  // El campo tiene que VIAJAR, no solo existir en el objeto que arma la ruta.
+  // Acá vale `null`: en CI nadie inyecta el commit. Lo que se vigila es que la
+  // clave llegue del otro lado del socket, porque es la que se consulta para
+  // saber qué versión está corriendo en un entorno.
+  test("dice de qué commit salió", function() {
+    expect(res.getBody()).to.have.property("commit");
+  });
 }
