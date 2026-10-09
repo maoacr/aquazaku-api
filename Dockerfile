@@ -28,7 +28,30 @@ FROM node:22-alpine
 # el contenedor sin darle a Fastify la chance de cerrar el pool de Postgres.
 RUN apk add --no-cache tini
 
-RUN corepack enable && corepack prepare pnpm@11.21.0 --activate
+# ── El caché de Corepack va a un lugar COMPARTIDO, no al HOME de root ───────
+#
+# `corepack prepare` ya fijaba la versión, pero guardaba el paquete en el HOME
+# de QUIEN corre el `RUN` — y eso es root. El proceso arranca con `USER node`,
+# cuyo HOME es `/home/node`, así que al buscar el caché no encontraba nada y
+# **volvía a bajar pnpm de npmjs.org en cada arranque de contenedor**.
+#
+# Medido sobre la imagen anterior: el caché estaba en
+# `/root/.cache/node/corepack/v1` y `/home/node/.cache/node/corepack` no
+# existía. Con red, cada `pnpm` imprimía `! Corepack is about to download
+# .../pnpm-11.21.0.tgz`; sin red, `pnpm --version` directamente crasheaba. O
+# sea que levantar la api dependía de que npmjs.org estuviera disponible —en
+# staging eso son dos descargas por deploy, una del pre-deploy y otra del
+# server—.
+#
+# `COREPACK_HOME` apunta las dos etapas al mismo lugar. El `chmod a+rX` deja
+# leer y atravesar a cualquier usuario sin dar escritura: el runtime solo lee
+# el paquete ya bajado, y el día que alguien cambie la versión en
+# `packageManager` el build la vuelve a preparar acá.
+ENV COREPACK_HOME=/usr/local/share/corepack
+
+RUN corepack enable \
+ && corepack prepare pnpm@11.21.0 --activate \
+ && chmod -R a+rX "$COREPACK_HOME"
 
 WORKDIR /app
 
