@@ -67,4 +67,41 @@ describe('GET /health', () => {
     expect(res.headers['x-request-id']).toEqual(expect.any(String))
     expect(res.headers['x-request-id']).not.toBe('')
   })
+
+  /**
+   * ── Y dice QUÉ código es el que está contestando ──────────────────────────
+   *
+   * Sin esto, averiguar qué versión corre en un entorno obliga a deducirlo: el
+   * uptime del propio `/health`, la hora del último deploy en el panel, o pedir
+   * los logs. Las tres son indirectas, y las tres se equivocan — mirando el
+   * uptime se puede confundir «el deploy nuevo entró» con «el viejo sigue
+   * sirviendo», que es justo lo que pasa cuando un despliegue falla y la
+   * plataforma deja al anterior en pie.
+   *
+   * `commit` lo contesta de frente, sin autenticación, desde afuera.
+   *
+   * Va en `null` cuando la plataforma no lo inyectó —correr local, un test, un
+   * `docker run` a mano—. Es el mismo criterio de los cuatro saldos del cliente:
+   * un valor inventado diría algo falso, y `null` dice «este proceso no sabe de
+   * qué commit salió», que es la verdad.
+   */
+  it('dice de qué commit salió, o `null` si la plataforma no lo inyectó', async () => {
+    const cuerpo = await app.inject({ method: 'GET', url: '/health' }).then((r) => r.json())
+
+    /*
+     * Se compara contra la variable REAL del proceso y no contra una forma.
+     *
+     * La primera versión afirmaba «es `null` o siete hexadecimales», y eso pasa
+     * en verde con la implementación borrada: sin la línea, `commit` queda
+     * `undefined`... y con la variable puesta tampoco distinguía entre los
+     * siete caracteres correctos y otros siete. Un test que acepta las dos
+     * respuestas no vigila ninguna.
+     *
+     * Así corre igual en local —donde no hay variable y tiene que ser `null`—
+     * y en un entorno donde sí la hay, exigiendo el prefijo exacto.
+     */
+    const sha = process.env.RAILWAY_GIT_COMMIT_SHA
+
+    expect(cuerpo.commit).toBe(sha ? sha.slice(0, 7) : null)
+  })
 })

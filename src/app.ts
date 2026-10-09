@@ -74,6 +74,21 @@ export async function buildApp(): Promise<FastifyInstance> {
     return {
       status: 'ok',
       service: 'aquazaku-api',
+      /*
+       * De qué commit salió este proceso — los siete caracteres que muestra
+       * `git log --oneline`, para poder cotejarlo de un vistazo.
+       *
+       * Sin esto, saber qué versión corre en un entorno obliga a deducirlo por
+       * el uptime o por la hora del último deploy en el panel, y las dos
+       * mienten en el mismo caso: cuando un despliegue falla, la plataforma
+       * deja al ANTERIOR sirviendo y desde afuera se ve igual de sano.
+       *
+       * Va sin autenticación a propósito, como el resto del endpoint: sirve
+       * justamente para contestar desde afuera, antes de tener sesión. Lo que
+       * revela es el identificador de un commit de un repo privado, que no se
+       * puede traer con eso.
+       */
+      commit: env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
       ...resumirLatido(leerEstado(), new Date()),
     }
   })

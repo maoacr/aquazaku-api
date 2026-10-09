@@ -20,6 +20,27 @@ const envSchema = z.object({
   AQUAZAKU_ENV: z.enum(['production', 'preview', 'development']).default('production'),
 
   /**
+   * El commit del que salió este proceso. Lo inyecta Railway solo, en cada
+   * deploy desde GitHub; nadie lo configura.
+   *
+   * ── Por qué es opcional y no tiene default ────────────────────────────────
+   *
+   * Corriendo local, en un test o en un `docker run` a mano no existe, y eso
+   * está bien: `/health` lo reporta como `null`, que dice «este proceso no sabe
+   * de qué commit salió». Un default inventado diría algo falso sobre lo único
+   * que esta variable existe para contestar.
+   *
+   * ── Es el único lugar acoplado a Railway ──────────────────────────────────
+   *
+   * El nombre es de la plataforma (`RAILWAY_GIT_COMMIT_SHA`). Se lee tal cual y
+   * no detrás de una variable propia con un alias, porque esa indirección
+   * costaría configurar a mano una variable más en cada entorno —otra cosa que
+   * se olvida— a cambio de una portabilidad que hoy nadie necesita. El día que
+   * la api corra en otro lado, esta línea es la que se cambia.
+   */
+  RAILWAY_GIT_COMMIT_SHA: z.string().optional(),
+
+  /**
    * Conexión de la APLICACIÓN. Usa el rol `aquazaku_app`, que NO es dueño de
    * las tablas y no tiene UPDATE ni DELETE sobre `audit_log`. Esa es la mitad
    * dura de la inmutabilidad del log: aunque un bug o una inyección intenten
