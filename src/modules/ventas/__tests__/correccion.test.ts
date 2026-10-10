@@ -160,6 +160,7 @@ const corregir = (
       ...extra,
     },
     usuario,
+    UN_CONTEXTO,
   )
 
 describe('la corrección reemplaza, no edita', () => {
@@ -241,6 +242,7 @@ describe('la corrección reemplaza, no edita', () => {
         hoy: HOY,
       },
       como(admin.usuario.id, ['admin']),
+      UN_CONTEXTO,
     )
 
     const isoNueva = nueva.createdAt.toISOString().slice(0, 10)
