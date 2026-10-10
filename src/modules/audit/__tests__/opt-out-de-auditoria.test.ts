@@ -130,11 +130,11 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    * siguiente — y es lo que lo hace reclamable.
    */
   'produccion → produccion:registrar_cierre':
-    'produccion/routes.ts — emite con la fecha del cierre, los dos litrajes, los conteos y cuántos lotes salieron',
+    'produccion/cierre.ts — emite con la fecha del cierre, los dos litrajes, los conteos y cuántos lotes salieron, como quinto escrito de su transacción',
   'produccion → tanques:registrar_reposicion':
     'produccion/routes.ts — emite con el tanque y el tipo, sin litros: no hay con qué medirlos',
   'produccion → tanques:ajustar':
-    'produccion/routes.ts — emite con el delta CON SIGNO, el motivo y el saldo que quedó',
+    'produccion/agua.ts — emite con el delta CON SIGNO, el motivo y el saldo que quedó, en la transacción del ajuste',
   'proveedores → compras:crear':
     'proveedores/compras.ts — emite el registro y el pago separados por `operacion`, cada uno en su transacción; la consulta de lo vencido se exime por ser lectura',
   'proveedores → proveedores:crear':

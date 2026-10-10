@@ -1,8 +1,9 @@
 import { eq, sql } from 'drizzle-orm'
-import { type DB, db } from '@/db/client'
+import { type Ejecutor, db } from '@/db/client'
 import { type MovimientoAgua, movimientosAgua } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 
 /**
  * El balance del agua — RN-PRD-06, y la reconciliación de RN-PRD-14.
@@ -101,7 +102,7 @@ export interface SaldoDeAgua {
  * es uno por día, y los ingresos y ajustes son manuales y esporádicos. La
  * columna de saldo existe donde hace falta descontar atómicamente, y acá no.
  */
-export async function saldoDe(tanque: Tanque, ejecutor: DB = db): Promise<SaldoDeAgua> {
+export async function saldoDe(tanque: Tanque, ejecutor: Ejecutor = db): Promise<SaldoDeAgua> {
   const [fila] = await ejecutor
     .select({ total: sql<string>`coalesce(sum(${movimientosAgua.litros}), 0)` })
     .from(movimientosAgua)
@@ -228,6 +229,7 @@ export async function ajustarAgua(
   litros: number,
   motivo: string,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<SaldoDeAgua> {
   if (!Number.isInteger(litros) || litros === 0) {
     throw new ErrorDeNegocio(
@@ -245,31 +247,81 @@ export async function ajustarAgua(
     )
   }
 
-  const saldoPrevio = await saldoDe(tanque)
-  if (saldoPrevio.litros + litros < 0) {
-    throw new ErrorDeNegocio(
-      'SALDO_NEGATIVO',
-      422,
-      `el ajuste dejaría el tanque en ${saldoPrevio.litros + litros} litros, y un tanque no puede tener menos que nada`,
+  /*
+   * ── Las tres lecturas y la escritura, en una sola transacción — ADR-0007 ──
+   *
+   * El ajuste es la única escritura que CORRIGE el libro, y el libro es la
+   * única fuente del saldo de agua: no hay medidor ni regleta con el que
+   * contrastarlo (RN-PRD-11, RN-PRD-14). Un ajuste sin fila deja un saldo
+   * movido que nadie puede explicar ni verificar contra nada físico, y eso es
+   * exactamente lo que RN-ACC-04 viene a impedir.
+   *
+   * Las validaciones de FORMA —el cero y el motivo— quedan afuera a propósito:
+   * un 422 por un pedido mal armado no necesita abrir una transacción. Lo que
+   * entra son las que dependen del saldo.
+   *
+   * Los dos `saldoDe` leen con `tx` y no con `db`. No es cosmética: en los
+   * tests el pool es de UNA conexión, así que un `saldoDe(db)` mientras esta
+   * transacción la tiene se bloquearía a sí mismo —y eso no se ve como un test
+   * rojo, se ve como una suite colgada.
+   */
+  return db.transaction(async (tx) => {
+    const saldoPrevio = await saldoDe(tanque, tx)
+
+    if (saldoPrevio.litros + litros < 0) {
+      throw new ErrorDeNegocio(
+        'SALDO_NEGATIVO',
+        422,
+        `el ajuste dejaría el tanque en ${saldoPrevio.litros + litros} litros, y un tanque no puede tener menos que nada`,
+      )
+    }
+
+    if (saldoPrevio.litros + litros > CAPACIDAD[tanque]) {
+      // No es un capricho: un saldo por encima de la capacidad significa que el
+      // libro perdió el rastro de una salida, y taparlo con un ajuste al alza
+      // esconde el problema en vez de resolverlo.
+      throw new ErrorDeNegocio(
+        'SOBRE_CAPACIDAD',
+        422,
+        `el ajuste dejaría ${saldoPrevio.litros + litros} litros en un tanque de ${CAPACIDAD[tanque]}. Si de verdad hay esa cantidad, falta registrar una salida antes`,
+      )
+    }
+
+    await tx
+      .insert(movimientosAgua)
+      .values({ tanque, litros, tipo: 'ajuste', motivo, registradoPor })
+
+    const saldo = await saldoDe(tanque, tx)
+
+    /*
+     * Van los DOS números: el delta con signo —«faltaban 2000» y «sobraban
+     * 2000» son hechos opuestos— y el saldo en que quedó, para que reconstruir
+     * el estado del tanque en una fecha no obligue a sumar todos los
+     * movimientos anteriores.
+     *
+     * `resourceId` es el nombre del tanque y no un uuid: `resource_id` es
+     * `text`, y lo que identifica a un tanque acá es `crudo` o `procesado`.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'tanques:ajustar',
+        resource: 'tanques',
+        resourceId: tanque,
+        result: 'ok',
+        payload: {
+          resourceId: tanque,
+          litros,
+          motivo,
+          saldo: saldo.litros,
+          nivelCalculado: saldo.nivelCalculado,
+        },
+      },
+      tx,
     )
-  }
 
-  if (saldoPrevio.litros + litros > CAPACIDAD[tanque]) {
-    // No es un capricho: un saldo por encima de la capacidad significa que el
-    // libro perdió el rastro de una salida, y taparlo con un ajuste al alza
-    // esconde el problema en vez de resolverlo.
-    throw new ErrorDeNegocio(
-      'SOBRE_CAPACIDAD',
-      422,
-      `el ajuste dejaría ${saldoPrevio.litros + litros} litros en un tanque de ${CAPACIDAD[tanque]}. Si de verdad hay esa cantidad, falta registrar una salida antes`,
-    )
-  }
-
-  await db
-    .insert(movimientosAgua)
-    .values({ tanque, litros, tipo: 'ajuste', motivo, registradoPor })
-
-  return saldoDe(tanque)
+    return saldo
+  })
 }
 
 /** El libro de un tanque, del más nuevo al más viejo. */
