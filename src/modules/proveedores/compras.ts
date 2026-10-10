@@ -10,6 +10,7 @@ import {
   proveedores,
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { registrarEntrada } from '@/modules/insumos/service'
 import { comprarBases } from '@/modules/retornables/bases'
 import { aCentavos, aMonto } from '@/modules/ventas/precio'
@@ -68,6 +69,7 @@ export interface ResultadoDeCompra {
 export async function registrarCompra(
   datos: DatosDeCompra,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<ResultadoDeCompra> {
   if (datos.lineas.length === 0) {
     throw new ErrorDeNegocio('COMPRA_VACIA', 422, 'una compra sin líneas no es una compra')
@@ -230,6 +232,38 @@ export async function registrarCompra(
       }
     }
 
+    /**
+     * La compra y su fila, una sola escritura — ADR-0007.
+     *
+     * Una compra es dinero que sale. El total va congelado (RN-PRO-04) y el
+     * vencimiento también: son los dos datos con los que se concilia lo que se
+     * le debe a un proveedor, y recalcularlos desde las líneas tres meses
+     * después da otro número si cambió un costo.
+     *
+     * `operacion: 'registrar'` lo separa del pago, que comparte la acción
+     * porque comparte permiso. Sin eso, una compra a crédito y su pago se leen
+     * como dos compras.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'compras:crear',
+        resource: 'compras',
+        resourceId: compra!.id,
+        result: 'ok',
+        payload: {
+          operacion: 'registrar',
+          resourceId: compra!.id,
+          proveedorId: compra!.proveedorId,
+          medioDePago: compra!.medioDePago,
+          total: compra!.total,
+          venceEl: compra!.venceEl,
+          lineas: guardadas.length,
+        },
+      },
+      tx,
+    )
+
     return { compra: compra!, lineas: guardadas }
   })
 }
@@ -291,7 +325,10 @@ export async function comprasVencidas(hoy: string): Promise<CompraVencida[]> {
  * recibida —la otra es anularla con motivo—. Sin pagos parciales: hoy no existe
  * una sola compra a crédito de la cual derivar cómo se manejan.
  */
-export async function marcarPagada(compraId: string): Promise<Compra> {
+export async function marcarPagada(
+  compraId: string,
+  contexto: ContextoDeAuditoria,
+): Promise<Compra> {
   return db.transaction(async (tx) => {
     const [compra] = await tx.select().from(compras).where(eq(compras.id, compraId))
 
@@ -322,6 +359,28 @@ export async function marcarPagada(compraId: string): Promise<Compra> {
       .set({ pagada: true })
       .where(eq(compras.id, compraId))
       .returning()
+
+    /*
+     * El otro lado de `operacion`: acá se cierra la deuda. El total va repetido
+     * a propósito —es el de la compra, congelado— para que la fila del pago se
+     * lea sola, sin ir a buscar la de la compra.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'compras:crear',
+        resource: 'compras',
+        resourceId: pagada!.id,
+        result: 'ok',
+        payload: {
+          operacion: 'pago',
+          resourceId: pagada!.id,
+          proveedorId: pagada!.proveedorId,
+          total: pagada!.total,
+        },
+      },
+      tx,
+    )
 
     return pagada!
   })

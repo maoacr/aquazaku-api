@@ -178,10 +178,15 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       acciones: ['clientes:verificar_documento'],
       nota: 'verificar y revertir comparten acción y las separa `revertida` en el payload; el método sale del rol, no del request',
     },
-    'proveedores/routes.ts': {
-      transaccional: false,
-      acciones: ['proveedores:crear', 'proveedores:editar', 'compras:crear'],
-      nota: 'pendiente — una compra es dinero que sale; el pago y el registro comparten acción',
+    'proveedores/service.ts': {
+      transaccional: true,
+      acciones: ['proveedores:crear', 'proveedores:editar'],
+      nota: 'el alta y el cambio de estado se clasificaron sensibles el 10-oct-2026: el NIT es lo que hace rastreable al proveedor en la contabilidad, y desactivar cierra la puerta a comprarle (RN-PRO-01). Ninguna de las dos tenía transacción: se les creó una para que la fila entre con el cambio',
+    },
+    'proveedores/compras.ts': {
+      transaccional: true,
+      acciones: ['compras:crear'],
+      nota: 'una compra es dinero que sale; el registro y el pago comparten acción y los separa `operacion` en el payload. El total y el vencimiento van congelados (RN-PRO-04): son con lo que se concilia la deuda',
     },
     /*
      * El emit del middleware es el único que NO puede ser atómico, y está bien

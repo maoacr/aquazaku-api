@@ -83,6 +83,7 @@ const unaCompra = (total: string) =>
       lineas: [{ insumoId: tapaId, cantidad: 100, costoUnitario: total }],
     },
     null,
+    UN_CONTEXTO,
   )
 
 describe('el rango de fechas', () => {
