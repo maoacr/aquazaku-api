@@ -47,26 +47,13 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const creado = await crearProveedor(datos)
-
-        /*
-         * El NIT es lo que hace rastreable al proveedor en la contabilidad, y
-         * es el campo que el servicio protege contra duplicados: si mañana
-         * aparecen dos filas con el mismo NIT, esta es la que dice cuál se
-         * cargó primero y quién la cargó.
-         */
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const creado = await crearProveedor(datos, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'proveedores:crear',
-          resource: 'proveedores',
-          result: 'ok',
-          payload: {
-            resourceId: creado.id,
-            nombre: creado.nombre,
-            nit: creado.nit,
-            contacto: creado.contacto,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return reply.code(201).send(creado)
@@ -98,25 +85,13 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const cambiado = await cambiarEstado(id, datos.activo)
-
-        /*
-         * Los dos sentidos comparten acción porque comparten ruta, y el payload
-         * dice en cuál quedó. Importa el sentido, no solo que «se editó»:
-         * desactivar cierra la puerta a comprarle, y reactivar la vuelve a
-         * abrir.
-         */
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const cambiado = await cambiarEstado(id, datos.activo, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'proveedores:editar',
-          resource: 'proveedores',
-          result: 'ok',
-          payload: {
-            resourceId: cambiado.id,
-            nombre: cambiado.nombre,
-            activo: cambiado.activo,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return cambiado
@@ -134,34 +109,13 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const resultado = await registrarCompra(datos, req.user?.id ?? null)
-
-        /*
-         * Registrar la compra y marcarla pagada comparten `compras:crear`
-         * porque comparten permiso. Las separa `operacion`: la primera abre una
-         * deuda, la segunda la cierra. Sin eso, una compra a crédito y su pago
-         * se leen como dos compras.
-         *
-         * El total va congelado (RN-PRO-04) y el vencimiento también: son los
-         * dos datos con los que se concilia lo que se le debe a un proveedor,
-         * y recalcularlos desde las líneas tres meses después da otro número
-         * si cambió un costo.
-         */
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const resultado = await registrarCompra(datos, req.user?.id ?? null, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'compras:crear',
-          resource: 'compras',
-          result: 'ok',
-          payload: {
-            operacion: 'registrar',
-            resourceId: resultado.compra.id,
-            proveedorId: resultado.compra.proveedorId,
-            medioDePago: resultado.compra.medioDePago,
-            total: resultado.compra.total,
-            venceEl: resultado.compra.venceEl,
-            lineas: resultado.lineas.length,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return reply.code(201).send(resultado)
@@ -200,23 +154,13 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
       const { id } = req.params as { id: string }
 
       try {
-        const pagada = await marcarPagada(id)
-
-        /* El otro lado de `operacion`: acá se cierra la deuda. El total va
-         * repetido a propósito —es el de la compra, congelado— para que la fila
-         * del pago se lea sola, sin ir a buscar la de la compra. */
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const pagada = await marcarPagada(id, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'compras:crear',
-          resource: 'compras',
-          result: 'ok',
-          payload: {
-            operacion: 'pago',
-            resourceId: pagada.id,
-            proveedorId: pagada.proveedorId,
-            total: pagada.total,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return pagada

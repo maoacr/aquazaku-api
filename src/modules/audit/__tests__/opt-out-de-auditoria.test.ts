@@ -136,14 +136,14 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'produccion → tanques:ajustar':
     'produccion/routes.ts — emite con el delta CON SIGNO, el motivo y el saldo que quedó',
   'proveedores → compras:crear':
-    'proveedores/routes.ts — emite el registro y el pago, separados por `operacion`; la consulta de lo vencido se exime por ser lectura',
+    'proveedores/compras.ts — emite el registro y el pago separados por `operacion`, cada uno en su transacción; la consulta de lo vencido se exime por ser lectura',
   'proveedores → proveedores:crear':
-    'proveedores/routes.ts — emite con el nombre, el NIT y el contacto',
+    'proveedores/service.ts — emite con el nombre, el NIT y el contacto, en la transacción del alta',
   /* Activar y desactivar son la misma ruta con distinto valor (RN-PRO-01): el
    * payload dice en cuál quedó, porque desactivar cierra la puerta a comprarle
    * y reactivar la vuelve a abrir. */
   'proveedores → proveedores:editar':
-    'proveedores/routes.ts — emite con el estado en que quedó el proveedor',
+    'proveedores/service.ts — emite con el estado en que quedó el proveedor, en la transacción del cambio',
   'stock → stock:ajustar': 'stock/service.ts — emite con el lote y el delta',
   'stock → stock:descartar': 'stock/service.ts — emite con el lote y el motivo',
   'users → usuarios:crear': 'users/routes.ts — emite con el id nuevo y los roles',

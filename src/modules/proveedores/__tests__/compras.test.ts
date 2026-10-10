@@ -40,7 +40,7 @@ afterAll(async () => {
 })
 
 const deContado = (lineas: Parameters<typeof registrarCompra>[0]['lineas']) =>
-  registrarCompra({ proveedorId, medioDePago: 'efectivo', lineas }, null)
+  registrarCompra({ proveedorId, medioDePago: 'efectivo', lineas }, null, UN_CONTEXTO)
 
 describe('la compra mueve el inventario que le corresponde', () => {
   it('un insumo entra al saldo del insumo', async () => {
@@ -128,6 +128,7 @@ describe('el medio de pago', () => {
           lineas: [{ botellones: 10, cantidad: 10, costoUnitario: '100.00' }],
         },
         null,
+        UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'VENCIMIENTO_REQUERIDO' })
   })
@@ -142,6 +143,7 @@ describe('el medio de pago', () => {
           lineas: [{ botellones: 10, cantidad: 10, costoUnitario: '100.00' }],
         },
         null,
+        UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'VENCIMIENTO_SIN_CREDITO' })
   })
@@ -155,6 +157,7 @@ describe('el medio de pago', () => {
         lineas: [{ botellones: 10, cantidad: 10, costoUnitario: '100.00' }],
       },
       null,
+      UN_CONTEXTO,
     )
 
     expect(compra.pagada).toBe(false)
@@ -178,6 +181,7 @@ describe('el aviso de vencidas', () => {
         lineas: [{ botellones: 10, cantidad: 10, costoUnitario: '100.00' }],
       },
       null,
+      UN_CONTEXTO,
     )
 
   it('avisa lo que ya pasó de fecha, con los días de atraso', async () => {
@@ -209,7 +213,7 @@ describe('el aviso de vencidas', () => {
   it('una vez pagada deja de avisar', async () => {
     const { compra } = await aCredito('2026-08-20')
 
-    await marcarPagada(compra.id)
+    await marcarPagada(compra.id, UN_CONTEXTO)
 
     expect(await comprasVencidas(HOY)).toHaveLength(0)
   })
@@ -219,7 +223,7 @@ describe('marcar pagada', () => {
   it('pagar dos veces se rechaza: significaría mandar la plata dos veces', async () => {
     const { compra } = await deContado([{ botellones: 10, cantidad: 10, costoUnitario: '100.00' }])
 
-    await expect(marcarPagada(compra.id)).rejects.toMatchObject({ code: 'COMPRA_YA_PAGADA' })
+    await expect(marcarPagada(compra.id, UN_CONTEXTO)).rejects.toMatchObject({ code: 'COMPRA_YA_PAGADA' })
   })
 
   it('una anulada no se paga: no hay nada que deber', async () => {
@@ -231,6 +235,7 @@ describe('marcar pagada', () => {
         lineas: [{ botellones: 10, cantidad: 10, costoUnitario: '100.00' }],
       },
       null,
+      UN_CONTEXTO,
     )
 
     await db
@@ -238,7 +243,7 @@ describe('marcar pagada', () => {
       .set({ estado: 'anulada', motivoAnulacion: 'el proveedor facturó otra cosa' })
       .where(eq(compras.id, compra.id))
 
-    await expect(marcarPagada(compra.id)).rejects.toMatchObject({ code: 'COMPRA_ANULADA' })
+    await expect(marcarPagada(compra.id, UN_CONTEXTO)).rejects.toMatchObject({ code: 'COMPRA_ANULADA' })
   })
 })
 
