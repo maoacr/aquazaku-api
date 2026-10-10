@@ -12,6 +12,8 @@ import { resetDb } from '@/test/db'
 import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 import type { UserContext } from '@/modules/authz/can'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 const HOY = '2026-08-26'
 let productoId: string
 let clienteId: string
@@ -143,10 +145,12 @@ describe('la deuda después de anular', () => {
     const { venta } = await venderACredito(2)
     await registrarCobro({ clienteId, monto: '20000.00', medioDePago: 'efectivo' }, null)
 
-    await anularVenta(venta.id, 'el cliente devolvió todo sin abrir', {
-      id: autor.usuario.id,
-      roles: ['admin'],
-    } as UserContext)
+    await anularVenta(
+      venta.id,
+      'el cliente devolvió todo sin abrir',
+      { id: autor.usuario.id, roles: ['admin'] } as UserContext,
+      UN_CONTEXTO,
+    )
 
     // Negativo: el negocio le debe. No lo produjo un cobro de más.
     expect(await deudaDe(clienteId)).toBe('-20000.00')
