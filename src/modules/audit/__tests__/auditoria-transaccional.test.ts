@@ -132,10 +132,27 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       ],
       nota: 'NO aplica: ninguna de estas la nombra RN-ACC-04, y el ajuste del parque se clasificó no sensible el 10-oct-2026',
     },
+    'produccion/cierre.ts': {
+      transaccional: true,
+      acciones: ['produccion:registrar_cierre'],
+      nota: 'la escritura más grande del sistema —agua, insumos, botellones y producto en una transacción (RN-PRD-23)— y ahora la fila entra con ella. `atomicidad.test.ts` prueba que un cierre que falla tampoco la deja',
+    },
+    'produccion/agua.ts': {
+      transaccional: true,
+      acciones: ['tanques:ajustar'],
+      nota: 'el ajuste es la única escritura que corrige el libro, y el libro es la ÚNICA fuente del saldo de agua (RN-PRD-14): no hay medidor con el que contrastarlo. `ajustarAgua` no tenía transacción; se le creó una y los dos `saldoDe` leen adentro',
+    },
+    /*
+     * Queda `tanques:registrar_reposicion`, y no es deuda: RN-ACC-04 no la
+     * nombra. Es el hecho de que llegó agua de la red, SIN cantidad, porque no
+     * hay medidor ni regleta (RN-PRD-11) — el movimiento entra en cero litros y
+     * el saldo sube después con un ajuste explícito, que sí es sensible y sí es
+     * atómico.
+     */
     'produccion/routes.ts': {
       transaccional: false,
-      acciones: ['tanques:ajustar', 'produccion:registrar_cierre'],
-      nota: 'pendiente — el cierre ya es transaccional; `agua.ts` NO tiene transacción y hay que envolverlo',
+      acciones: ['tanques:registrar_reposicion'],
+      nota: 'NO aplica: la regla no nombra la reposición, y el hecho que registra no tiene cantidad que auditar',
     },
     'insumos/service.ts': {
       transaccional: true,

@@ -8,6 +8,7 @@ import {
   productos,
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { descontar as descontarInsumo } from '@/modules/insumos/saldo'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 
@@ -91,6 +92,7 @@ export const RENDIMIENTO = 0.7
 export async function registrarCierre(
   datos: DatosDelCierre,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<ResultadoDelCierre> {
   exigirConteosValidos(datos)
 
@@ -124,6 +126,44 @@ export async function registrarCierre(
 
     // ── 4 · El producto ──────────────────────────────────────────────────
     const generados = await generarLotes(tx, datos, cierre!.id, registradoPor)
+
+    /**
+     * ── 5 · La bitácora, adentro — ADR-0007 ──────────────────────────────
+     *
+     * Un cierre mueve cuatro tablas o ninguna, y la fila de auditoría es ahora
+     * el quinto escrito del mismo todo-o-nada. Antes salía después del commit:
+     * si ese INSERT fallaba, quedaba el cierre más grande del sistema sin una
+     * línea que dijera quién lo registró, y la respuesta era un 500 sobre algo
+     * que sí pasó.
+     *
+     * La FECHA va en la fila porque no es la del request —un cierre se puede
+     * registrar al día siguiente— y es lo que lo hace reclamable. Los dos
+     * litrajes van juntos porque el balance del agua se revisa comparándolos, y
+     * `litrosProcesados` puede ser `null` si no se midió el caudal (RN-PRD-11):
+     * eso también es un dato.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'produccion:registrar_cierre',
+        resource: 'produccion',
+        resourceId: cierre!.id,
+        result: 'ok',
+        payload: {
+          resourceId: cierre!.id,
+          fecha: cierre!.fecha,
+          minutosProcesando: cierre!.minutosProcesando,
+          litrosProcesados: cierre!.litrosProcesados,
+          litrosConsumidos: cierre!.litrosConsumidos,
+          pacas600: cierre!.pacas600,
+          pacas300: cierre!.pacas300,
+          botellonesLlenados: cierre!.botellonesLlenados,
+          botellonesLavados: cierre!.botellonesLavados,
+          lotes: generados.length,
+        },
+      },
+      tx,
+    )
 
     return { cierre: cierre!, lotes: generados }
   })

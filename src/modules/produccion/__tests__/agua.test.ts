@@ -14,6 +14,8 @@ import {
 } from '@/modules/produccion/agua'
 import { resetDb } from '@/test/db'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * El balance del agua y la reconciliación.
  *
@@ -174,6 +176,7 @@ describe('el ingreso de la red se registra SIN cantidad', () => {
       3500,
       'llegó agua de la red y el tanque quedó a medio llenar',
       null,
+      UN_CONTEXTO,
     )
 
     expect(saldo.litros).toBe(6500)
@@ -185,14 +188,14 @@ describe('el ajuste exige explicación y respeta los límites físicos', () => {
   it('rechaza un motivo corto', async () => {
     await sembrarSaldo('crudo', 3000)
 
-    await expect(ajustarAgua('crudo', 500, 'x', null)).rejects.toMatchObject({
+    await expect(ajustarAgua('crudo', 500, 'x', null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'MOTIVO_REQUERIDO',
     })
   })
 
   it('rechaza un ajuste de cero', async () => {
     await expect(
-      ajustarAgua('crudo', 0, 'no encontré diferencia en el conteo', null),
+      ajustarAgua('crudo', 0, 'no encontré diferencia en el conteo', null, UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'AJUSTE_INVALIDO' })
   })
 
@@ -200,7 +203,7 @@ describe('el ajuste exige explicación y respeta los límites físicos', () => {
     await sembrarSaldo('crudo', 1000)
 
     await expect(
-      ajustarAgua('crudo', -5000, 'el conteo dio mucho menos de lo esperado', null),
+      ajustarAgua('crudo', -5000, 'el conteo dio mucho menos de lo esperado', null, UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'SALDO_NEGATIVO' })
   })
 
@@ -213,7 +216,7 @@ describe('el ajuste exige explicación y respeta los límites físicos', () => {
     await sembrarSaldo('crudo', 12_000)
 
     try {
-      await ajustarAgua('crudo', 5000, 'el tanque se ve más lleno de lo que dice', null)
+      await ajustarAgua('crudo', 5000, 'el tanque se ve más lleno de lo que dice', null, UN_CONTEXTO)
       throw new Error('debería haber fallado')
     } catch (err) {
       expect(err).toBeInstanceOf(ErrorDeNegocio)
@@ -224,7 +227,7 @@ describe('el ajuste exige explicación y respeta los límites físicos', () => {
 
   it('un ajuste válido queda en el libro con su motivo', async () => {
     await sembrarSaldo('crudo', 3000)
-    await ajustarAgua('crudo', -500, 'conteo del lunes: había menos de lo calculado', null)
+    await ajustarAgua('crudo', -500, 'conteo del lunes: había menos de lo calculado', null, UN_CONTEXTO)
 
     const movimientos = await db.select().from(movimientosAgua)
     const ajuste = movimientos.find((m) => m.litros === -500)

@@ -95,37 +95,18 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const resultado = await registrarCierre(datos, req.user?.id ?? null)
-
         /*
-         * El cierre es la escritura más grande del sistema: mueve agua,
-         * botellones, insumos y stock de producto terminado en una sola
-         * transacción (RN-PRD-23).
-         *
-         * La FECHA va en la fila porque no es la del request — un cierre se
-         * puede registrar al día siguiente—, y es lo que lo hace reclamable.
-         * Los dos litrajes van juntos porque el balance del agua se revisa
-         * comparándolos: `litrosProcesados` puede ser null si no se midió el
-         * caudal (RN-PRD-11), y eso también es un dato.
+         * La fila la escribe el SERVICIO, como el quinto escrito de su
+         * transacción — ADR-0007. El cierre mueve agua, insumos, botellones y
+         * producto terminado o no mueve nada (RN-PRD-23), y la bitácora entró a
+         * ese todo-o-nada.
          */
-        await auditarSinBloquear(req, {
+        const resultado = await registrarCierre(datos, req.user?.id ?? null, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'produccion:registrar_cierre',
-          resource: 'produccion',
-          result: 'ok',
-          payload: {
-            resourceId: resultado.cierre.id,
-            fecha: resultado.cierre.fecha,
-            minutosProcesando: resultado.cierre.minutosProcesando,
-            litrosProcesados: resultado.cierre.litrosProcesados,
-            litrosConsumidos: resultado.cierre.litrosConsumidos,
-            pacas600: resultado.cierre.pacas600,
-            pacas300: resultado.cierre.pacas300,
-            botellonesLlenados: resultado.cierre.botellonesLlenados,
-            botellonesLavados: resultado.cierre.botellonesLavados,
-            lotes: resultado.lotes.length,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return reply.code(201).send(resultado)
@@ -218,35 +199,20 @@ export async function produccionRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
         const saldo = await ajustarAgua(
           datos.tanque as Tanque,
           datos.litros,
           datos.motivo,
           req.user?.id ?? null,
-        )
-
-        /*
-         * El ajuste es la única escritura que CORRIGE el libro, y el libro es
-         * la única fuente del saldo de agua (RN-PRD-14). Van los dos números:
-         * el delta CON SIGNO —«faltaban 2000» y «sobraban 2000» son hechos
-         * opuestos— y el saldo en que quedó, para que reconstruir el estado del
-         * tanque en una fecha no obligue a sumar todos los movimientos
-         * anteriores.
-         */
-        await auditarSinBloquear(req, {
-          userId: req.user?.id ?? null,
-          rolEjercido: req.user?.roles ?? [],
-          action: 'tanques:ajustar',
-          resource: 'tanques',
-          result: 'ok',
-          payload: {
-            resourceId: saldo.tanque,
-            litros: datos.litros,
-            motivo: datos.motivo,
-            saldo: saldo.litros,
-            nivelCalculado: saldo.nivelCalculado,
+          {
+            userId: req.user?.id ?? null,
+            rolEjercido: req.user?.roles ?? [],
+            requestId: String(req.id),
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
           },
-        })
+        )
 
         return saldo
       } catch (err) {

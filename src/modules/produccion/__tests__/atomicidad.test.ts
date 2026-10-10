@@ -1,6 +1,8 @@
+import { and, eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
 import {
+  auditLog,
   cierresProduccion,
   insumos,
   lotes,
@@ -13,11 +15,14 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import { type DatosDelCierre, registrarCierre } from '@/modules/produccion/cierre'
 import { resetDb } from '@/test/db'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * La compuerta de M4.
  *
- * Un cierre escribe en CUATRO tablas. Si falla el tercero, lo que queda es peor
- * que nada: un documento que dice que se envasaron 200 botellones, con el agua
+ * Un cierre escribe en CINCO tablas —cuatro de dominio y la bitácora, que entró
+ * al todo-o-nada con ADR-0007—. Si falla el tercero, lo que queda es peor que
+ * nada: un documento que dice que se envasaron 200 botellones, con el agua
  * descontada y las tapas intactas.
  *
  * **Un cierre parcial no es un cierre a medias — es una mentira consistente.**
@@ -84,12 +89,30 @@ async function sembrar({
 
 /** Qué quedó escrito en las cuatro tablas. Cero en todas = la transacción revirtió. */
 async function loEscrito() {
-  const [cierres, agua, insumosMov, lotesFilas, stock] = await Promise.all([
+  const [cierres, agua, insumosMov, lotesFilas, stock, bitacora] = await Promise.all([
     db.select().from(cierresProduccion),
     db.select().from(movimientosAgua),
     db.select().from(movimientosInsumo),
     db.select().from(lotes),
     db.select().from(movimientosStock),
+    /*
+     * La fila `ok` de la bitácora es el QUINTO escrito del cierre — ADR-0007.
+     *
+     * Se cuenta acá y no en un test aparte porque es la misma pregunta que ya
+     * contestaba este archivo: ¿qué quedó cuando la transacción se deshizo? Que
+     * la bitácora entre en `loEscrito` hace que la prueba de atomicidad la
+     * cubra sin escribir una línea nueva de aserción.
+     *
+     * Solo las `ok`: la ADR deja las `denied` fuera de la transacción a
+     * propósito, porque auditar un rechazo no puede convertirse en un segundo
+     * fallo que tape el primero.
+     */
+    db
+      .select()
+      .from(auditLog)
+      .where(
+        and(eq(auditLog.action, 'produccion:registrar_cierre'), eq(auditLog.result, 'ok')),
+      ),
   ])
 
   return {
@@ -98,10 +121,11 @@ async function loEscrito() {
     insumos: insumosMov.length,
     lotes: lotesFilas.length,
     stock: stock.length,
+    bitacora: bitacora.length,
   }
 }
 
-const NADA = { cierres: 0, agua: 0, insumos: 0, lotes: 0, stock: 0 }
+const NADA = { cierres: 0, agua: 0, insumos: 0, lotes: 0, stock: 0, bitacora: 0 }
 
 beforeEach(async () => {
   await resetDb()
@@ -112,9 +136,9 @@ afterAll(async () => {
   await closeDb()
 })
 
-describe('el cierre escribe las cuatro cosas, o ninguna', () => {
-  it('un cierre bien formado deja las cuatro', async () => {
-    await registrarCierre(unCierre(), null)
+describe('el cierre escribe las cinco cosas, o ninguna', () => {
+  it('un cierre bien formado deja las cinco', async () => {
+    await registrarCierre(unCierre(), null, UN_CONTEXTO)
 
     const escrito = await loEscrito()
 
@@ -124,6 +148,8 @@ describe('el cierre escribe las cuatro cosas, o ninguna', () => {
     expect(escrito.stock).toBe(3)
     // Una tapa y un sello por botellón — RN-PRD-09.
     expect(escrito.insumos).toBe(2)
+    /* Y UNA fila de bitácora: la del hecho, no una por tabla tocada. */
+    expect(escrito.bitacora).toBe(1)
     // Sin caudal medido no hay movimiento de procesamiento; sí el de envasado.
     expect(escrito.agua).toBe(1)
   })
@@ -140,7 +166,7 @@ describe('el cierre escribe las cuatro cosas, o ninguna', () => {
     await resetDb()
     await sembrar({ tapas: 10 })
 
-    await expect(registrarCierre(unCierre({ botellonesLlenados: 30 }), null)).rejects.toThrow(
+    await expect(registrarCierre(unCierre({ botellonesLlenados: 30 }), null, UN_CONTEXTO)).rejects.toThrow(
       ErrorDeNegocio,
     )
 
@@ -152,7 +178,7 @@ describe('el cierre escribe las cuatro cosas, o ninguna', () => {
     await sembrar({ tapas: 10 })
 
     try {
-      await registrarCierre(unCierre({ botellonesLlenados: 30 }), null)
+      await registrarCierre(unCierre({ botellonesLlenados: 30 }), null, UN_CONTEXTO)
       throw new Error('debería haber fallado')
     } catch (err) {
       expect(err).toBeInstanceOf(ErrorDeNegocio)
@@ -184,7 +210,7 @@ describe('el cierre escribe las cuatro cosas, o ninguna', () => {
     await resetDb()
     await sembrar({ sinProducto: 'P50U_300ML' })
 
-    await expect(registrarCierre(unCierre({ pacas300: 5 }), null)).rejects.toThrow(ErrorDeNegocio)
+    await expect(registrarCierre(unCierre({ pacas300: 5 }), null, UN_CONTEXTO)).rejects.toThrow(ErrorDeNegocio)
 
     expect(await loEscrito()).toEqual(NADA)
   })
@@ -195,10 +221,10 @@ describe('el cierre escribe las cuatro cosas, o ninguna', () => {
    * verdades, y que el intento fallido no deje movimientos huérfanos.
    */
   it('un segundo cierre para la misma fecha no deja rastro del intento', async () => {
-    await registrarCierre(unCierre(), null)
+    await registrarCierre(unCierre(), null, UN_CONTEXTO)
     const despuesDelPrimero = await loEscrito()
 
-    await expect(registrarCierre(unCierre(), null)).rejects.toThrow()
+    await expect(registrarCierre(unCierre(), null, UN_CONTEXTO)).rejects.toThrow()
 
     // Ni un movimiento de más: el segundo intento revirtió entero.
     expect(await loEscrito()).toEqual(despuesDelPrimero)
@@ -213,14 +239,14 @@ describe('lo que el cierre se niega a inventar', () => {
    */
   it('rechaza lavados sin saber cuántos litros consume un lavado', async () => {
     await expect(
-      registrarCierre(unCierre({ botellonesLavados: 20 }), null),
+      registrarCierre(unCierre({ botellonesLavados: 20 }), null, UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'SIN_LITROS_DE_LAVADO' })
 
     expect(await loEscrito()).toEqual(NADA)
   })
 
   it('con la medición cargada, el lavado entra al balance', async () => {
-    await registrarCierre(unCierre({ botellonesLavados: 20, litrosPorLavado: 3 }), null)
+    await registrarCierre(unCierre({ botellonesLavados: 20, litrosPorLavado: 3 }), null, UN_CONTEXTO)
 
     const [cierre] = await db.select().from(cierresProduccion)
     // 10×12 + 5×15 + 30×20 = 795 de envasado, más 20×3 = 60 de lavado.
@@ -237,7 +263,7 @@ describe('lo que el cierre se niega a inventar', () => {
    * se registra: el envasado se sabe aunque el procesamiento no.
    */
   it('sin caudal medido, el cierre entra pero sin litros procesados', async () => {
-    await registrarCierre(unCierre(), null)
+    await registrarCierre(unCierre(), null, UN_CONTEXTO)
 
     const [cierre] = await db.select().from(cierresProduccion)
     expect(cierre?.caudalGpm).toBeNull()
@@ -249,7 +275,7 @@ describe('lo que el cierre se niega a inventar', () => {
   })
 
   it('con caudal, mueve los DOS tanques', async () => {
-    await registrarCierre(unCierre({ caudalGpm: 5 }), null)
+    await registrarCierre(unCierre({ caudalGpm: 5 }), null, UN_CONTEXTO)
 
     const movimientos = await db.select().from(movimientosAgua)
     const procesamiento = movimientos.filter((m) => m.tipo === 'procesamiento')
@@ -266,7 +292,7 @@ describe('lo que el cierre se niega a inventar', () => {
    * hay más agua de la que hay.
    */
   it('el crudo descontado incluye la merma del filtro', async () => {
-    await registrarCierre(unCierre({ caudalGpm: 5 }), null)
+    await registrarCierre(unCierre({ caudalGpm: 5 }), null, UN_CONTEXTO)
 
     const movimientos = await db.select().from(movimientosAgua)
     const crudo = movimientos.find((m) => m.tanque === 'crudo')!
@@ -280,13 +306,13 @@ describe('lo que el cierre se niega a inventar', () => {
   })
 
   it('rechaza un cierre sin tiempo de procesamiento', async () => {
-    await expect(registrarCierre(unCierre({ minutosProcesando: 0 }), null)).rejects.toMatchObject({
+    await expect(registrarCierre(unCierre({ minutosProcesando: 0 }), null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'SIN_PROCESAMIENTO',
     })
   })
 
   it('rechaza conteos negativos', async () => {
-    await expect(registrarCierre(unCierre({ pacas600: -1 }), null)).rejects.toMatchObject({
+    await expect(registrarCierre(unCierre({ pacas600: -1 }), null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'CONTEO_INVALIDO',
     })
   })
@@ -295,7 +321,7 @@ describe('lo que el cierre se niega a inventar', () => {
     await resetDb()
     await sembrar({ sinInsumo: 'SELLO_BOTELLON' })
 
-    await expect(registrarCierre(unCierre(), null)).rejects.toMatchObject({
+    await expect(registrarCierre(unCierre(), null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'INSUMO_NO_CARGADO',
     })
 
@@ -308,6 +334,7 @@ describe('un día sin envasar', () => {
     await registrarCierre(
       unCierre({ pacas600: 0, pacas300: 0, botellonesLlenados: 0 }),
       null,
+      UN_CONTEXTO,
     )
 
     const escrito = await loEscrito()
@@ -337,7 +364,7 @@ describe('el lote respeta la transacción de quien lo crea', () => {
     // escrito el documento y el agua, y antes de los lotes.
     await sembrar({ tapas: 10 })
 
-    await expect(registrarCierre(unCierre({ botellonesLlenados: 30 }), null)).rejects.toThrow()
+    await expect(registrarCierre(unCierre({ botellonesLlenados: 30 }), null, UN_CONTEXTO)).rejects.toThrow()
 
     expect((await db.select().from(lotes)).length).toBe(0)
     expect((await db.select().from(movimientosStock)).length).toBe(0)
@@ -350,7 +377,7 @@ describe('el lote respeta la transacción de quien lo crea', () => {
    * la transacción vería un estado viejo y los tres saldrían `-L1`.
    */
   it('los lotes de un mismo cierre llevan códigos distintos', async () => {
-    const { lotes: generados } = await registrarCierre(unCierre(), null)
+    const { lotes: generados } = await registrarCierre(unCierre(), null, UN_CONTEXTO)
 
     const codigos = generados.map((l) => l.codigo)
     expect(codigos).toHaveLength(3)
@@ -361,7 +388,7 @@ describe('el lote respeta la transacción de quien lo crea', () => {
 
   /** El lote nace en cero y sube por movimiento — el libro lo explica entero. */
   it('el saldo del lote lo explica su movimiento', async () => {
-    await registrarCierre(unCierre({ pacas600: 10, pacas300: 0, botellonesLlenados: 0 }), null)
+    await registrarCierre(unCierre({ pacas600: 10, pacas300: 0, botellonesLlenados: 0 }), null, UN_CONTEXTO)
 
     const [lote] = await db.select().from(lotes)
     const movimientos = await db.select().from(movimientosStock)
