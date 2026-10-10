@@ -11,6 +11,7 @@ import {
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { leerParametro } from '@/modules/alertas/parametros'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import type { Ejecutor, Transaccion } from '@/modules/stock/saldo'
 import { esCodigoDeBase, proximoCodigo } from './codigo'
 
@@ -273,8 +274,35 @@ export async function prestarBase(
   baseId: string,
   direccionId: string,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<Base> {
-  return db.transaction((tx) => prestarBaseEn(tx, baseId, direccionId, registradoPor))
+  return db.transaction(async (tx) => {
+    const prestada = await prestarBaseEn(tx, baseId, direccionId, registradoPor)
+
+    /**
+     * El préstamo y su fila, una sola escritura — ADR-0007.
+     *
+     * La fila dice A QUÉ DIRECCIÓN, que es lo único que hace reclamable el
+     * préstamo: una base se presta a una puerta, no a un cliente (RN-BAS-03).
+     *
+     * El emit vive en esta función y NO en `prestarBaseEn`, que es la que
+     * comparte transacción con la venta: ahí la fila la escribe la venta, y
+     * duplicarla acá dejaría dos hechos `ok` por el mismo préstamo.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'bases:prestar',
+        resource: 'bases',
+        resourceId: baseId,
+        result: 'ok',
+        payload: { resourceId: baseId, direccionId },
+      },
+      tx,
+    )
+
+    return prestada
+  })
 }
 
 /**
@@ -362,6 +390,7 @@ export async function prestarBaseEn(
 export async function retornarBase(
   baseId: string,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<Base> {
   return db.transaction(async (tx) => {
     const base = await baseActiva(tx, baseId)
@@ -382,6 +411,23 @@ export async function retornarBase(
 
     await tx.insert(movimientosBase).values({ baseId, tipo: 'retorno', registradoPor })
 
+    /*
+     * RN-ACC-04 nombra el retiro de bases igual que el préstamo, y por la misma
+     * razón: los dos mueven un activo entre la bodega y una puerta. La fila va
+     * con el movimiento — ADR-0007.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'bases:retirar',
+        resource: 'bases',
+        resourceId: baseId,
+        result: 'ok',
+        payload: { resourceId: baseId },
+      },
+      tx,
+    )
+
     return retornada!
   })
 }
@@ -391,6 +437,7 @@ export async function descartarBase(
   baseId: string,
   motivo: string,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<Base> {
   if (!motivoEsSuficiente(motivo)) {
     throw new ErrorDeNegocio(
@@ -423,6 +470,24 @@ export async function descartarBase(
       motivo: motivo.trim(),
       registradoPor,
     })
+
+    /*
+     * `operacion: 'descarte'` lo separa del daño, que comparte esta acción
+     * porque la matriz no tiene una para marcar daños (ver el comentario de la
+     * ruta `/bases/:id/dano`). No son lo mismo: una base dañada sigue
+     * existiendo, una descartada no.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'bases:descartar',
+        resource: 'bases',
+        resourceId: baseId,
+        result: 'ok',
+        payload: { operacion: 'descarte', resourceId: baseId, motivo: motivo.trim() },
+      },
+      tx,
+    )
 
     return descartada!
   })

@@ -3,6 +3,7 @@ import { db } from '@/db/client'
 import { type Base, type Venta, bases, clientes, direcciones, movimientosBase, ventas } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { exigirCreditoValido } from '@/modules/ventas/credito'
 import { aCentavos, aMonto } from '@/modules/ventas/precio'
 import { deudaDe } from '@/modules/ventas/saldo'
@@ -63,6 +64,7 @@ export interface ResultadoDeDano {
 export async function marcarBaseDanada(
   datos: DatosDeDano,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<ResultadoDeDano> {
   if (!motivoEsSuficiente(datos.motivo)) {
     throw new ErrorDeNegocio(
@@ -153,6 +155,34 @@ export async function marcarBaseDanada(
       motivo: datos.motivo.trim(),
       registradoPor,
     })
+
+    /**
+     * El daño y su fila, una sola escritura — ADR-0007.
+     *
+     * Acá hay plata: el recargo se registra como venta (RN-BAS-08), así que la
+     * fila dice cuánto se le cobró y por qué medio. Sin ella queda un cargo en
+     * la cuenta de alguien sin nada que lo explique, que es exactamente lo que
+     * RN-ACC-04 viene a impedir.
+     *
+     * `operacion: 'dano'` lo separa del descarte, con el que comparte acción.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'bases:descartar',
+        resource: 'bases',
+        resourceId: datos.baseId,
+        result: 'ok',
+        payload: {
+          operacion: 'dano',
+          resourceId: datos.baseId,
+          motivo: datos.motivo.trim(),
+          monto: datos.monto,
+          medioDePago: datos.medioDePago,
+        },
+      },
+      tx,
+    )
 
     return { base: danada!, recargo: recargo! }
   })

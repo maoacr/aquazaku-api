@@ -61,11 +61,12 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'retornables → bases:registrar':
     'retornables/routes.ts — emite el alta y la compra, separadas por `operacion`; la consulta del próximo código se exime por ser lectura',
   'retornables → bases:prestar':
-    'retornables/routes.ts — emite con la base y la DIRECCIÓN a la que fue',
-  'retornables → bases:retirar': 'retornables/routes.ts — emite con la base que volvió',
+    'retornables/bases.ts — emite con la base y la DIRECCIÓN a la que fue, en la transacción del préstamo',
+  'retornables → bases:retirar':
+    'retornables/bases.ts — emite con la base que volvió, en la transacción del retorno',
   /* Dañar y descartar comparten permiso; una base dañada sigue existiendo. */
   'retornables → bases:descartar':
-    'retornables/routes.ts — emite el daño y el descarte, separados por `operacion`',
+    'retornables/bases.ts y retornables/dano.ts — emiten el descarte y el daño separados por `operacion`, cada uno en su transacción',
   'retornables → botellones:registrar':
     'retornables/routes.ts — emite la compra y el ajuste, separados por `operacion`',
   'retornables → botellones:entregar':
@@ -73,7 +74,7 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'retornables → botellones:recibir_retorno':
     'retornables/routes.ts — emite con el cliente, la cantidad y los dos saldos',
   'retornables → botellones:descartar':
-    'retornables/routes.ts — emite con la cantidad, el motivo y lo que queda en bodega',
+    'retornables/botellones.ts — emite con la cantidad, el motivo y lo que queda en bodega, en la transacción del descarte',
   'clientes → clientes:crear': 'clientes/routes.ts — emite con el nombre, el documento y el tipo',
   /*
    * Verificar y revertir comparten el permiso, así que comparten el nombre de

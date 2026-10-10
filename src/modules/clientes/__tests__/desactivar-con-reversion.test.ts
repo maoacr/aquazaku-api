@@ -79,8 +79,8 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const base2 = await darDeAltaBase('0002', admin.usuario.id)
     const base3 = await darDeAltaBase('0003', admin.usuario.id)
 
-    await prestarBase(base1.id, direccion.id, admin.usuario.id)
-    await prestarBase(base2.id, direccion.id, admin.usuario.id)
+    await prestarBase(base1.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
+    await prestarBase(base2.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
 
     const resultado = await desactivarClienteConReversion(
       cliente.id,
@@ -145,7 +145,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const admin = await usuarioAutenticado('admin')
 
     const base = await darDeAltaBase('0010', admin.usuario.id)
-    await prestarBase(base.id, direccion.id, admin.usuario.id)
+    await prestarBase(base.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
 
     await comprarBotellones(5, 'compra inicial de prueba', admin.usuario.id)
     await entregarBotellones({
@@ -225,8 +225,8 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const baseA = await darDeAltaBase('0020', admin.usuario.id)
     const baseB = await darDeAltaBase('0021', admin.usuario.id)
 
-    await prestarBase(baseA.id, dirA.id, admin.usuario.id)
-    await prestarBase(baseB.id, dirB.id, admin.usuario.id)
+    await prestarBase(baseA.id, dirA.id, admin.usuario.id, UN_CONTEXTO)
+    await prestarBase(baseB.id, dirB.id, admin.usuario.id, UN_CONTEXTO)
 
     await desactivarClienteConReversion(
       clienteA.id,

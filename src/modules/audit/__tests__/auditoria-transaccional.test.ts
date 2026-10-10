@@ -84,10 +84,43 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       ],
       nota: 'pendiente de clasificar — `ventas:anular` ya se fue a `anulacion.ts`; de lo que queda, precio_manual, corregir y el alta de descuentos son los candidatos a sensibles',
     },
+    'retornables/botellones.ts': {
+      transaccional: true,
+      acciones: ['botellones:descartar'],
+      nota: 'el descarte es lo único que saca botellones del parque; la fila va con el movimiento, bajo el mismo candado que cuenta la bodega',
+    },
+    'retornables/bases.ts': {
+      transaccional: true,
+      acciones: ['bases:prestar', 'bases:retirar', 'bases:descartar'],
+      nota: 'las tres emiten dentro de su transacción; `prestarBaseEn` queda SIN auditar porque la comparte la venta, que escribe su propia fila',
+    },
+    'retornables/dano.ts': {
+      transaccional: true,
+      acciones: ['bases:descartar'],
+      nota: 'el daño comparte la acción con el descarte y los separa `operacion` en el payload; la fila va con el recargo, que es la venta que se le cobra al cliente',
+    },
+    /*
+     * Las cuatro acciones que RN-ACC-04 nombra en este módulo —las dos bajas de
+     * envases, el préstamo y el retiro de bases— se fueron a los servicios que
+     * tienen la transacción. Lo que queda acá son compras, altas, y la entrega y
+     * el retorno de botellones, que la regla no nombra.
+     *
+     * Menos uno: `botellones:registrar` con `operacion: 'ajuste'`. RN-ACC-04
+     * nombra «ajustes de stock» y un ajuste del parque es la misma clase de
+     * corrección —la única fila que cambia el total sin que entre ni salga
+     * nada—, pero `ajustarBotellones` no tiene transacción propia todavía. Es
+     * una pregunta de clasificación, no un emit mal puesto, y queda en `false`
+     * para que siga contada.
+     */
     'retornables/routes.ts': {
       transaccional: false,
-      acciones: ['botellones:descartar', 'bases:descartar'],
-      nota: 'pendiente — dos bajas de envases, las dos nombradas por la ADR',
+      acciones: [
+        'botellones:registrar',
+        'botellones:entregar',
+        'botellones:recibir_retorno',
+        'bases:registrar',
+      ],
+      nota: 'pendiente de clasificar — el ajuste del parque de botellones: RN-ACC-04 nombra los ajustes de stock, y `ajustarBotellones` no tiene transacción propia',
     },
     'produccion/routes.ts': {
       transaccional: false,

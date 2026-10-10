@@ -16,6 +16,8 @@ import {
 } from '@/modules/retornables/conservacion'
 import { resetDb } from '@/test/db'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * Los movimientos de botellón — RN-ENV-02 a 06.
  *
@@ -98,7 +100,7 @@ describe('lo que no se puede hacer', () => {
   it('descartar sin explicación', async () => {
     await comprarBotellones(100, 'compra inicial de botellones', null)
 
-    await expect(descartarBotellones(5, 'x', null)).rejects.toMatchObject({
+    await expect(descartarBotellones(5, 'x', null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'MOTIVO_REQUERIDO',
     })
   })
@@ -117,7 +119,7 @@ describe('el descarte saca del parque', () => {
   it('baja el total y la ley sigue cerrando', async () => {
     await comprarBotellones(100, 'compra inicial de botellones', null)
 
-    await descartarBotellones(4, 'se rajaron al caerse de la estiba', null)
+    await descartarBotellones(4, 'se rajaron al caerse de la estiba', null, UN_CONTEXTO)
 
     expect(await botellonesEnBodega()).toBe(96)
     expect((await verificarConservacion()).registrados).toBe(96)
