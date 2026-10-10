@@ -21,6 +21,8 @@ import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * Corregir una venta registrada — RN-VEN-16.
  *
@@ -433,7 +435,7 @@ describe('lo que la corrección no deja hacer', () => {
   it('una venta ya anulada no se corrige', async () => {
     const admin = await usuarioAutenticado('admin')
     const { venta } = await vender(admin.usuario.id)
-    await anularVenta(venta.id, 'el cliente se arrepintió en el mostrador', como(admin.usuario.id, ['admin']))
+    await anularVenta(venta.id, 'el cliente se arrepintió en el mostrador', como(admin.usuario.id, ['admin']), UN_CONTEXTO)
 
     await expect(corregir(venta.id, como(admin.usuario.id, ['admin']))).rejects.toMatchObject({
       code: 'YA_ANULADA',

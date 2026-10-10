@@ -346,29 +346,19 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const { venta: anulada, reversiones } = await anularVenta(id, datos.motivo, req.user!)
-
         /**
-         * Bitácora post-commit con payload rico — change `botellones-entrega-devolucion`.
+         * La fila la escribe el SERVICIO, dentro de su transacción — ADR-0007.
          *
-         * Antes la fila `ok` no se escribía (quedaba en manos del middleware de
-         * `requirePermission`, que solo persiste `resourceId`). Sin el detalle de
-         * qué se revirtió, reconstruir la anulación exigía cruzar `ventas`,
-         * `movimientos_botellon` y `movimientos_base` a mano.
+         * Acá solo se arma el contexto de quién lo hizo. Con el emit afuera, un
+         * INSERT fallido dejaba la venta anulada, el stock devuelto y un 500
+         * por respuesta: la bitácora decía que no pasó nada y la base, que sí.
          */
-        await auditarSinBloquear(req, {
+        const anulada = await anularVenta(id, datos.motivo, req.user!, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'ventas:anular',
-          resource: 'ventas',
-          result: 'ok',
-          payload: {
-            resourceId: anulada.id,
-            motivo: anulada.motivoAnulacion,
-            botellonesReversados: reversiones.botellonesReversados,
-            botellonesDevueltos: reversiones.botellonesDevueltos,
-            baseReversada: reversiones.baseReversada,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return reply.code(200).send(anulada)

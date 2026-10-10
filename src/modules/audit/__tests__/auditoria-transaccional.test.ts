@@ -57,10 +57,32 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       acciones: ['clientes:habilitar_credito'],
       nota: 'el UPDATE y la fila van en la misma transacción; el contexto es parámetro obligatorio',
     },
+    'ventas/anulacion.ts': {
+      transaccional: true,
+      acciones: ['ventas:anular'],
+      nota: 'la fila va dentro de la transacción que revierte; el payload lo arma el servicio porque es el único que sabe qué se revirtió',
+    },
+    /*
+     * El emit de `ventas:anular` se fue a `anulacion.ts`. Lo que queda acá
+     * TODAVÍA NO está clasificado: `ventas:precio_manual` es un cambio de
+     * precio, `ventas:corregir` anula y reemplaza, y el alta de un código de
+     * descuento autoriza cobrar menos. Los tres los nombra la ADR como
+     * sensibles o muy cerca, y ninguno tiene transacción propia hoy. Queda en
+     * `false` para que la deuda siga contada, no porque esté decidido que no
+     * aplica.
+     */
     'ventas/routes.ts': {
       transaccional: false,
-      acciones: ['ventas:anular'],
-      nota: 'pendiente — la anulación ya es transaccional en `anulacion.ts`, falta mover el emit adentro',
+      acciones: [
+        'ventas:crear',
+        'ventas:crear_retroactiva',
+        'ventas:precio_manual',
+        'ventas:corregir',
+        'ventas:devolucion',
+        'cobros:registrar',
+        'configuracion:editar',
+      ],
+      nota: 'pendiente de clasificar — `ventas:anular` ya se fue a `anulacion.ts`; de lo que queda, precio_manual, corregir y el alta de descuentos son los candidatos a sensibles',
     },
     'retornables/routes.ts': {
       transaccional: false,

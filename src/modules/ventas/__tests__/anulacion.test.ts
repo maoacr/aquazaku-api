@@ -21,6 +21,8 @@ import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * La anulación — RN-VEN-03 y RN-VEN-08.
  *
@@ -112,7 +114,7 @@ describe('anular revierte los efectos', () => {
     const { venta } = await vender(autor.usuario.id)
     expect(await saldo()).toBe(47)
 
-    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
     expect(await saldo()).toBe(50)
   })
@@ -121,7 +123,7 @@ describe('anular revierte los efectos', () => {
     const autor = await usuarioAutenticado('pos')
     const { venta } = await vender(autor.usuario.id)
 
-    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
     const [devolucion] = await db
       .select()
@@ -144,7 +146,7 @@ describe('anular revierte los efectos', () => {
     const { venta } = await vender(autor.usuario.id, { medioDePago: 'credito', clienteId })
     expect(await deudaDe(clienteId)).toBe('30000.00')
 
-    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
     expect(await deudaDe(clienteId)).toBe('0.00')
   })
@@ -157,11 +159,11 @@ describe('anular revierte los efectos', () => {
     const autor = await usuarioAutenticado('pos')
     const { venta } = await vender(autor.usuario.id)
 
-    const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
-    expect(anulada.venta.estado).toBe('anulada')
-    expect(anulada.venta.anuladaPor).toBe(autor.usuario.id)
-    expect(anulada.venta.motivoAnulacion).toBe(MOTIVO)
+    expect(anulada.estado).toBe('anulada')
+    expect(anulada.anuladaPor).toBe(autor.usuario.id)
+    expect(anulada.motivoAnulacion).toBe(MOTIVO)
     expect(await db.select().from(ventas)).toHaveLength(1)
   })
 })
@@ -179,7 +181,7 @@ describe('quién puede anular', () => {
     const { venta } = await vender(autor.usuario.id)
 
     await expect(
-      anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos'])),
+      anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO),
     ).resolves.toBeDefined()
   })
 
@@ -189,7 +191,7 @@ describe('quién puede anular', () => {
     const { venta } = await vender(autor.usuario.id)
 
     await expect(
-      anularVenta(venta.id, MOTIVO, como(otro.usuario.id, ['pos'])),
+      anularVenta(venta.id, MOTIVO, como(otro.usuario.id, ['pos']), UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'NO_ES_SU_VENTA' })
   })
 
@@ -199,7 +201,7 @@ describe('quién puede anular', () => {
     const { venta } = await vender(autor.usuario.id)
 
     await expect(
-      anularVenta(venta.id, MOTIVO, como(vendedor.usuario.id, ['seller'])),
+      anularVenta(venta.id, MOTIVO, como(vendedor.usuario.id, ['seller']), UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'NO_ES_SU_VENTA' })
   })
 
@@ -209,7 +211,7 @@ describe('quién puede anular', () => {
     const { venta } = await vender(autor.usuario.id)
 
     await expect(
-      anularVenta(venta.id, MOTIVO, como(admin.usuario.id, ['admin'])),
+      anularVenta(venta.id, MOTIVO, como(admin.usuario.id, ['admin']), UN_CONTEXTO),
     ).resolves.toBeDefined()
   })
 
@@ -233,7 +235,7 @@ describe('lo que la anulación exige', () => {
     const { venta } = await vender(admin.usuario.id)
 
     await expect(
-      anularVenta(venta.id, 'x', como(admin.usuario.id, ['admin'])),
+      anularVenta(venta.id, 'x', como(admin.usuario.id, ['admin']), UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'MOTIVO_REQUERIDO' })
   })
 
@@ -242,9 +244,9 @@ describe('lo que la anulación exige', () => {
     const { venta } = await vender(autor.usuario.id)
     const quien = como(autor.usuario.id, ['pos'] as const)
 
-    await anularVenta(venta.id, MOTIVO, quien)
+    await anularVenta(venta.id, MOTIVO, quien, UN_CONTEXTO)
 
-    await expect(anularVenta(venta.id, MOTIVO, quien)).rejects.toMatchObject({
+    await expect(anularVenta(venta.id, MOTIVO, quien, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'YA_ANULADA',
     })
   })
@@ -253,7 +255,7 @@ describe('lo que la anulación exige', () => {
     const admin = await usuarioAutenticado('admin')
 
     await expect(
-      anularVenta('00000000-0000-0000-0000-000000000000', MOTIVO, como(admin.usuario.id, ['admin'])),
+      anularVenta('00000000-0000-0000-0000-000000000000', MOTIVO, como(admin.usuario.id, ['admin']), UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'VENTA_NO_ENCONTRADA' })
   })
 })
@@ -276,7 +278,7 @@ describe('la anulación revierte los botellones despachados', () => {
       botellonesRecibidos: 0,
     })
 
-    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
     /*
      * La entrega original (+3 / −3) sigue intacta en su `documentoId=venta.id`.
@@ -304,7 +306,7 @@ describe('la anulación revierte los botellones recibidos', () => {
       botellonesRecibidos: 2,
     })
 
-    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
     /*
      * El cliente había traído 2 vacíos. La anulación emite una `entrega` con
@@ -337,7 +339,7 @@ describe('la anulación revierte ambos campos juntos', () => {
       botellonesRecibidos: 2,
     })
 
-    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
     const movimientos = await db
       .select()
@@ -397,7 +399,7 @@ describe('la anulación devuelve la base prestada', () => {
     const [baseAntesDeAnular] = await db.select().from(bases).where(eq(bases.id, base.id))
     expect(baseAntesDeAnular?.direccionId).toBe(direccion!.id)
 
-    await anularVenta(venta.id, MOTIVO, como(admin.usuario.id, ['admin']))
+    await anularVenta(venta.id, MOTIVO, como(admin.usuario.id, ['admin']), UN_CONTEXTO)
 
     const [baseTrasAnular] = await db.select().from(bases).where(eq(bases.id, base.id))
     expect(baseTrasAnular?.direccionId).toBeNull()
@@ -424,9 +426,9 @@ describe('la anulación sin botella ni base sigue funcionando', () => {
      * lote y dejando la venta en estado `anulada` con su motivo. Los libros
      * de activos no se tocan.
      */
-    const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']))
+    const anulada = await anularVenta(venta.id, MOTIVO, como(autor.usuario.id, ['pos']), UN_CONTEXTO)
 
-    expect(anulada.venta.estado).toBe('anulada')
+    expect(anulada.estado).toBe('anulada')
     expect(await saldo()).toBe(50)
 
     const movimientos = await db
@@ -466,7 +468,7 @@ describe('la anulación de una venta tipo dano_base no toca movimientos', () => 
       })
       .returning()
 
-    await anularVenta(ventaDano!.id, MOTIVO, como(autor.usuario.id, ['admin']))
+    await anularVenta(ventaDano!.id, MOTIVO, como(autor.usuario.id, ['admin']), UN_CONTEXTO)
 
     /*
      * Cero filas en los dos libros: la anulación del recargo solo cambia

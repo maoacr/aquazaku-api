@@ -10,6 +10,7 @@ import {
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { applicableScopes } from '@/modules/authz/scoped-query'
 import type { UserContext } from '@/modules/authz/can'
 import { type Transaccion, ingresar } from '@/modules/stock/saldo'
@@ -169,29 +170,26 @@ export async function devolverElProductoALosLotes(
 }
 
 /**
- * Lo que la anulación revirtió — la bitácora lo necesita para reconstruir la
- * operación sin cruzar filas de `movimientos_botellon` / `movimientos_base`.
+ * Anula la venta y deja su fila de bitácora en la MISMA transacción — ADR-0007.
  *
- * `baseReversada` es el `baseId` si la venta prestó una base, `null` en caso
- * contrario. Se identifica vía `movimientos_base` post-commit (la tabla
- * `ventas` no tiene columna `base`).
+ * ── Por qué el emit vive acá y no en la ruta ────────────────────────────────
+ *
+ * Una anulación es de las acciones que la ADR nombra sensibles: sin bitácora,
+ * **no se ejecuta**. Emitir después del commit no puede dar eso —si el INSERT
+ * falla ahí, el stock ya volvió, la deuda ya bajó y lo único que se devuelve es
+ * un 500 sobre algo que SÍ pasó—, así que la fila va con el ejecutor de esta
+ * transacción: si una de las dos se cae, el rollback se lleva las dos.
+ *
+ * Antes la ruta emitía con `auditarSinBloquear` y devolvía los conteos de lo
+ * revertido solo para poder armar el payload. Ese viaje de vuelta desaparece:
+ * quien sabe qué se revirtió es este servicio, y ahora lo escribe él.
  */
-export interface ReversionesDeAnulacion {
-  botellonesReversados: number
-  botellonesDevueltos: number
-  baseReversada: string | null
-}
-
-export interface ResultadoDeAnulacion {
-  venta: Venta
-  reversiones: ReversionesDeAnulacion
-}
-
 export async function anularVenta(
   ventaId: string,
   motivo: string,
   usuario: UserContext,
-): Promise<ResultadoDeAnulacion> {
+  contexto: ContextoDeAuditoria,
+): Promise<Venta> {
   return db.transaction(async (tx) => {
     const venta = await ventaAnulable(tx, ventaId, usuario)
     const explicacion = exigirMotivo(motivo, 'anular')
@@ -212,17 +210,32 @@ export async function anularVenta(
     const [anulada] = await tx.select().from(ventas).where(eq(ventas.id, ventaId))
 
     /**
-     * `devolverActivosDeLaVenta` ya escribió los movimientos (con `tipo='retorno'`
-     * para la base); los contamos acá para que el caller (la ruta) arme el
-     * payload de auditoría sin volver a leer la tabla.
+     * El payload dice QUÉ se revirtió, no solo que hubo una anulación.
+     *
+     * Sin estos tres números, reconstruir la operación obliga a cruzar
+     * `ventas`, `movimientos_botellon` y `movimientos_base` a mano. Los
+     * botellones salen de la venta ORIGINAL —`anulada` ya no es la que movió el
+     * parque— y la base, del libro: `ventas` no tiene columna `base`.
      */
-    const reversiones: ReversionesDeAnulacion = {
-      botellonesReversados: venta.botellonesEntregados,
-      botellonesDevueltos: venta.botellonesRecibidos,
-      baseReversada: await baseAsignadaAVenta(tx, venta.id),
-    }
+    await emit(
+      {
+        ...contexto,
+        action: 'ventas:anular',
+        resource: 'ventas',
+        resourceId: anulada!.id,
+        result: 'ok',
+        payload: {
+          resourceId: anulada!.id,
+          motivo: anulada!.motivoAnulacion,
+          botellonesReversados: venta.botellonesEntregados,
+          botellonesDevueltos: venta.botellonesRecibidos,
+          baseReversada: await baseAsignadaAVenta(tx, venta.id),
+        },
+      },
+      tx,
+    )
 
-    return { venta: anulada!, reversiones }
+    return anulada!
   })
 }
 

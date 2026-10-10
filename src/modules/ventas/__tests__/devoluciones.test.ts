@@ -11,6 +11,8 @@ import { registrarVenta } from '@/modules/ventas/venta'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * Devoluciones — RN-VEN-10.
  *
@@ -207,10 +209,12 @@ describe('lo que la devolución no deja hacer', () => {
   it('devolver sobre una venta anulada', async () => {
     const admin = await usuarioAutenticado('admin')
     const { venta, lineaId } = await venderCinco()
-    await anularVenta(venta.id, 'me equivoqué de cliente al registrar', {
-      id: admin.usuario.id,
-      roles: ['admin'],
-    } as UserContext)
+    await anularVenta(
+      venta.id,
+      'me equivoqué de cliente al registrar',
+      { id: admin.usuario.id, roles: ['admin'] } as UserContext,
+      UN_CONTEXTO,
+    )
 
     await expect(
       registrarDevolucion({ lineaId, cantidad: 1, estadoProducto: 'sano', motivo: MOTIVO }, null),
