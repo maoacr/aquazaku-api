@@ -67,7 +67,7 @@ async function prestar(cuantas: number): Promise<void> {
      * Una dirección puede tener varias bases, así que alcanza con prestarlas
      * todas al mismo lugar: lo que se mide es el ritmo, no dónde fueron.
      */
-    await prestarBase(base.id, direccionId, null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
   }
 }
 
@@ -121,7 +121,7 @@ describe('cuántas bases quedan libres', () => {
      * rechaza el constraint `bases_dano_completo`: una base dañada sin quién la
      * marcó, cuándo, y cuál fue el recargo no es un estado que exista.
      */
-    await prestarBase(compradas[0]!.id, direccionId, null)
+    await prestarBase(compradas[0]!.id, direccionId, null, UN_CONTEXTO)
     await marcarBaseDanada(
       {
         baseId: compradas[0]!.id,
@@ -130,8 +130,9 @@ describe('cuántas bases quedan libres', () => {
         medioDePago: 'efectivo',
       },
       null,
+      UN_CONTEXTO,
     )
-    await retornarBase(compradas[0]!.id, null)
+    await retornarBase(compradas[0]!.id, null, UN_CONTEXTO)
 
     expect((await disponibilidadDeBases()).libres).toBe(2)
   })

@@ -218,22 +218,19 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
         const enBodega = await descartarBotellones(
           datos.cantidad,
           datos.motivo,
           req.user?.id ?? null,
+          {
+            userId: req.user?.id ?? null,
+            rolEjercido: req.user?.roles ?? [],
+            requestId: String(req.id),
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+          },
         )
-
-        /* Dar de baja un activo es lo que más explicación necesita tres meses
-         * después, y el motivo es lo único que la da. */
-        await auditarSinBloquear(req, {
-          userId: req.user?.id ?? null,
-          rolEjercido: req.user?.roles ?? [],
-          action: 'botellones:descartar',
-          resource: 'botellones',
-          result: 'ok',
-          payload: { cantidad: datos.cantidad, motivo: datos.motivo, enBodega },
-        })
 
         return reply.code(201).send({ enBodega })
       } catch (err) {
@@ -481,17 +478,13 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const prestada = await prestarBase(id, datos.direccionId, req.user?.id ?? null)
-
-        /* A QUÉ DIRECCIÓN, que es lo único que hace reclamable el préstamo: una
-         * base se presta a una puerta, no a un cliente (RN-BAS-03). */
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const prestada = await prestarBase(id, datos.direccionId, req.user?.id ?? null, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'bases:prestar',
-          resource: 'bases',
-          result: 'ok',
-          payload: { resourceId: id, direccionId: datos.direccionId },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return prestada
@@ -510,15 +503,13 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       const { id } = req.params as { id: string }
 
       try {
-        const retornada = await retornarBase(id, req.user?.id ?? null)
-
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const retornada = await retornarBase(id, req.user?.id ?? null, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'bases:retirar',
-          resource: 'bases',
-          result: 'ok',
-          payload: { resourceId: id },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return retornada
@@ -556,26 +547,13 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const dano = await marcarBaseDanada({ baseId: id, ...datos }, req.user?.id ?? null)
-
-        /* `operacion: 'dano'` lo separa del descarte, que comparte esta acción
-         * por lo que explica el comentario de arriba. No son lo mismo: una base
-         * dañada SIGUE EXISTIENDO. */
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const dano = await marcarBaseDanada({ baseId: id, ...datos }, req.user?.id ?? null, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'bases:descartar',
-          resource: 'bases',
-          result: 'ok',
-          payload: {
-            operacion: 'dano',
-            resourceId: id,
-            motivo: datos.motivo,
-            /* El recargo se registra como venta (RN-BAS-08), así que la fila
-             * dice cuánto se le cobró y por qué medio. */
-            monto: datos.monto,
-            medioDePago: datos.medioDePago,
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return reply.code(201).send(dano)
@@ -596,15 +574,13 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const descartada = await descartarBase(id, datos.motivo, req.user?.id ?? null)
-
-        await auditarSinBloquear(req, {
+        /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
+        const descartada = await descartarBase(id, datos.motivo, req.user?.id ?? null, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'bases:descartar',
-          resource: 'bases',
-          result: 'ok',
-          payload: { operacion: 'descarte', resourceId: id, motivo: datos.motivo },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return descartada

@@ -3,6 +3,7 @@ import { db } from '@/db/client'
 import { movimientosBotellon } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import type { Ejecutor } from '@/modules/stock/saldo'
 import { botellonesDe, botellonesEnBodega } from './conservacion'
 
@@ -171,6 +172,7 @@ export async function descartarBotellones(
   cantidad: number,
   motivo: string,
   registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
 ): Promise<number> {
   exigirCantidad(cantidad)
 
@@ -199,7 +201,29 @@ export async function descartarBotellones(
       .insert(movimientosBotellon)
       .values({ cantidad: -cantidad, tipo: 'descarte', motivo: motivo.trim(), registradoPor })
 
-    return botellonesEnBodega(tx)
+    const enBodega = await botellonesEnBodega(tx)
+
+    /**
+     * La baja y su fila, una sola escritura — ADR-0007.
+     *
+     * Dar de baja un activo es lo que más explicación necesita tres meses
+     * después, y el motivo es lo único que la da. RN-ACC-04 nombra las bajas de
+     * botellones, así que sin la fila el descarte **no se ejecuta**: emitiendo
+     * después del commit, un INSERT fallido dejaba los botellones fuera del
+     * parque y a la ley de conservación cerrando sobre un descarte sin dueño.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'botellones:descartar',
+        resource: 'botellones',
+        result: 'ok',
+        payload: { cantidad, motivo: motivo.trim(), enBodega },
+      },
+      tx,
+    )
+
+    return enBodega
   })
 }
 

@@ -15,6 +15,8 @@ import { marcarBaseDanada } from '@/modules/retornables/dano'
 import { cargosPendientesDe, deudaDe } from '@/modules/ventas/saldo'
 import { resetDb } from '@/test/db'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * Las bases — RN-BAS-01 a 08.
  *
@@ -113,7 +115,7 @@ describe('el préstamo', () => {
   it('queda asignada a la DIRECCIÓN, no al cliente', async () => {
     const base = await darDeAltaBase('0913', null)
 
-    const prestada = await prestarBase(base.id, direccionId, null)
+    const prestada = await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     expect(prestada.direccionId).toBe(direccionId)
     expect(await basesEnDireccion(direccionId)).toHaveLength(1)
@@ -126,14 +128,14 @@ describe('el préstamo', () => {
    */
   it('prestar una que ya está prestada se rechaza', async () => {
     const base = await darDeAltaBase('0913', null)
-    await prestarBase(base.id, direccionId, null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     const [otra] = await db
       .insert(direcciones)
       .values({ clienteId, etiqueta: 'El negocio', direccion: 'Carrera 8 #1-11' })
       .returning()
 
-    await expect(prestarBase(base.id, otra!.id, null)).rejects.toMatchObject({
+    await expect(prestarBase(base.id, otra!.id, null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'BASE_YA_PRESTADA',
     })
   })
@@ -157,21 +159,22 @@ describe('el préstamo', () => {
 
     const base = await darDeAltaBase('0913', null)
 
-    await expect(prestarBase(base.id, direccionId, null)).rejects.toMatchObject({
+    await expect(prestarBase(base.id, direccionId, null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'VERIFICACION_REQUERIDA',
     })
   })
 
   it('una base dañada no se vuelve a prestar', async () => {
     const base = await darDeAltaBase('0913', null)
-    await prestarBase(base.id, direccionId, null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
     await marcarBaseDanada(
       { baseId: base.id, monto: '80000.00', motivo: MOTIVO, medioDePago: 'efectivo' },
       null,
+      UN_CONTEXTO,
     )
-    await retornarBase(base.id, null)
+    await retornarBase(base.id, null, UN_CONTEXTO)
 
-    await expect(prestarBase(base.id, direccionId, null)).rejects.toMatchObject({
+    await expect(prestarBase(base.id, direccionId, null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'BASE_DANADA',
     })
   })
@@ -180,9 +183,9 @@ describe('el préstamo', () => {
 describe('el retorno y el descarte', () => {
   it('vuelve a la bodega y deja rastro', async () => {
     const base = await darDeAltaBase('0913', null)
-    await prestarBase(base.id, direccionId, null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
-    const retornada = await retornarBase(base.id, null)
+    const retornada = await retornarBase(base.id, null, UN_CONTEXTO)
 
     expect(retornada.direccionId).toBeNull()
     expect((await historialDe(base.id)).map((m) => m.tipo)).toEqual([
@@ -194,18 +197,18 @@ describe('el retorno y el descarte', () => {
 
   it('descartar una prestada se rechaza: quedaría un préstamo abierto', async () => {
     const base = await darDeAltaBase('0913', null)
-    await prestarBase(base.id, direccionId, null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     await expect(
-      descartarBase(base.id, 'se partió sin arreglo posible', null),
+      descartarBase(base.id, 'se partió sin arreglo posible', null, UN_CONTEXTO),
     ).rejects.toMatchObject({ code: 'BASE_PRESTADA' })
   })
 
   it('una descartada ya no está en el parque', async () => {
     const base = await darDeAltaBase('0913', null)
-    await descartarBase(base.id, 'se partió sin arreglo posible', null)
+    await descartarBase(base.id, 'se partió sin arreglo posible', null, UN_CONTEXTO)
 
-    await expect(prestarBase(base.id, direccionId, null)).rejects.toMatchObject({
+    await expect(prestarBase(base.id, direccionId, null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'BASE_DESCARTADA',
     })
   })
@@ -220,11 +223,12 @@ describe('el retorno y el descarte', () => {
 describe('el recargo por daño', () => {
   const danar = async (medioDePago: 'efectivo' | 'credito' = 'credito') => {
     const base = await darDeAltaBase('0913', null)
-    await prestarBase(base.id, direccionId, null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     return marcarBaseDanada(
       { baseId: base.id, monto: '80000.00', motivo: MOTIVO, medioDePago },
       null,
+      UN_CONTEXTO,
     )
   }
 
@@ -258,6 +262,7 @@ describe('el recargo por daño', () => {
       marcarBaseDanada(
         { baseId: base.id, monto: '80000.00', motivo: MOTIVO, medioDePago: 'efectivo' },
         null,
+        UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'YA_DANADA' })
   })
@@ -273,18 +278,20 @@ describe('el recargo por daño', () => {
       marcarBaseDanada(
         { baseId: base.id, monto: '80000.00', motivo: MOTIVO, medioDePago: 'efectivo' },
         null,
+        UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'BASE_EN_BODEGA' })
   })
 
   it('sin explicación no se le cobra a nadie', async () => {
     const base = await darDeAltaBase('0913', null)
-    await prestarBase(base.id, direccionId, null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     await expect(
       marcarBaseDanada(
         { baseId: base.id, monto: '80000.00', motivo: 'x', medioDePago: 'efectivo' },
         null,
+        UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'MOTIVO_REQUERIDO' })
   })
