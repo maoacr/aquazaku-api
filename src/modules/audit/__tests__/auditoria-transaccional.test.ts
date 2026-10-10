@@ -62,14 +62,27 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       acciones: ['ventas:anular'],
       nota: 'la fila va dentro de la transacción que revierte; el payload lo arma el servicio porque es el único que sabe qué se revirtió',
     },
+    'ventas/correccion.ts': {
+      transaccional: true,
+      acciones: ['ventas:corregir'],
+      nota: 'corregir anula y reemplaza: es una anulación con otro nombre, y se decidió sensible junto con ella; la fila lleva el antes y el después y va en la transacción que escribe las dos ventas',
+    },
     /*
-     * El emit de `ventas:anular` se fue a `anulacion.ts`. Lo que queda acá
-     * TODAVÍA NO está clasificado: `ventas:precio_manual` es un cambio de
-     * precio, `ventas:corregir` anula y reemplaza, y el alta de un código de
-     * descuento autoriza cobrar menos. Los tres los nombra la ADR como
-     * sensibles o muy cerca, y ninguno tiene transacción propia hoy. Queda en
-     * `false` para que la deuda siga contada, no porque esté decidido que no
-     * aplica.
+     * ── Las tres que quedan acá NO son sensibles, y es una decisión ──────────
+     *
+     * Mao las clasificó el 10-oct-2026, con la consecuencia explicada: sensible
+     * significa que si la bitácora falla, la operación no se hace.
+     *
+     * · `ventas:precio_manual` — los «cambios de precio» que nombra RN-ACC-04
+     *   son los del CATÁLOGO, y esos ya son atómicos en `productos/service.ts`.
+     *   Cobrar distinto en una venta suelta no frena el mostrador.
+     * · `configuracion:editar` (códigos de descuento) — queda del lado no
+     *   bloqueante aunque el costo de disponibilidad fuera bajo.
+     * · `cobros:registrar`, `ventas:crear`, `ventas:crear_retroactiva` y
+     *   `ventas:devolucion` — la regla no las nombra.
+     *
+     * No es deuda pendiente: está decidido. Si el negocio cambia de opinión,
+     * se cambia acá y el guardián dice qué falta mover.
      */
     'ventas/routes.ts': {
       transaccional: false,
@@ -77,12 +90,11 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
         'ventas:crear',
         'ventas:crear_retroactiva',
         'ventas:precio_manual',
-        'ventas:corregir',
         'ventas:devolucion',
         'cobros:registrar',
         'configuracion:editar',
       ],
-      nota: 'pendiente de clasificar — `ventas:anular` ya se fue a `anulacion.ts`; de lo que queda, precio_manual, corregir y el alta de descuentos son los candidatos a sensibles',
+      nota: 'NO aplica: las acciones que quedan se clasificaron no sensibles el 10-oct-2026; `ventas:anular` está en `anulacion.ts` y `ventas:corregir` en `correccion.ts`',
     },
     'retornables/botellones.ts': {
       transaccional: true,
@@ -105,12 +117,10 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
      * tienen la transacción. Lo que queda acá son compras, altas, y la entrega y
      * el retorno de botellones, que la regla no nombra.
      *
-     * Menos uno: `botellones:registrar` con `operacion: 'ajuste'`. RN-ACC-04
-     * nombra «ajustes de stock» y un ajuste del parque es la misma clase de
-     * corrección —la única fila que cambia el total sin que entre ni salga
-     * nada—, pero `ajustarBotellones` no tiene transacción propia todavía. Es
-     * una pregunta de clasificación, no un emit mal puesto, y queda en `false`
-     * para que siga contada.
+     * El ajuste del parque (`botellones:registrar` con `operacion: 'ajuste'`)
+     * se preguntó y se decidió NO sensible el 10-oct-2026: los «ajustes de
+     * stock» de RN-ACC-04 son los del producto, que ya son atómicos en
+     * `stock/service.ts`. Está decidido, no pendiente.
      */
     'retornables/routes.ts': {
       transaccional: false,
@@ -120,7 +130,7 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
         'botellones:recibir_retorno',
         'bases:registrar',
       ],
-      nota: 'pendiente de clasificar — el ajuste del parque de botellones: RN-ACC-04 nombra los ajustes de stock, y `ajustarBotellones` no tiene transacción propia',
+      nota: 'NO aplica: ninguna de estas la nombra RN-ACC-04, y el ajuste del parque se clasificó no sensible el 10-oct-2026',
     },
     'produccion/routes.ts': {
       transaccional: false,

@@ -8,6 +8,7 @@ import {
   ventas,
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import type { UserContext } from '@/modules/authz/can'
 import { can } from '@/modules/authz/can'
 import type { Transaccion } from '@/modules/stock/saldo'
@@ -88,6 +89,7 @@ export async function corregirVenta(
   ventaId: string,
   datos: DatosDeCorreccion,
   usuario: UserContext,
+  contexto: ContextoDeAuditoria,
 ): Promise<ResultadoDeCorreccion> {
   return db.transaction(async (tx) => {
     exigirPermisoDeCorregir(usuario)
@@ -176,6 +178,64 @@ export async function corregirVenta(
       .where(eq(ventas.id, ventaId))
 
     const [reemplazada] = await tx.select().from(ventas).where(eq(ventas.id, ventaId))
+
+    /**
+     * La corrección y su fila, una sola escritura — ADR-0007.
+     *
+     * Corregir anula y reemplaza: es una anulación con otro nombre, y se
+     * clasificó sensible junto con ella. Emitiendo después del commit no se
+     * podía cumplir: la vieja quedaba en `corregida`, la nueva escrita, y la
+     * bitácora sin la única fila que las relaciona.
+     *
+     * La fila lleva el ANTES y el DESPUÉS, no solo que alguien llamó al
+     * endpoint. Sin los dos juntos, reconstruir una corrección obliga a cruzar
+     * dos filas de `ventas` que nadie sabe que están relacionadas — y acá el
+     * reporte de un mes ya emitido puede cambiar SIEMPRE, que es la naturaleza
+     * del reemplazo.
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'ventas:corregir',
+        resource: 'ventas',
+        resourceId: resultado.venta.id,
+        result: 'ok',
+        payload: {
+          resourceId: resultado.venta.id,
+          reemplaza: reemplazada!.id,
+          motivo: reemplazada!.motivoAnulacion,
+          totalAnterior: reemplazada!.total,
+          totalNuevo: resultado.venta.total,
+          clienteAnterior: reemplazada!.clienteId,
+          clienteNuevo: resultado.venta.clienteId,
+          /*
+           * RN-VEN-16-AUDIT — la corrección registra **ambas** fechas, no una.
+           *
+           * `createdAt` dice cuándo compró y el admin puede estar corrigiéndolo,
+           * así que la auditoría necesita el par para reconstruir qué cambió sin
+           * cruzar dos filas de `ventas`. Se serializan como `Date`: el
+           * serializer de Fastify produce ISO 8601 con `Z`, que es lo que la UI
+           * de auditoría ya renderiza.
+           */
+          ocurrioEnAnterior: reemplazada!.createdAt,
+          ocurrioEnNuevo: resultado.venta.createdAt,
+          /*
+           * Botellones — la corrección puede mover las dos cantidades; sin el
+           * antes/después hay que sumar los movimientos a mano.
+           */
+          botellonesEntregados: {
+            anterior: reemplazada!.botellonesEntregados,
+            nuevo: resultado.venta.botellonesEntregados,
+          },
+          botellonesRecibidos: {
+            anterior: reemplazada!.botellonesRecibidos,
+            nuevo: resultado.venta.botellonesRecibidos,
+          },
+        },
+      },
+      tx,
+    )
+
     return { ...resultado, reemplazada: reemplazada! }
   })
 }

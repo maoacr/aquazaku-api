@@ -12,6 +12,8 @@ import { hoyEnLaPlanta } from '@/lib/dia'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
 /**
  * Asignarle la dirección a una venta vieja — y que NO se mueva nada más.
  *
@@ -146,6 +148,7 @@ const asignarDireccion = (ventaId: string, direccionId: string, extra = {}) =>
       ...extra,
     },
     admin,
+    UN_CONTEXTO,
   )
 
 describe('asignar la dirección no mueve el stock', () => {

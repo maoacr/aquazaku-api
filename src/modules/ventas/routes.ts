@@ -406,73 +406,26 @@ export async function ventasRoutes(app: FastifyInstance): Promise<void> {
       }
 
       try {
-        const resultado = await corregirVenta(id, { ...datos, hoy: hoyEnLaPlanta() }, req.user!)
-
-        /*
-         * ── La corrección deja su propia fila, siempre ─────────────────────
+        /**
+         * La fila la escribe el SERVICIO, dentro de su transacción — ADR-0007.
          *
-         * Esta ruta pide `auditaLaRuta`, así que el middleware NO escribe la
-         * fila: la escribe ésta, y es la única que va a existir. Por eso lleva
-         * **qué cambió** y no solo que alguien llamó al endpoint — sin el antes
-         * y el después juntos, reconstruir una corrección obliga a cruzar dos
-         * filas de `ventas` que nadie sabe que están relacionadas.
+         * Antes iba con `auditarSinBloquear` y el comentario que estaba acá
+         * defendía esa elección: tumbar la respuesta porque falló la bitácora
+         * dejaría al operador creyendo que no se aplicó, y corrigiendo de nuevo
+         * sobre una venta que ya no es la vigente.
          *
-         * Y no es opcional como la fila de venta retroactiva: acá el reporte de
-         * un mes ya emitido puede cambiar SIEMPRE —esa es la naturaleza del
-         * reemplazo— así que el delta de plata es el dato que hace auditable la
-         * operación entera.
-         *
-         * Va con `auditarSinBloquear` por lo mismo que las otras dos: la
-         * corrección ya está escrita y confirmada. Tumbar la respuesta porque
-         * falló la bitácora dejaría al operador creyendo que no se aplicó, y
-         * corrigiendo de nuevo sobre una venta que ya no es la vigente.
+         * Ese miedo era correcto para un emit DESPUÉS del commit —ahí la
+         * corrección quedaba aplicada y el 500 mentía— y deja de aplicar con la
+         * fila adentro: si el INSERT falla, el rollback se lleva las dos ventas
+         * y el operador que cree que no se aplicó tiene razón. Volver a
+         * corregir es entonces lo correcto, no un segundo daño.
          */
-        await auditarSinBloquear(req, {
+        const resultado = await corregirVenta(id, { ...datos, hoy: hoyEnLaPlanta() }, req.user!, {
           userId: req.user?.id ?? null,
           rolEjercido: req.user?.roles ?? [],
-          action: 'ventas:corregir',
-          resource: 'ventas',
-          result: 'ok',
-          payload: {
-            resourceId: resultado.venta.id,
-            reemplaza: resultado.reemplazada.id,
-            motivo: resultado.reemplazada.motivoAnulacion,
-            totalAnterior: resultado.reemplazada.total,
-            totalNuevo: resultado.venta.total,
-            clienteAnterior: resultado.reemplazada.clienteId,
-            clienteNuevo: resultado.venta.clienteId,
-            /*
-             * RN-VEN-16-AUDIT — la corrección registra **ambas** fechas, no una.
-             *
-             * La clave singular `ocurrioEn` desaparece del payload de
-             * `ventas:corregir`: servía cuando la nueva siempre heredaba el
-             * instante exacto de la vieja y un solo campo bastaba. Ahora la
-             * nueva puede tener otra fecha (override válido del admin) y la
-             * auditoría necesita reconstruir qué cambió sin cruzar dos filas de
-             * `ventas`.
-             *
-             * Se serializan como `Date` —el serializer estándar de Fastify
-             * produce ISO 8601 con `Z` (UTC), equivalente al `-05:00` del
-             * mediodía de Bogotá. Eso es lo que ya hacía la clave singular
-             * antes y es lo que la UI de auditoría hoy renderiza con
-             * `JSON.stringify`; el formato no cambia.
-             */
-            ocurrioEnAnterior: resultado.reemplazada.createdAt,
-            ocurrioEnNuevo: resultado.venta.createdAt,
-            /*
-             * Botellones — change `botellones-entrega-devolucion`. La corrección
-             * puede mover las dos cantidades; sin el antes/después, reconstruir
-             * el cambio obliga a sumar los compensatorios `tipo='ajuste'`.
-             */
-            botellonesEntregados: {
-              anterior: resultado.reemplazada.botellonesEntregados,
-              nuevo: resultado.venta.botellonesEntregados,
-            },
-            botellonesRecibidos: {
-              anterior: resultado.reemplazada.botellonesRecibidos,
-              nuevo: resultado.venta.botellonesRecibidos,
-            },
-          },
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
         })
 
         return reply.code(201).send(resultado)
