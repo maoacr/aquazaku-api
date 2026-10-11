@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, sql } from 'drizzle-orm'
+import { and, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
 import {
   type Base,
@@ -491,6 +491,33 @@ export async function descartarBase(
 
     return descartada!
   })
+}
+
+/**
+ * Las bases prestadas a cualquier dirección de un cliente — RN-BAS-04.
+ *
+ * ── Una sola definición, dos consumidores ───────────────────────────────────
+ *
+ * La usan la ficha del cliente (para decir cuántas tiene) y la desactivación
+ * (para devolverlas al parque). Vivía solo adentro de `desactivarCliente`, así
+ * que la ficha no tenía de dónde sacar el número y mandaba `null` — y la
+ * pantalla leía ese `null` como «no tiene ninguna».
+ *
+ * Las direcciones activas y las inactivas cuentan: una base prestada a una
+ * dirección dada de baja sigue siendo reclamable, y al desactivar al dueño esa
+ * dirección pierde al único referente. Esa regla tiene que vivir en un solo
+ * lugar, porque si la ficha dijera «ninguna» y la desactivación devolviera
+ * tres, el operario estaría leyendo un número y provocando otro.
+ */
+export async function basesPrestadasA(
+  clienteId: string,
+  ejecutor: Ejecutor = db,
+): Promise<{ id: string; idSticker: string }[]> {
+  return ejecutor
+    .select({ id: bases.id, idSticker: bases.idSticker })
+    .from(bases)
+    .innerJoin(direcciones, eq(direcciones.id, bases.direccionId))
+    .where(and(eq(direcciones.clienteId, clienteId), isNotNull(bases.direccionId)))
 }
 
 /** El historial de una base — RN-BAS-05. Dónde estuvo y quién la tuvo. */

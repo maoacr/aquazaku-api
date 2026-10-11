@@ -255,21 +255,82 @@ describe('un cliente no se borra', () => {
 
 describe('la ficha', () => {
   /**
-   * Los cuatro saldos de RN-CLI-06 dependen de M6 y M7. Van en `null`, no en
-   * cero: un cero diría «no debe nada» y la verdad es «todavía no existe el
-   * módulo que registra deudas».
+   * ── Los saldos de activos se CUENTAN, y la plata no viaja acá ─────────────
+   *
+   * RN-CLI-06 nombra cuatro cuentas que no se mezclan. En esta ruta viajan
+   * dos: bases y botellones, que son activos del cliente. Deuda y cargos
+   * pendientes se sirven en `GET /clientes/:id/deuda`, que pide `cobros:ver`
+   * mientras esta pide `clientes:ver` — traerlos acá serviría plata bajo un
+   * permiso que no la autoriza (RN-ACC-02).
+   *
+   * El `toEqual` es exacto a propósito: si alguien vuelve a meter `deuda` en
+   * este payload, este test lo frena.
+   *
+   * ── Por qué cero y no `null` ──────────────────────────────────────────────
+   *
+   * Los dos saldos iban en `null` con una nota que decía que M6 y M7 no
+   * existían. Existen. Y el `null` no era inofensivo: el modal de desactivar
+   * lee estos dos números y, con `null`, afirmaba «este cliente no tiene bases
+   * ni botellones a su nombre» SIEMPRE —justo antes de una acción irreversible
+   * que las devuelve al parque—. Ahora cero significa cero.
    */
-  it('los cuatro saldos dicen que no hay de dónde calcularlos', async () => {
+  it('sin activos, los saldos son cero y no `null`', async () => {
     const cliente = await crear()
 
     const ficha = (await comoAdmin({ method: 'GET', url: `/clientes/${cliente.id}` })).json()
 
-    expect(ficha.saldos).toEqual({
-      deuda: null,
-      botellones: null,
-      bases: null,
-      cargosPendientes: null,
+    expect(ficha.saldos).toEqual({ bases: 0, botellones: 0 })
+  })
+
+  /**
+   * El test que faltaba: un cliente que SÍ tiene activos.
+   *
+   * Sin él, la ficha podía devolver `null` —o cero— para siempre y toda la
+   * suite seguía verde. Un test que solo mira el caso vacío no distingue «no
+   * tiene nada» de «no sé contar».
+   */
+  it('cuenta las bases prestadas a sus direcciones y los botellones en su poder', async () => {
+    const { crearCliente } = await import('@/modules/clientes/service')
+    const { agregarDireccion } = await import('@/modules/clientes/direcciones')
+    const { verificarDocumento } = await import('@/modules/clientes/verificacion')
+    const { darDeAltaBase, prestarBase } = await import('@/modules/retornables/bases')
+    const { comprarBotellones, entregarBotellones } = await import(
+      '@/modules/retornables/botellones'
+    )
+
+    const contexto = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+    const { cliente } = await crearCliente(
+      {
+        primerNombre: 'Yeimy',
+        apellidos: 'Rodríguez',
+        tipoDocumento: 'CC',
+        numeroDocumento: '79123456',
+      },
+      contexto,
+    )
+    await verificarDocumento(cliente.id, ['admin'], contexto)
+    const direccion = await agregarDireccion(cliente.id, {
+      etiqueta: 'La casa',
+      direccion: 'Calle 5 #3-20',
     })
+
+    /* Dos bases a SU dirección, y una tercera que queda en bodega y no cuenta. */
+    const base1 = await darDeAltaBase('0001', admin.usuario.id)
+    const base2 = await darDeAltaBase('0002', admin.usuario.id)
+    await darDeAltaBase('0003', admin.usuario.id)
+    await prestarBase(base1.id, direccion.id, admin.usuario.id, contexto)
+    await prestarBase(base2.id, direccion.id, admin.usuario.id, contexto)
+
+    await comprarBotellones(10, 'compra inicial del parque', admin.usuario.id)
+    await entregarBotellones({
+      clienteId: cliente.id,
+      cantidad: 3,
+      registradoPor: admin.usuario.id,
+    })
+
+    const ficha = (await comoAdmin({ method: 'GET', url: `/clientes/${cliente.id}` })).json()
+
+    expect(ficha.saldos).toEqual({ bases: 2, botellones: 3 })
   })
 
   it('trae las direcciones del cliente', async () => {
