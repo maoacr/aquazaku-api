@@ -1,5 +1,5 @@
 meta {
-  name: La ficha, con los cuatro saldos
+  name: La ficha, con los saldos de activos
   type: http
   seq: 12
 }
@@ -14,15 +14,19 @@ docs {
   cargo pendiente por base dañada. Un solo campo «estado de cuenta» no dice nada
   útil.
 
-  Las cuatro llegan en `null` porque dependen de módulos que todavía no existen:
-  deuda y cargos son M6, botellones y bases son M7.
+  Acá viajan DOS: bases y botellones, que son activos del cliente y se cuentan.
 
-  :::caution[`null` y no cero]
-  Un cero diría «este cliente no debe nada». La verdad es «todavía no existe el
-  módulo que registra deudas», que es otra cosa.
+  Los otros dos —deuda y cargos pendientes— **no** viajan en esta respuesta, y
+  es a propósito: son información de cartera y se sirven en
+  `GET /clientes/:id/deuda`, que pide `cobros:ver` mientras esta ruta pide
+  `clientes:ver`. Traerlos acá serviría plata bajo un permiso que no la
+  autoriza, y colapsaría dos permisos en uno (RN-ACC-02).
 
-  Es el mismo criterio que deja el caudal sin medir en `null` (RN-PRD-18): un
-  hueco se declara como hueco.
+  :::caution[Antes iban los cuatro en `null`]
+  Y no era inofensivo: el modal de desactivar un cliente lee estos dos números,
+  y con `null` afirmaba «este cliente no tiene bases ni botellones a su nombre»
+  **siempre** —justo antes de una acción irreversible que las devuelve al
+  parque—. Ahora cero significa cero.
   :::
 }
 
@@ -31,13 +35,8 @@ tests {
     expect(res.getStatus()).to.equal(200);
   });
 
-  test("los cuatro saldos dicen que no hay de dónde calcularlos", function() {
-    expect(res.getBody().saldos).to.eql({
-      deuda: null,
-      botellones: null,
-      bases: null,
-      cargosPendientes: null
-    });
+  test("los saldos de activos se cuentan, y la plata no viaja acá", function() {
+    expect(res.getBody().saldos).to.eql({ bases: 0, botellones: 0 });
   });
 
   test("y trae las direcciones", function() {

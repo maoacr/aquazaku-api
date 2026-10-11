@@ -3,6 +3,8 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import { validar } from '@/lib/http'
 import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
+import { basesPrestadasA } from '@/modules/retornables/bases'
+import { botellonesDe } from '@/modules/retornables/conservacion'
 import { clientesALlamar } from './a-llamar'
 import { configurarCredito } from './credito'
 import {
@@ -149,18 +151,23 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
            */
           telefonos: await telefonosDe(id),
           /*
-           * Los cuatro saldos de RN-CLI-06 todavía no tienen de dónde salir:
-           * deuda y cargos son M6, botellones y bases son M7.
+           * ── Los activos del cliente, calculados — RN-CLI-06 ──────────────
            *
-           * Se devuelve `null` y no cero. Un cero diría «este cliente no debe
-           * nada», y la verdad es «todavía no existe el módulo que registra
-           * deudas». Es el mismo criterio que dejó el caudal sin medir en `null`.
+           * Hasta hoy los cuatro saldos iban en `null` con una nota que decía
+           * que M6 y M7 no existían. Existen, y el `null` tenía consecuencia:
+           * el modal de desactivar lee estos dos y afirmaba «este cliente no
+           * tiene bases ni botellones a su nombre» SIEMPRE —justo antes de una
+           * acción irreversible que las devuelve al parque—.
+           *
+           * Los otros dos saldos de la regla, deuda y cargos pendientes, NO
+           * viven acá y es a propósito: son información de cartera y se sirven
+           * en `GET /clientes/:id/deuda`, que pide `cobros:ver`. Esta ruta pide
+           * `clientes:ver`. Traerlos acá serviría plata bajo un permiso que no
+           * la autoriza, y colapsaría dos permisos en uno (RN-ACC-02).
            */
           saldos: {
-            deuda: null,
-            botellones: null,
-            bases: null,
-            cargosPendientes: null,
+            bases: (await basesPrestadasA(id)).length,
+            botellones: await botellonesDe(id),
           },
         }
       } catch (err) {

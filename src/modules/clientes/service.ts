@@ -14,6 +14,7 @@ import {
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
+import { basesPrestadasA } from '@/modules/retornables/bases'
 import { botellonesDe } from '@/modules/retornables/conservacion'
 import { type DatosDeDireccion, agregarDireccion } from './direcciones'
 import {
@@ -560,17 +561,14 @@ export async function desactivarClienteConReversion(
     }
 
     /*
-     * Las bases del cliente son las que están prestadas a cualquiera de SUS
-     * direcciones (RN-BAS-04). Las activas y las inactivas cuentan: una base
-     * prestada a una dirección dada de baja sigue siendo reclamable, y al
-     * desactivar al dueño la dirección pierde al único referente. Devolver al
-     * parque es lo que cierra el préstamo.
+     * Las mismas bases que la ficha le muestra al operario — `basesPrestadasA`.
+     *
+     * Era una copia de esa query acá adentro. Dos copias de «cuáles son las
+     * bases de este cliente» es como el modal terminó diciendo «no tiene
+     * ninguna» mientras esta rama devolvía tres: el número que se lee y el que
+     * se ejecuta tienen que salir del mismo lugar.
      */
-    const basesDelCliente = await tx
-      .select({ id: bases.id, idSticker: bases.idSticker })
-      .from(bases)
-        .innerJoin(direcciones, eq(direcciones.id, bases.direccionId))
-      .where(and(eq(direcciones.clienteId, id), sql`${bases.direccionId} IS NOT NULL`))
+    const basesDelCliente = await basesPrestadasA(id, tx)
 
     /*
      * El update y la fila del libro van juntos por base: si la mitad escribe
