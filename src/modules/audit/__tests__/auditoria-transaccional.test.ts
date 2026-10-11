@@ -162,7 +162,7 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
     'stock/service.ts': {
       transaccional: true,
       acciones: ['stock:ajustar', 'stock:descartar'],
-      nota: 'pendiente — su helper `auditar` ya dice «bloqueante», pero bloquear sin atomicidad es el PEOR caso: 500 con el cambio aplicado',
+      nota: 'su helper `auditar` recibe el ejecutor y emite adentro. La nota decía «pendiente» de cuando solo bloqueaba: bloquear sin atomicidad es el PEOR caso —500 con el cambio aplicado—, y era eso lo que había que arreglar',
     },
     'productos/service.ts': {
       transaccional: true,
