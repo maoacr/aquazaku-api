@@ -10,9 +10,7 @@ post {
 }
 
 body:json {
-  {
-    "idSticker": "0915"
-  }
+  {}
 }
 
 docs {
@@ -32,6 +30,10 @@ docs {
   Por eso la columna es `NOT NULL` sin default: un cuarto camino de alta que
   alguien escriba sin leer esta regla se cae en la base, en vez de producir
   filas calladas.
+
+  El cuerpo va **vacío** para que el único problema sea el tipo. Con un sticker
+  ya tomado el 400 llegaría igual —el esquema corre antes que la unicidad— y
+  esta petición pasaría sin probar lo que dice probar.
 }
 
 tests {
