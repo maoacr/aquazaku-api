@@ -495,7 +495,7 @@ describe('la bitácora de bases dice dónde quedó cada una', () => {
       method: 'POST',
       url: '/bases',
       headers: { cookie: admin.cookie },
-      payload: { idSticker: sticker },
+      payload: { idSticker: sticker, tipo: 'estructura' },
     })
     expect(res.statusCode).toBe(201)
     return res.json().id as string

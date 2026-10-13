@@ -42,6 +42,13 @@ export interface LineaPedida {
   botellones?: number
   bases?: number
   /**
+   * Obligatorio cuando la línea trae `bases` — RN-BAS-14.
+   *
+   * Opcional en el tipo porque la línea de insumos o botellones no lo lleva;
+   * que vaya junto con `bases` y solo con `bases` lo garantiza el esquema.
+   */
+  tipoDeBase?: 'estructura' | 'dispensador'
+  /**
    * Lo RECIBIDO, no lo pedido — RN-PRO-03.
    *
    * Para un insumo son unidades, salvo que venga `kilos`: las bolsas se compran
@@ -228,7 +235,12 @@ export async function registrarCompra(
          * respeta que el número salga del máximo, así que no se reimplementa
          * acá — se le pasa la transacción para que todo caiga junto.
          */
-        await comprarBases(linea.bases, registradoPor, tx)
+        /*
+         * `tipoDeBase!` lo garantiza el refine del esquema: una línea con
+         * bases siempre lo trae. El `!` y no un default porque un default acá
+         * sería el cuarto lugar donde alguien podría inventar «estructura».
+         */
+        await comprarBases(linea.bases, linea.tipoDeBase!, registradoPor, tx)
       }
     }
 

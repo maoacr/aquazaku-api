@@ -75,9 +75,9 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
      * Tres bases en bodega, prestamos dos a la dirección del cliente. La
      * tercera queda libre y NO debería tocarse.
      */
-    const base1 = await darDeAltaBase('0001', admin.usuario.id)
-    const base2 = await darDeAltaBase('0002', admin.usuario.id)
-    const base3 = await darDeAltaBase('0003', admin.usuario.id)
+    const base1 = await darDeAltaBase('0001', 'estructura', admin.usuario.id)
+    const base2 = await darDeAltaBase('0002', 'estructura', admin.usuario.id)
+    const base3 = await darDeAltaBase('0003', 'estructura', admin.usuario.id)
 
     await prestarBase(base1.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
     await prestarBase(base2.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
@@ -144,7 +144,7 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
     const { cliente, direccion } = await clienteConDireccion()
     const admin = await usuarioAutenticado('admin')
 
-    const base = await darDeAltaBase('0010', admin.usuario.id)
+    const base = await darDeAltaBase('0010', 'estructura', admin.usuario.id)
     await prestarBase(base.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
 
     await comprarBotellones(5, 'compra inicial de prueba', admin.usuario.id)
@@ -222,8 +222,8 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
       direccion: 'Carrera 8',
     })
 
-    const baseA = await darDeAltaBase('0020', admin.usuario.id)
-    const baseB = await darDeAltaBase('0021', admin.usuario.id)
+    const baseA = await darDeAltaBase('0020', 'estructura', admin.usuario.id)
+    const baseB = await darDeAltaBase('0021', 'estructura', admin.usuario.id)
 
     await prestarBase(baseA.id, dirA.id, admin.usuario.id, UN_CONTEXTO)
     await prestarBase(baseB.id, dirB.id, admin.usuario.id, UN_CONTEXTO)

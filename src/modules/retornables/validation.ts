@@ -21,6 +21,17 @@ const motivo = z
 
 const dinero = z.string().regex(/^\d+(\.\d{1,2})?$/, 'debe ser un monto como 80000 o 80000.50')
 
+/**
+ * De qué tipo es la base — RN-BAS-14. **Obligatorio y sin default.**
+ *
+ * Un default convertiría en estructura metálica toda base mal registrada, y el
+ * tipo acompaña a la base hasta su descarte. Que el formulario tenga que
+ * elegirlo es la intención: el dato se conoce al recibirla, lo dice la factura.
+ */
+const tipoDeBase = z.enum(['estructura', 'dispensador'], {
+  message: 'hay que decir si es una estructura metálica o un dispensador',
+})
+
 export const esquemaDeCompra = z.object({ cantidad, motivo: z.string().trim().optional() })
 
 export const esquemaDeTransferencia = z.object({
@@ -55,6 +66,7 @@ export const esquemaDeAltaDeBase = z.object({
     .trim()
     .regex(/^\d{4}$/, 'el sticker son cuatro dígitos, con los ceros adelante: 0001, 0040, 0231')
     .optional(),
+  tipo: tipoDeBase,
 })
 
 export const esquemaDePrestamo = z.object({ direccionId: z.string().uuid() })
@@ -88,4 +100,10 @@ export const esquemaDeDano = z.object({
  */
 export const esquemaDeCompraDeBases = z.object({
   cantidad: z.number().int().positive('una compra de bases es de al menos una base'),
+  /*
+   * Una compra es de UN tipo. Una factura con los dos son dos compras —o dos
+   * líneas, si viene por proveedores— cada una con su costo. Mezclarlas en una
+   * sola haría imposible saber qué costó un dispensador.
+   */
+  tipo: tipoDeBase,
 })

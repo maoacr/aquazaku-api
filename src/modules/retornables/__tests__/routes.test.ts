@@ -151,8 +151,8 @@ describe('los botellones', () => {
 })
 
 describe('las bases', () => {
-  const darDeAlta = (idSticker = '0913') =>
-    comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker } })
+  const darDeAlta = (idSticker = '0913', tipo = 'estructura') =>
+    comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker, tipo } })
 
   it('se dan de alta con su sticker', async () => {
     const res = await darDeAlta()
@@ -167,7 +167,11 @@ describe('las bases', () => {
   it('sin sticker, el sistema pone el próximo', async () => {
     await darDeAlta('0040')
 
-    const res = await comoAdmin({ method: 'POST', url: '/bases', payload: {} })
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/bases',
+      payload: { tipo: 'estructura' },
+    })
 
     expect(res.statusCode).toBe(201)
     expect(res.json().idSticker).toBe('0041')
@@ -188,7 +192,11 @@ describe('las bases', () => {
   it('la compra numera consecutivo y entra entera', async () => {
     await darDeAlta('0040')
 
-    const res = await comoAdmin({ method: 'POST', url: '/bases/compra', payload: { cantidad: 3 } })
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/bases/compra',
+      payload: { cantidad: 3, tipo: 'estructura' },
+    })
 
     expect(res.statusCode).toBe(201)
     expect(res.json().map((b: { idSticker: string }) => b.idSticker)).toEqual([
@@ -199,7 +207,11 @@ describe('las bases', () => {
   })
 
   it('una compra de cero no es una compra', async () => {
-    const res = await comoAdmin({ method: 'POST', url: '/bases/compra', payload: { cantidad: 0 } })
+    const res = await comoAdmin({
+      method: 'POST',
+      url: '/bases/compra',
+      payload: { cantidad: 0, tipo: 'estructura' },
+    })
 
     expect(res.statusCode).toBe(400)
   })
@@ -270,7 +282,7 @@ describe('las bases', () => {
  */
 describe('el recargo por daño', () => {
   const danar = async (medioDePago = 'credito') => {
-    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: '0913' } })).json()
+    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: '0913', tipo: 'estructura' } })).json()
     await comoAdmin({ method: 'POST', url: `/bases/${base.id}/prestamo`, payload: { direccionId } })
 
     return comoAdmin({
@@ -301,7 +313,7 @@ describe('el recargo por daño', () => {
   })
 
   it('sin monto no se cobra: el dominio no dice cuánto vale reponerla', async () => {
-    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: '0001' } })).json()
+    const base = (await comoAdmin({ method: 'POST', url: '/bases', payload: { idSticker: '0001', tipo: 'estructura' } })).json()
     await comoAdmin({ method: 'POST', url: `/bases/${base.id}/prestamo`, payload: { direccionId } })
 
     const res = await comoAdmin({

@@ -502,7 +502,7 @@ describe('lo que la corrección no deja hacer', () => {
       .values({ clienteId, etiqueta: 'La casa', direccion: 'Calle 5 # 3-24' })
       .returning()
 
-    const [base] = await db.insert(bases).values({ idSticker: '0042' }).returning()
+    const [base] = await db.insert(bases).values({ idSticker: '0042', tipo: 'estructura' }).returning()
     expect(base).toBeDefined()
 
     const { venta } = await vender(admin.usuario.id, {

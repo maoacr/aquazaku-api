@@ -59,7 +59,7 @@ afterAll(async () => {
 
 describe('el alta', () => {
   it('registra el sticker que ya está pegado, y queda en el historial', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
 
     expect(base.idSticker).toBe('0913')
     expect(base.direccionId).toBeNull()
@@ -67,9 +67,9 @@ describe('el alta', () => {
   })
 
   it('dos bases no comparten sticker: sería imposible saber cuál está dónde', async () => {
-    await darDeAltaBase('0913', null)
+    await darDeAltaBase('0913', 'estructura', null)
 
-    await expect(darDeAltaBase('0913', null)).rejects.toMatchObject({
+    await expect(darDeAltaBase('0913', 'estructura', null)).rejects.toMatchObject({
       code: 'STICKER_DUPLICADO',
     })
   })
@@ -82,26 +82,26 @@ describe('el alta', () => {
    * se rotulan con lo que el sistema diga.
    */
   it('sin sticker, propone el próximo consecutivo', async () => {
-    const primera = await darDeAltaBase(undefined, null)
+    const primera = await darDeAltaBase(undefined, 'estructura', null)
 
     expect(primera.idSticker).toBe('0001')
-    expect((await darDeAltaBase(undefined, null)).idSticker).toBe('0002')
+    expect((await darDeAltaBase(undefined, 'estructura', null)).idSticker).toBe('0002')
   })
 
   it('la propuesta sigue al máximo, no al conteo: respeta el sticker pisado', async () => {
-    await darDeAltaBase('0040', null)
+    await darDeAltaBase('0040', 'estructura', null)
 
     /*
      * Con `count + 1` propondría `0002`, que está libre pero rompe la
      * convención del rótulo: quedarían dos bases con números que no reflejan el
      * orden en que entraron, y la siguiente propuesta volvería a chocar.
      */
-    expect((await darDeAltaBase(undefined, null)).idSticker).toBe('0041')
+    expect((await darDeAltaBase(undefined, 'estructura', null)).idSticker).toBe('0041')
   })
 
   it('un sticker que no son cuatro dígitos no entra', async () => {
     for (const malo of ['913', '00913', 'A-0913', '  ']) {
-      await expect(darDeAltaBase(malo, null)).rejects.toMatchObject({
+      await expect(darDeAltaBase(malo, 'estructura', null)).rejects.toMatchObject({
         code: 'STICKER_INVALIDO',
       })
     }
@@ -113,7 +113,7 @@ describe('el alta', () => {
  */
 describe('el préstamo', () => {
   it('queda asignada a la DIRECCIÓN, no al cliente', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
 
     const prestada = await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
@@ -127,7 +127,7 @@ describe('el préstamo', () => {
    * que se perdió.
    */
   it('prestar una que ya está prestada se rechaza', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
     await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     const [otra] = await db
@@ -157,7 +157,7 @@ describe('el préstamo', () => {
       })
       .where(eq(clientes.id, clienteId))
 
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
 
     await expect(prestarBase(base.id, direccionId, null, UN_CONTEXTO)).rejects.toMatchObject({
       code: 'VERIFICACION_REQUERIDA',
@@ -165,7 +165,7 @@ describe('el préstamo', () => {
   })
 
   it('una base dañada no se vuelve a prestar', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
     await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
     await marcarBaseDanada(
       { baseId: base.id, monto: '80000.00', motivo: MOTIVO, medioDePago: 'efectivo' },
@@ -182,7 +182,7 @@ describe('el préstamo', () => {
 
 describe('el retorno y el descarte', () => {
   it('vuelve a la bodega y deja rastro', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
     await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     const retornada = await retornarBase(base.id, null, UN_CONTEXTO)
@@ -196,7 +196,7 @@ describe('el retorno y el descarte', () => {
   })
 
   it('descartar una prestada se rechaza: quedaría un préstamo abierto', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
     await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     await expect(
@@ -205,7 +205,7 @@ describe('el retorno y el descarte', () => {
   })
 
   it('una descartada ya no está en el parque', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
     await descartarBase(base.id, 'se partió sin arreglo posible', null, UN_CONTEXTO)
 
     await expect(prestarBase(base.id, direccionId, null, UN_CONTEXTO)).rejects.toMatchObject({
@@ -222,7 +222,7 @@ describe('el retorno y el descarte', () => {
  */
 describe('el recargo por daño', () => {
   const danar = async (medioDePago: 'efectivo' | 'credito' = 'credito') => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
     await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     return marcarBaseDanada(
@@ -272,7 +272,7 @@ describe('el recargo por daño', () => {
    * cobrarle. Se descarta con motivo.
    */
   it('una base en bodega no le genera recargo a nadie', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
 
     await expect(
       marcarBaseDanada(
@@ -284,7 +284,7 @@ describe('el recargo por daño', () => {
   })
 
   it('sin explicación no se le cobra a nadie', async () => {
-    const base = await darDeAltaBase('0913', null)
+    const base = await darDeAltaBase('0913', 'estructura', null)
     await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
 
     await expect(
@@ -318,19 +318,19 @@ describe('el recargo por daño', () => {
  */
 describe('la compra de bases', () => {
   it('numera consecutivo desde el próximo disponible', async () => {
-    const compradas = await comprarBases(3, null)
+    const compradas = await comprarBases(3, 'estructura', null)
 
     expect(compradas.map((b) => b.idSticker)).toEqual(['0001', '0002', '0003'])
   })
 
   it('sigue al máximo, no al conteo, igual que el alta de a una', async () => {
-    await darDeAltaBase('0040', null)
+    await darDeAltaBase('0040', 'estructura', null)
 
-    expect((await comprarBases(2, null)).map((b) => b.idSticker)).toEqual(['0041', '0042'])
+    expect((await comprarBases(2, 'estructura', null)).map((b) => b.idSticker)).toEqual(['0041', '0042'])
   })
 
   it('todas nacen sanas y en la bodega, con su alta en el historial', async () => {
-    const [primera] = await comprarBases(2, null)
+    const [primera] = await comprarBases(2, 'estructura', null)
 
     expect(primera!.estado).toBe('sana')
     expect(primera!.direccionId).toBeNull()
@@ -350,10 +350,10 @@ describe('la compra de bases', () => {
    * pasaría siempre sin probar nada.
    */
   it('o entran todas o no entra ninguna', async () => {
-    await darDeAltaBase('9998', null)
+    await darDeAltaBase('9998', 'estructura', null)
 
     // La primera tomaría 9999 y la segunda se queda sin números.
-    await expect(comprarBases(3, null)).rejects.toMatchObject({ code: 'CODIGOS_AGOTADOS' })
+    await expect(comprarBases(3, 'estructura', null)).rejects.toMatchObject({ code: 'CODIGOS_AGOTADOS' })
 
     // La 9999 NO quedó: el rollback se llevó la parte que sí había entrado.
     expect(await db.select().from(bases)).toHaveLength(1)
@@ -361,7 +361,7 @@ describe('la compra de bases', () => {
 
   it('una compra de cero o negativa no es una compra', async () => {
     for (const mala of [0, -3]) {
-      await expect(comprarBases(mala, null)).rejects.toMatchObject({ code: 'CANTIDAD_INVALIDA' })
+      await expect(comprarBases(mala, 'estructura', null)).rejects.toMatchObject({ code: 'CANTIDAD_INVALIDA' })
     }
   })
 })

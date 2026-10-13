@@ -1766,6 +1766,18 @@ export const movimientosBotellon = pgTable(
 export const estadoDeBaseEnum = pgEnum('estado_de_base', ['sana', 'danada'])
 
 /**
+ * De qué tipo es una base — RN-BAS-14.
+ *
+ * `estructura` es la estructura metálica, el único tipo que existió hasta el
+ * 11-oct-2026. `dispensador` entrega agua fría y caliente.
+ *
+ * Las dos se prestan y no se venden, sin costo (RN-BAS-02). El tipo no cambia
+ * cómo se entrega: cambia qué se tiene, cuánto vale reponerlo y cuándo hay que
+ * comprar más.
+ */
+export const tipoDeBaseEnum = pgEnum('tipo_de_base', ['estructura', 'dispensador'])
+
+/**
  * Las bases — el activo que SÍ tiene identidad.
  *
  * ── El contraste con el botellón es el punto ────────────────────────────────
@@ -1784,8 +1796,23 @@ export const bases = pgTable(
   'bases',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    /** El ID impreso en el sticker físico — RN-BAS-01 y RN-BAS-10. */
+    /**
+     * El ID impreso en el sticker físico — RN-BAS-01 y RN-BAS-10.
+     *
+     * Único entre TODAS las bases, sin importar el tipo: no hay dos listas
+     * arrancando en 0001 (RN-BAS-14). El número identifica; el tipo describe.
+     */
     idSticker: text('id_sticker').notNull(),
+
+    /**
+     * Estructura metálica o dispensador — RN-BAS-14.
+     *
+     * **Sin `.default()`, a propósito.** Un default convertiría en estructura
+     * toda base mal registrada, y el tipo acompaña a la base hasta su descarte:
+     * el error quedaría escrito para siempre. Sin default, el camino de alta
+     * que no lo declare se cae acá y no en la operación.
+     */
+    tipo: tipoDeBaseEnum('tipo').notNull(),
 
     estado: estadoDeBaseEnum('estado').notNull().default('sana'),
 
@@ -1872,6 +1899,16 @@ export const movimientosBase = pgTable(
 
 export type MovimientoBotellon = typeof movimientosBotellon.$inferSelect
 export type Base = typeof bases.$inferSelect
+
+/**
+ * `'estructura' | 'dispensador'` — RN-BAS-14.
+ *
+ * Sale del enum y no de una unión escrita a mano: agregar un tipo de base el
+ * día que Aquazaku compre un tercero es tocar el enum, y todo lo que lo
+ * consuma deja de compilar hasta decidir qué hace con el nuevo. Una unión
+ * copiada seguiría compilando y mintiendo.
+ */
+export type TipoDeBase = (typeof tipoDeBaseEnum.enumValues)[number]
 export type NuevaBase = typeof bases.$inferInsert
 export type MovimientoBase = typeof movimientosBase.$inferSelect
 

@@ -374,7 +374,7 @@ describe('la anulación devuelve la base prestada', () => {
       .values({ clienteId, etiqueta: 'Casa', viaTipo: 'calle', viaNumero: '1' })
       .returning()
 
-    const base = await darDeAltaBase('0099', admin.usuario.id)
+    const base = await darDeAltaBase('0099', 'estructura', admin.usuario.id)
 
     /*
      * `registrarVenta` con `base` en el body se encarga del préstamo en la
