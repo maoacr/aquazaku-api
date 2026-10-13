@@ -1,0 +1,55 @@
+meta {
+  name: Un dispensador
+  type: http
+  seq: 59
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "idSticker": "0914",
+    "tipo": "dispensador"
+  }
+}
+
+docs {
+  El segundo tipo de base — **RN-BAS-14**. Aquazaku compró dispensadores de agua
+  fría y caliente; hasta el 11-oct-2026 existía un solo tipo, la estructura
+  metálica.
+
+  ── El tipo se declara acá, no al prestarla ─────────────────────────────────
+
+  Una base existe en el sistema **antes** de que un cliente la vea: entra al
+  parque y espera en la bodega. El dato se conoce en este momento —lo dice la
+  factura del proveedor— y declararlo al entregar dejaría sin tipo a todo el
+  parque en bodega, con lo cual `GET /bases/disponibilidad` no podría decir si
+  quedan dispensadores.
+
+  Al prestar, el sistema **muestra** el tipo del sticker que el operario tipeó.
+  Es una verificación contra el objeto físico, no una segunda declaración.
+
+  ── Un solo espacio de IDs ──────────────────────────────────────────────────
+
+  El `0914` sigue del `0913` del request 16, que es una estructura. No hay dos
+  listas arrancando en `0001`: el consecutivo sale del máximo de **todas** las
+  bases y el sticker es único entre todas. El número identifica; el tipo
+  describe.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda registrada como dispensador", function() {
+    expect(res.getBody().tipo).to.equal("dispensador");
+  });
+
+  test("y comparte el espacio de IDs con las estructuras", function() {
+    expect(res.getBody().idSticker).to.equal("0914");
+  });
+}

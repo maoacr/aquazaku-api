@@ -1,0 +1,45 @@
+meta {
+  name: Una base sin tipo
+  type: http
+  seq: 60
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "idSticker": "0915"
+  }
+}
+
+docs {
+  El tipo es **obligatorio y sin valor por omisión** — RN-BAS-14. Esta petición
+  existe para documentar que no hay default en ninguna capa: ni en el esquema,
+  ni en el servicio, ni en la columna.
+
+  ── Por qué no hay default ──────────────────────────────────────────────────
+
+  Un `DEFAULT 'estructura'` convertiría en estructura metálica toda base mal
+  registrada. Y el tipo acompaña a la base **hasta su descarte**: el error
+  quedaría escrito para siempre y solo se descubriría yendo a mirar el objeto.
+
+  Rechazar es reversible —quien registra elige el tipo y vuelve a intentar—;
+  aceptar en silencio no lo es.
+
+  Por eso la columna es `NOT NULL` sin default: un cuarto camino de alta que
+  alguien escriba sin leer esta regla se cae en la base, en vez de producir
+  filas calladas.
+}
+
+tests {
+  test("responde 400: la forma del pedido está incompleta", function() {
+    expect(res.getStatus()).to.equal(400);
+  });
+
+  test("y el mensaje dice qué elegir, en términos del mostrador", function() {
+    expect(JSON.stringify(res.getBody())).to.match(/estructura metálica o un dispensador/);
+  });
+}
