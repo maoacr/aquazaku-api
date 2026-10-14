@@ -67,7 +67,10 @@ export interface EstadoDeLatido {
   ultimoContacto: Date | null
   ultimoError: string | null
   latidos: number
-  /** Se revisa una vez al arrancar: el esquema no cambia mientras el proceso vive. */
+  /**
+   * Se revisa en cada latido **mientras no esté al día**; una vez al día, nunca
+   * más — ver `revisarEsquemaSiHaceFalta`.
+   */
   migraciones: EstadoDeMigraciones | null
 }
 
@@ -174,14 +177,44 @@ export function iniciarLatido(
     }
   }
 
-  /*
-   * Al arrancar, además del latido: ¿el esquema es el que este código espera?
+  /**
+   * ¿El esquema es el que este código espera? — en cada latido, hasta que lo sea.
    *
-   * Una sola vez, porque las migraciones no se aplican solas mientras el
-   * proceso vive — si alguien las corre, el redeploy vuelve a revisar.
+   * ── Por qué se vuelve a revisar, y por qué igual es gratis ─────────────────
+   *
+   * La versión anterior revisaba **una sola vez, al arrancar**, con este
+   * argumento: «las migraciones no se aplican solas mientras el proceso vive —
+   * si alguien las corre, el redeploy vuelve a revisar».
+   *
+   * Es cierto y es insuficiente, y lo descubrimos en un despliegue real
+   * (13-oct-2026). El campo `faltan` seguía apareciendo media hora después de
+   * que la migración hubiera entrado bien, porque el proceso repetía la foto de
+   * su arranque. O sea: **durante un incidente, `/health` no podía confirmar la
+   * corrección**. Y es justo cuando uno lo mira.
+   *
+   * Un indicador que sigue gritando después de resuelto enseña a ignorarlo —
+   * el mismo argumento que `SIN_NOTICIAS` ya tenía escrito unas líneas arriba.
+   *
+   * ── Una vez al día, no se vuelve a revisar ─────────────────────────────────
+   *
+   * No es una optimización: es que para ESTE proceso no puede volver a estar
+   * pendiente. Las esperadas son fijas —el journal viaja dentro de la imagen— y
+   * las aplicadas solo crecen. `al-dia` es un estado terminal.
+   *
+   * Por eso el costo en el caso sano es exactamente **una** consulta, la del
+   * arranque. Se paga un `count(*)` cada quince minutos solo mientras hay algo
+   * roto, que es cuando vale la pena.
+   *
+   * `no-verificable` SÍ se vuelve a revisar: puede ser un `GRANT` que falta
+   * (migración 0013) y eso alguien lo arregla sin reiniciar nada.
    */
-  void revisarMigraciones()
-    .then((m) => {
+  const revisarEsquemaSiHaceFalta = async (): Promise<void> => {
+    if (estado.migraciones?.estado === 'al-dia') return
+
+    const antes = estado.migraciones?.estado
+
+    try {
+      const m = await revisarMigraciones()
       estado.migraciones = m
 
       if (m.estado === 'pendientes') {
@@ -191,15 +224,29 @@ export function iniciarLatido(
         )
       } else if (m.estado === 'no-verificable') {
         log.warn({ motivo: m.motivo }, 'no se pudo verificar si faltan migraciones')
+      } else if (antes !== undefined) {
+        /*
+         * La transición se anuncia. Sin esto, el log muestra cuándo empezó el
+         * problema y nunca cuándo terminó, y hay que deducirlo del silencio.
+         */
+        log.info(
+          { desde: antes },
+          'el esquema quedó al día: las migraciones que faltaban ya están aplicadas',
+        )
       }
-    })
-    .catch((err: unknown) => {
+    } catch (err: unknown) {
       log.warn({ error: String(err) }, 'falló la revisión de migraciones')
-    })
+    }
+  }
 
-  void golpe()
+  const golpeYEsquema = async (): Promise<void> => {
+    await golpe()
+    await revisarEsquemaSiHaceFalta()
+  }
 
-  const reloj = setInterval(() => void golpe(), cada)
+  void golpeYEsquema()
+
+  const reloj = setInterval(() => void golpeYEsquema(), cada)
   // Sin `unref`, el intervalo mantiene vivo al proceso y demora el SIGTERM de un
   // redeploy hasta seis horas.
   reloj.unref()
