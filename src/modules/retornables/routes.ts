@@ -12,7 +12,7 @@ import {
   comprarBases,
   darDeAltaBase,
   descartarBase,
-  disponibilidadDeBases,
+  disponibilidadPorTipo,
   historialDe,
   prestarBase,
   proximoCodigoDeBase,
@@ -380,10 +380,19 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
    * Va bajo `ver` y no bajo `registrar`: quien mira el parque tiene que poder
    * ver si alcanza, aunque no sea quien compra.
    */
+  /*
+   * Desde RN-BAS-14 devuelve UNA ENTRADA POR TIPO, no un número. Sumar los dos
+   * parques haría que veinte estructuras libres tapen que no queda ningún
+   * dispensador, y el cartel sin el tipo no alcanza para pedir: no se le compra
+   * lo mismo a la misma persona.
+   *
+   * Un tipo que no está en el parque no viene en la lista — ver
+   * `disponibilidadPorTipo`.
+   */
   app.get(
     '/bases/disponibilidad',
     { preHandler: [requireAuth, requirePermission('bases', 'ver')] },
-    async () => disponibilidadDeBases(),
+    async () => disponibilidadPorTipo(),
   )
 
   app.get(
@@ -408,7 +417,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const base = await darDeAltaBase(datos.idSticker, req.user?.id ?? null)
+        const base = await darDeAltaBase(datos.idSticker, datos.tipo, req.user?.id ?? null)
 
         /* `operacion` separa el alta de una base concreta de la compra de un
          * lote, que comparten esta acción porque comparten el permiso. */
@@ -418,7 +427,15 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
           action: 'bases:registrar',
           resource: 'bases',
           result: 'ok',
-          payload: { operacion: 'alta', resourceId: base.id, idSticker: base.idSticker },
+          payload: {
+            operacion: 'alta',
+            resourceId: base.id,
+            idSticker: base.idSticker,
+            /* El tipo va a la bitácora: es irreversible y define cuánto vale
+             * reponerla (RN-BAS-08). Quién lo eligió y cuándo tiene que poder
+             * reconstruirse sin mirar la fila de hoy. */
+            tipo: base.tipo,
+          },
         })
 
         return reply.code(201).send(base)
@@ -449,7 +466,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
       if (!datos) return
 
       try {
-        const compradas = await comprarBases(datos.cantidad, req.user?.id ?? null)
+        const compradas = await comprarBases(datos.cantidad, datos.tipo, req.user?.id ?? null)
 
         await auditarSinBloquear(req, {
           userId: req.user?.id ?? null,
@@ -457,7 +474,7 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
           action: 'bases:registrar',
           resource: 'bases',
           result: 'ok',
-          payload: { operacion: 'compra', cantidad: datos.cantidad },
+          payload: { operacion: 'compra', cantidad: datos.cantidad, tipo: datos.tipo },
         })
 
         return reply.code(201).send(compradas)

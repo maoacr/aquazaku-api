@@ -1,0 +1,63 @@
+meta {
+  name: Un dispensador
+  type: http
+  seq: 59
+}
+
+post {
+  url: {{baseUrl}}/bases
+  body: json
+}
+
+body:json {
+  {
+    "tipo": "dispensador"
+  }
+}
+
+docs {
+  El segundo tipo de base — **RN-BAS-14**. Aquazaku compró dispensadores de agua
+  fría y caliente; hasta el 11-oct-2026 existía un solo tipo, la estructura
+  metálica.
+
+  ── El tipo se declara acá, no al prestarla ─────────────────────────────────
+
+  Una base existe en el sistema **antes** de que un cliente la vea: entra al
+  parque y espera en la bodega. El dato se conoce en este momento —lo dice la
+  factura del proveedor— y declararlo al entregar dejaría sin tipo a todo el
+  parque en bodega, con lo cual `GET /bases/disponibilidad` no podría decir si
+  quedan dispensadores.
+
+  Al prestar, el sistema **muestra** el tipo del sticker que el operario tipeó.
+  Es una verificación contra el objeto físico, no una segunda declaración.
+
+  ── Un solo espacio de IDs ──────────────────────────────────────────────────
+
+  **No lleva sticker a propósito**: lo numera el sistema, y eso es justo lo que
+  se quiere comprobar. El número que le toca sigue del máximo de **todas** las
+  bases —que a esta altura de la colección son todas estructuras— y no arranca
+  una lista propia en `0001`. El número identifica; el tipo describe.
+
+  La primera versión de esta petición pedía el `0914` y daba 409: ese número lo
+  crea el request 33. Hardcodear un sticker en una colección que es una
+  secuencia con estado es pedirle que se rompa cuando alguien agregue un alta
+  más arriba.
+}
+
+tests {
+  test("responde 201", function() {
+    expect(res.getStatus()).to.equal(201);
+  });
+
+  test("queda registrada como dispensador", function() {
+    expect(res.getBody().tipo).to.equal("dispensador");
+  });
+
+  test("el sistema lo numeró con la forma del sticker", function() {
+    expect(res.getBody().idSticker).to.match(/^\d{4}$/);
+  });
+
+  test("y NO arrancó una lista propia en 0001: comparte el espacio con las estructuras", function() {
+    expect(res.getBody().idSticker).to.not.equal("0001");
+  });
+}

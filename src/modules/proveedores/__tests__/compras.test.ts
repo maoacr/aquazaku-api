@@ -61,7 +61,7 @@ describe('la compra mueve el inventario que le corresponde', () => {
    * vive en un solo lugar.
    */
   it('las bases entran numeradas, sin reimplementar el consecutivo', async () => {
-    await deContado([{ bases: 3, cantidad: 3, costoUnitario: '80000.00' }])
+    await deContado([{ bases: 3, cantidad: 3, tipoDeBase: 'estructura', costoUnitario: '80000.00' }])
 
     const creadas = await db.select().from(bases).orderBy(bases.idSticker)
 
@@ -99,7 +99,9 @@ describe('la transacción', () => {
 
   it('una línea que compra dos cosas a la vez no se puede convertir en movimiento', async () => {
     await expect(
-      deContado([{ botellones: 5, bases: 5, cantidad: 5, costoUnitario: '100.00' }]),
+      deContado([
+        { botellones: 5, bases: 5, tipoDeBase: 'estructura', cantidad: 5, costoUnitario: '100.00' },
+      ]),
     ).rejects.toMatchObject({ code: 'LINEA_AMBIGUA' })
   })
 

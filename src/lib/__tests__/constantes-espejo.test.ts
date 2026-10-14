@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { tipoDeBaseEnum } from '@/db/schema'
 import { LARGO_MINIMO_MOTIVO } from '@/lib/motivos'
 import { DIAS_MAXIMOS_HACIA_ATRAS } from '@/modules/ventas/venta'
 
@@ -53,5 +54,25 @@ describe('las constantes que `web/` espeja', () => {
       DIAS_MAXIMOS_HACIA_ATRAS,
       'si cambiás esto, cambiá `DIAS_MAXIMOS_HACIA_ATRAS` en `web/src/components/ventas/mostrador.tsx`: con un tope distinto el calendario deja elegir fechas que el servidor rechaza',
     ).toBe(90)
+  })
+
+  /**
+   * RN-BAS-14. Los tipos de base que existen.
+   *
+   * No es un número, pero se rompe igual: `web/` los tiene copiados en el
+   * desplegable con el que se registra una base, y el tipo **no tiene valor por
+   * omisión** en ninguna capa. El día que Aquazaku compre un tercer tipo y acá
+   * se agregue al enum, un `web/` que no lo ofrezca deja ese tipo imposible de
+   * registrar desde la pantalla — y nadie se entera, porque no falla nada:
+   * simplemente no está en la lista.
+   *
+   * Copia en `web/`: el tipo `TipoDeBase` de `src/lib/api-types.ts` y las
+   * `<option>` de `src/components/retornables/bases.tsx`.
+   */
+  it('hay dos tipos de base: estructura y dispensador', () => {
+    expect(
+      tipoDeBaseEnum.enumValues,
+      'si agregás un tipo de base, agregalo en `web/src/lib/api-types.ts` (`TipoDeBase`) y en el desplegable de `web/src/components/retornables/bases.tsx`: sin eso el tipo nuevo no se puede elegir desde la pantalla',
+    ).toEqual(['estructura', 'dispensador'])
   })
 })

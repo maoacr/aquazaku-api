@@ -55,7 +55,7 @@ async function escenario({ verificado = true } = {}) {
     .values({ clienteId: cliente!.id, etiqueta: 'La casa', direccion: 'Calle 5 # 3-24' })
     .returning()
 
-  const [base] = await db.insert(bases).values({ idSticker: '0042' }).returning()
+  const [base] = await db.insert(bases).values({ idSticker: '0042', tipo: 'estructura' }).returning()
 
   return { cliente: cliente!, direccion: direccion!, base: base! }
 }

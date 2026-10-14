@@ -34,6 +34,16 @@ docs {
 
   A esta altura la 0913 está descartada, la 0914 sigue en bodega y entraron
   cinco en la compra: seis libres, contra un préstamo en la ventana.
+
+  ── Una entrada POR TIPO — RN-BAS-14 ────────────────────────────────────────
+
+  Desde que existe el dispensador esto devuelve una **lista**, no un número.
+  Sumar los dos parques haría que veinte estructuras libres tapen que no queda
+  ningún dispensador: el aviso callaría justo cuando hace falta.
+
+  A esta altura de la colección todas las bases son estructuras, así que la
+  lista trae una sola entrada. Un tipo que no está en el parque **no aparece**:
+  «comprar más» presupone tener alguno.
 }
 
 tests {
@@ -41,19 +51,24 @@ tests {
     expect(res.getStatus()).to.equal(200);
   });
 
+  test("trae una entrada por tipo de base presente en el parque", function() {
+    expect(res.getBody()).to.be.an("array");
+    expect(res.getBody().map((d) => d.tipo)).to.deep.equal(["estructura"]);
+  });
+
   test("cuenta las libres: en bodega, sanas y activas", function() {
-    expect(res.getBody().libres).to.equal(6);
+    expect(res.getBody()[0].libres).to.equal(6);
   });
 
   test("trae la demora para que la pantalla no la copie", function() {
-    expect(res.getBody().diasDeEntrega).to.equal(7);
+    expect(res.getBody()[0].diasDeEntrega).to.equal(7);
   });
 
   test("y el ritmo, que es contra lo que se compara", function() {
-    expect(res.getBody()).to.have.property("prestadasEnLaVentana");
+    expect(res.getBody()[0]).to.have.property("prestadasEnLaVentana");
   });
 
   test("con seis libres y un préstamo en la semana, alcanza", function() {
-    expect(res.getBody().alcanza).to.equal(true);
+    expect(res.getBody()[0].alcanza).to.equal(true);
   });
 }

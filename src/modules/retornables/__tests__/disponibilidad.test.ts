@@ -84,7 +84,7 @@ async function prestar(cuantas: number): Promise<void> {
  */
 describe('la ventana es la demora del proveedor', () => {
   it('sale de la base y viaja en la respuesta, para que la pantalla no la copie', async () => {
-    const d = await disponibilidadDeBases()
+    const d = await disponibilidadDeBases('estructura')
 
     expect(d.diasDeEntrega).toBe(await leerParametro('dias_entrega_bases'))
   })
@@ -92,7 +92,7 @@ describe('la ventana es la demora del proveedor', () => {
   it('cambiar el parámetro cambia la ventana, sin desplegar nada', async () => {
     await cambiarParametro('dias_entrega_bases', 21, UN_CONTEXTO)
 
-    expect((await disponibilidadDeBases()).diasDeEntrega).toBe(21)
+    expect((await disponibilidadDeBases('estructura')).diasDeEntrega).toBe(21)
 
     await cambiarParametro('dias_entrega_bases', 7, UN_CONTEXTO)
   })
@@ -100,10 +100,10 @@ describe('la ventana es la demora del proveedor', () => {
 
 describe('cuántas bases quedan libres', () => {
   it('cuenta las que están en bodega, no el total del parque', async () => {
-    await comprarBases(5, null)
+    await comprarBases(5, 'estructura', null)
     await prestar(2)
 
-    const { libres } = await disponibilidadDeBases()
+    const { libres } = await disponibilidadDeBases('estructura')
 
     expect(libres).toBe(3)
   })
@@ -114,7 +114,7 @@ describe('cuántas bases quedan libres', () => {
    * hace falta.
    */
   it('una base dañada en bodega no está disponible', async () => {
-    const compradas = await comprarBases(3, null)
+    const compradas = await comprarBases(3, 'estructura', null)
 
     /*
      * Se daña por el camino real. `UPDATE bases SET estado='danada'` a secas lo
@@ -134,23 +134,23 @@ describe('cuántas bases quedan libres', () => {
     )
     await retornarBase(compradas[0]!.id, null, UN_CONTEXTO)
 
-    expect((await disponibilidadDeBases()).libres).toBe(2)
+    expect((await disponibilidadDeBases('estructura')).libres).toBe(2)
   })
 
   it('una descartada tampoco', async () => {
-    const compradas = await comprarBases(3, null)
+    const compradas = await comprarBases(3, 'estructura', null)
     await db.update(bases).set({ activa: false }).where(eq(bases.id, compradas[0]!.id))
 
-    expect((await disponibilidadDeBases()).libres).toBe(2)
+    expect((await disponibilidadDeBases('estructura')).libres).toBe(2)
   })
 })
 
 describe('el ritmo sale de los préstamos de la ventana', () => {
   it('cuenta los préstamos de los últimos 7 días', async () => {
-    await comprarBases(10, null)
+    await comprarBases(10, 'estructura', null)
     await prestar(3)
 
-    expect((await disponibilidadDeBases()).prestadasEnLaVentana).toBe(3)
+    expect((await disponibilidadDeBases('estructura')).prestadasEnLaVentana).toBe(3)
   })
 
   /*
@@ -158,7 +158,7 @@ describe('el ritmo sale de los préstamos de la ventana', () => {
    * sobre si las bases alcanzan hasta el pedido que llega en siete días.
    */
   it('lo de antes de la ventana no cuenta', async () => {
-    const compradas = await comprarBases(10, null)
+    const compradas = await comprarBases(10, 'estructura', null)
 
     /*
      * El movimiento viejo se INSERTA con su fecha, no se retrofecha: el libro es
@@ -173,16 +173,16 @@ describe('el ritmo sale de los préstamos de la ventana', () => {
       createdAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
     })
 
-    expect((await disponibilidadDeBases()).prestadasEnLaVentana).toBe(0)
+    expect((await disponibilidadDeBases('estructura')).prestadasEnLaVentana).toBe(0)
   })
 })
 
 describe('el aviso', () => {
   it('calla cuando las libres alcanzan el ritmo', async () => {
-    await comprarBases(10, null)
+    await comprarBases(10, 'estructura', null)
     await prestar(2)
 
-    const estado = await disponibilidadDeBases()
+    const estado = await disponibilidadDeBases('estructura')
 
     expect(estado.libres).toBe(8)
     expect(estado.prestadasEnLaVentana).toBe(2)
@@ -194,10 +194,10 @@ describe('el aviso', () => {
    * Ese es el momento de comprar, no cuando quedan cero.
    */
   it('avisa cuando quedan menos de las que se prestan en la ventana', async () => {
-    await comprarBases(10, null)
+    await comprarBases(10, 'estructura', null)
     await prestar(8)
 
-    const estado = await disponibilidadDeBases()
+    const estado = await disponibilidadDeBases('estructura')
 
     expect(estado.libres).toBe(2)
     expect(estado.prestadasEnLaVentana).toBe(8)
@@ -212,9 +212,9 @@ describe('el aviso', () => {
    * exista operación, es un aviso que se aprende a ignorar.
    */
   it('sin operación todavía, no avisa', async () => {
-    await comprarBases(40, null)
+    await comprarBases(40, 'estructura', null)
 
-    expect(await disponibilidadDeBases()).toMatchObject({
+    expect(await disponibilidadDeBases('estructura')).toMatchObject({
       libres: 40,
       prestadasEnLaVentana: 0,
       alcanza: true,
@@ -233,11 +233,11 @@ describe('el aviso', () => {
      * repuso.
      */
     await db.insert(bases).values([
-      { idSticker: '0001', direccionId },
-      { idSticker: '0002', direccionId },
+      { idSticker: '0001', tipo: 'estructura', direccionId },
+      { idSticker: '0002', tipo: 'estructura', direccionId },
     ])
 
-    const estado = await disponibilidadDeBases()
+    const estado = await disponibilidadDeBases('estructura')
 
     expect(estado.libres).toBe(0)
     expect(estado.prestadasEnLaVentana).toBe(0)

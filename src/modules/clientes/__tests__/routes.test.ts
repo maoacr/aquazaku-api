@@ -315,9 +315,9 @@ describe('la ficha', () => {
     })
 
     /* Dos bases a SU dirección, y una tercera que queda en bodega y no cuenta. */
-    const base1 = await darDeAltaBase('0001', admin.usuario.id)
-    const base2 = await darDeAltaBase('0002', admin.usuario.id)
-    await darDeAltaBase('0003', admin.usuario.id)
+    const base1 = await darDeAltaBase('0001', 'estructura', admin.usuario.id)
+    const base2 = await darDeAltaBase('0002', 'estructura', admin.usuario.id)
+    await darDeAltaBase('0003', 'estructura', admin.usuario.id)
     await prestarBase(base1.id, direccion.id, admin.usuario.id, contexto)
     await prestarBase(base2.id, direccion.id, admin.usuario.id, contexto)
 

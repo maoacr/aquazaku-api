@@ -190,6 +190,13 @@
       "when": 1790940000000,
       "tag": "0026_primer_registro_desde_la_raiz",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790950000000,
+      "tag": "0027_base_dispensadora",
+      "breakpoints": true
     }
   ]
 }

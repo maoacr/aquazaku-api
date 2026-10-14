@@ -27,6 +27,8 @@ const lineaDeCompra = z
     insumoId: z.string().uuid().optional(),
     botellones: z.number().int().positive().optional(),
     bases: z.number().int().positive().optional(),
+    /** Obligatorio cuando la línea compra bases — RN-BAS-14. Ver el refine. */
+    tipoDeBase: z.enum(['estructura', 'dispensador']).optional(),
 
     /** Lo RECIBIDO, no lo pedido — RN-PRO-03. */
     cantidad: z.number().positive('una línea recibe al menos algo'),
@@ -47,6 +49,23 @@ const lineaDeCompra = z
   .refine(
     (l) => l.kilos === undefined || l.insumoId !== undefined,
     'los kilos son solo para insumos: los botellones y las bases se cuentan por unidad',
+  )
+  /*
+   * ── El tipo de base, obligatorio cuando la línea trae bases ───────────────
+   *
+   * Es el tercer camino por el que nace una base, y el que se olvida: las otras
+   * dos altas tienen su propio formulario, esta entra escondida en una línea de
+   * factura. Sin esto, una compra a proveedor crearía bases sin tipo — y la
+   * base de datos la rechazaría con un error de columna nula que no le dice
+   * nada a quien está cargando la factura.
+   *
+   * Y prohibido cuando NO trae bases: `tipoDeBase` sobre una línea de insumos
+   * es un dato que nadie va a leer, y un campo que se acepta y se ignora es el
+   * que alguien llena creyendo que hace algo.
+   */
+  .refine(
+    (l) => (l.bases === undefined) === (l.tipoDeBase === undefined),
+    'una línea que compra bases tiene que decir si son estructuras o dispensadores, y solo esa línea lo lleva',
   )
 
 export const esquemaDeCompra = z.object({

@@ -3,6 +3,7 @@ import { db } from '@/db/client'
 import {
   type Base,
   type MovimientoBase,
+  type TipoDeBase,
   bases,
   clientes,
   direcciones,
@@ -48,6 +49,14 @@ import { esCodigoDeBase, proximoCodigo } from './codigo'
  */
 export async function darDeAltaBase(
   idSticker: string | undefined,
+  /**
+   * Obligatorio — RN-BAS-14.
+   *
+   * No tiene valor por omisión, acá ni en la base. El tipo acompaña a la base
+   * hasta su descarte: un default convertiría en estructura metálica toda base
+   * mal registrada, y el error solo se descubriría yendo a mirar el objeto.
+   */
+  tipo: TipoDeBase,
   registradoPor: string | null,
 ): Promise<Base> {
   return db.transaction(async (tx) => {
@@ -71,7 +80,7 @@ export async function darDeAltaBase(
       )
     }
 
-    const [base] = await tx.insert(bases).values({ idSticker: sticker }).returning()
+    const [base] = await tx.insert(bases).values({ idSticker: sticker, tipo }).returning()
 
     await tx.insert(movimientosBase).values({
       baseId: base!.id,
@@ -85,10 +94,21 @@ export async function darDeAltaBase(
 
 
 export interface DisponibilidadDeBases {
+  /** De qué parque habla — RN-BAS-14. */
+  tipo: TipoDeBase
   /** En bodega, sanas y activas: las que de verdad se pueden prestar hoy. */
   libres: number
   /** Cuántas se prestaron en la ventana de entrega del proveedor. */
   prestadasEnLaVentana: number
+  /**
+   * La demora del proveedor para ESTE tipo.
+   *
+   * Hoy sale del mismo parámetro para los dos, porque hay un solo
+   * `dias_entrega_bases`. Vive dentro de la entrada y no afuera a propósito: la
+   * pregunta 48 —si el proveedor tarda lo mismo con un dispensador que con una
+   * estructura— está abierta, y cuando se responda cambia de dónde sale el
+   * número, no la forma de la respuesta.
+   */
   diasDeEntrega: number
   /** `false` cuando hay que comprar — RN-BAS-13. */
   alcanza: boolean
@@ -119,7 +139,17 @@ export interface DisponibilidadDeBases {
  * compra anticipada; avisar de menos cuesta un cliente al que hay que decirle
  * que no durante una semana.
  */
-export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
+export async function disponibilidadDeBases(
+  /**
+   * Obligatorio, y eso es la regla — RN-BAS-14.
+   *
+   * No hay forma de preguntar «¿alcanzan las bases?» sin decir de qué tipo.
+   * Sumar los dos parques en un número haría que veinte estructuras libres
+   * tapen que no queda ningún dispensador: el aviso callaría justo cuando hace
+   * falta, que es la falla que RN-BAS-13 ataca.
+   */
+  tipo: TipoDeBase,
+): Promise<DisponibilidadDeBases> {
   /*
    * La demora del proveedor sale de la base, no de una constante: RN-STK-11
    * pide que estos umbrales se ajusten sin desplegar, y el día que el proveedor
@@ -131,17 +161,39 @@ export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
   const [fila] = await db
     .select({ n: sql<string>`count(*)` })
     .from(bases)
-    .where(and(eq(bases.activa, true), eq(bases.estado, 'sana'), isNull(bases.direccionId)))
+    .where(
+      and(
+        eq(bases.tipo, tipo),
+        eq(bases.activa, true),
+        eq(bases.estado, 'sana'),
+        isNull(bases.direccionId),
+      ),
+    )
 
+  /*
+   * El ritmo se cuenta con un JOIN a `bases` porque el libro de movimientos no
+   * guarda el tipo: lo guarda la base, y es su dueño único. Copiarlo al
+   * movimiento daría dos lugares para el mismo dato, y el día que discrepen
+   * nadie sabría cuál manda — el mismo argumento que para no codificarlo en el
+   * sticker (RN-BAS-14).
+   */
   const [ritmo] = await db
     .select({ n: sql<string>`count(*)` })
     .from(movimientosBase)
-    .where(and(eq(movimientosBase.tipo, 'prestamo'), gte(movimientosBase.createdAt, desde)))
+    .innerJoin(bases, eq(bases.id, movimientosBase.baseId))
+    .where(
+      and(
+        eq(bases.tipo, tipo),
+        eq(movimientosBase.tipo, 'prestamo'),
+        gte(movimientosBase.createdAt, desde),
+      ),
+    )
 
   const libres = Number(fila?.n ?? 0)
   const prestadasEnLaVentana = Number(ritmo?.n ?? 0)
 
   return {
+    tipo,
     libres,
     prestadasEnLaVentana,
     diasDeEntrega,
@@ -151,6 +203,33 @@ export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
      */
     alcanza: libres > 0 && libres >= prestadasEnLaVentana,
   }
+}
+
+/**
+ * La disponibilidad de cada tipo que existe en el parque — RN-BAS-13 y 14.
+ *
+ * ── Un tipo sin ninguna base no aparece ─────────────────────────────────────
+ *
+ * «Comprar más» presupone tener alguno. Si Aquazaku todavía no registró ningún
+ * dispensador, un cartel pidiendo comprar dispensadores avisa sobre algo que no
+ * se usa — y un aviso que no corresponde se aprende a ignorar, que es como se
+ * pierde el que sí importa.
+ *
+ * Cero LIBRES con parque propio es otra cosa y sí avisa: ahí hay dispensadores,
+ * están todos afuera, y el próximo cliente que pida uno se va sin nada.
+ *
+ * El orden es el de declaración del enum, que es el orden en que aparecieron en
+ * el negocio. `tipo` es único por entrada, así que no hay empate que el planner
+ * pueda romper de dos maneras distintas.
+ */
+export async function disponibilidadPorTipo(): Promise<DisponibilidadDeBases[]> {
+  const presentes = await db
+    .selectDistinct({ tipo: bases.tipo })
+    .from(bases)
+    .where(eq(bases.activa, true))
+    .orderBy(bases.tipo)
+
+  return Promise.all(presentes.map(({ tipo }) => disponibilidadDeBases(tipo)))
 }
 
 /**
@@ -174,6 +253,15 @@ export async function disponibilidadDeBases(): Promise<DisponibilidadDeBases> {
  */
 export async function comprarBases(
   cantidad: number,
+  /**
+   * Obligatorio, y una compra es de un solo tipo — RN-BAS-14.
+   *
+   * Una factura con los dos tipos son DOS líneas, cada una con su costo
+   * unitario (RN-PRO-05). No es una limitación: es lo que hace que el sistema
+   * sepa qué costó un dispensador de verdad, en vez de un promedio entre dos
+   * objetos que no se parecen.
+   */
+  tipo: TipoDeBase,
   registradoPor: string | null,
   /*
    * Se recibe la transacción para que una compra a proveedor escriba el
@@ -219,7 +307,7 @@ export async function comprarBases(
         )
       }
 
-      const [base] = await tx.insert(bases).values({ idSticker: sticker }).returning()
+      const [base] = await tx.insert(bases).values({ idSticker: sticker, tipo }).returning()
       await tx.insert(movimientosBase).values({ baseId: base!.id, tipo: 'alta', registradoPor })
 
       compradas.push(base!)
