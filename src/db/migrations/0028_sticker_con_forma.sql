@@ -1,0 +1,58 @@
+-- ============================================================================
+-- El sticker tiene forma de sticker, y lo dice la base — RN-BAS-10, ADR-0006
+-- ============================================================================
+--
+-- `RN-BAS-10` define el código de una base como **cuatro dígitos con los ceros
+-- adelante**: `0001` a `9999`. Hasta hoy esa regla vivía en un solo lugar,
+-- `esCodigoDeBase()`, del lado del servicio.
+--
+-- ── Cómo se descubrió que hacía falta ───────────────────────────────────────
+--
+-- En `aquazaku_dev` había una base con el sticker `A-0913`, activa y prestada a
+-- una dirección. La aplicación nunca habría podido crearla: entró por fuera,
+-- por un `psql` a mano o un experimento del día que se construyó M7 (sus dos
+-- movimientos son del 27-ago-2026).
+--
+-- No rompió nada —`proximoCodigo` tiene una guarda que ignora lo que no tenga
+-- forma de código, justamente «por si alguna vez entra por una migración»— pero
+-- esa guarda es la confesión de que el invariante estaba en el lugar
+-- equivocado. [ADR-0006](/decisiones/0006-invariantes-en-la-base/) dice dónde
+-- va: en la base.
+--
+-- ── La quinta fila del checklist: ¿sobrevive el código viejo? ───────────────
+--
+-- Sí, y por eso esta migración es segura en cualquier orden. El código que está
+-- corriendo valida el formato ANTES de insertar (`esCodigoDeBase`), así que
+-- todo lo que escribe ya cumple el CHECK. Esto no le quita nada que estuviera
+-- haciendo: le quita lo que nunca pudo hacer.
+--
+-- Es lo contrario de la 0027, que sí rompía el código viejo.
+--
+-- ── Qué pasa si hay una fila que no cumple ─────────────────────────────────
+--
+-- La migración **falla y no aplica nada**, nombrando la fila culpable. Es el
+-- comportamiento correcto: aceptar el constraint con datos que lo violan
+-- exigiría `NOT VALID`, y eso dejaría una regla que promete algo que no se
+-- cumple para siempre en las filas viejas.
+--
+-- Antes de correrla contra producción, medir:
+--
+--   SELECT id_sticker FROM bases WHERE id_sticker !~ '^[0-9]{4}$';
+--
+-- Cero filas = entra limpia. Si devuelve algo, hay que decidir qué hacer con
+-- esa base ANTES, que es una decisión de negocio y no de la migración: puede
+-- ser un rótulo real mal tipeado que haya que corregir, o basura que haya que
+-- borrar.
+--
+-- Medido en `aquazaku_dev` el 14-oct-2026: cero filas (la `A-0913` se eliminó).
+--
+-- Rollback:
+--
+--   ALTER TABLE bases DROP CONSTRAINT bases_sticker_con_forma;
+--
+-- No pierde datos: solo deja de exigir la forma.
+-- ============================================================================
+
+ALTER TABLE bases
+  ADD CONSTRAINT bases_sticker_con_forma
+  CHECK (id_sticker ~ '^[0-9]{4}$');

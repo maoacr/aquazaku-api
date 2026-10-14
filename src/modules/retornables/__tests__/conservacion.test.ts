@@ -7,7 +7,7 @@ import {
   botellonesEnBodega,
   verificarConservacion,
 } from '@/modules/retornables/conservacion'
-import { pgErrorOf, resetDb } from '@/test/db'
+import { PG_ERROR, pgErrorOf, resetDb } from '@/test/db'
 
 /**
  * La ley de conservación — RN-ENV-02, y los invariantes de M7 en la base.
@@ -168,6 +168,33 @@ describe('las bases — el activo que SÍ tiene identidad', () => {
     await expect(
       db.update(bases).set({ estado: 'danada' }).where(eq(bases.id, base!.id)),
     ).rejects.toThrow()
+  })
+
+  /**
+   * El sticker tiene forma de sticker — RN-BAS-10, ahora también en la base.
+   *
+   * La regla vivía solo en `esCodigoDeBase()`. Había una base con `A-0913` en
+   * `aquazaku_dev`, activa y prestada: la app nunca pudo crearla, entró por
+   * fuera. ADR-0006 dice que los invariantes van en la base, y este no estaba.
+   */
+  it('un sticker sin forma de código no entra, ni por `psql`', async () => {
+    for (const malo of ['913', '00913', 'A-0913', 'abcd', '']) {
+      const err = await pgErrorOf(
+        db.insert(bases).values({ idSticker: malo, tipo: 'estructura' }),
+      )
+
+      expect(err.code, `«${malo}» debería violar el CHECK`).toBe(PG_ERROR.CHECK_VIOLATION)
+      expect(err.constraint).toBe('bases_sticker_con_forma')
+    }
+  })
+
+  it('y los cuatro dígitos con ceros adelante sí', async () => {
+    const [base] = await db
+      .insert(bases)
+      .values({ idSticker: '0007', tipo: 'dispensador' })
+      .returning()
+
+    expect(base!.idSticker).toBe('0007')
   })
 
   it('una base no se borra: se desactiva', async () => {

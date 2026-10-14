@@ -1831,6 +1831,21 @@ export const bases = pgTable(
     uniqueIndex('bases_sticker_idx').on(t.idSticker),
 
     /*
+     * El sticker tiene forma de sticker — RN-BAS-10 y ADR-0006.
+     *
+     * Cuatro dígitos con los ceros adelante. La misma regla que
+     * `esCodigoDeBase()` aplica del lado del servicio, puesta donde no se puede
+     * esquivar: un `psql` a mano, un seed o una migración futura ya no pueden
+     * meter un `A-0913`.
+     *
+     * Hubo uno de verdad en `aquazaku_dev`, activo y prestado. No rompió nada
+     * porque `proximoCodigo` ignora lo que no tenga forma de código — y esa
+     * guarda defensiva es exactamente la señal de que el invariante estaba en
+     * el lugar equivocado.
+     */
+    check('bases_sticker_con_forma', sql`${t.idSticker} ~ '^[0-9]{4}$'`),
+
+    /*
      * Los tres campos del daño van juntos o los tres nulos, igual que la
      * verificación en M5 y la anulación en M6. Media evidencia de daño —estado
      * sin responsable— no sirve para cobrarle a nadie.
