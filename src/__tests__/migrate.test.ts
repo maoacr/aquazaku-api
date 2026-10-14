@@ -48,7 +48,20 @@ describe('migrate --schema=<nombre>', () => {
     await client.end()
   })
 
-  it('crea el schema, aplica todas las migraciones adentro y deja las tablas ahí', async () => {
+  /*
+   * ── El timeout va explícito porque este test CRECE ────────────────────────
+   *
+   * Levanta `pnpm` y `tsx` enteros con `execSync` y aplica TODAS las
+   * migraciones dentro de un schema nuevo. Cada migración que se suma lo hace
+   * un poco más lento, así que el default de 5 s era una cuenta regresiva: la
+   * 0027 lo pasó a 6,5 s y la suite local se puso roja sin que nada estuviera
+   * mal (CI, con otra máquina, todavía pasaba).
+   *
+   * Sesenta segundos no es un número elegido para «que pase»: es holgado para
+   * el triple de migraciones y sigue atrapando un cuelgue de verdad, que es lo
+   * único que un timeout tiene que atrapar acá.
+   */
+  it('crea el schema, aplica todas las migraciones adentro y deja las tablas ahí', { timeout: 60_000 }, async () => {
     execSync(`pnpm db:migrate --schema=${schema}`, {
       // `process.env` ya trae `DATABASE_MIGRATION_URL` (vitest.config.ts la
       // mapea desde `DATABASE_MIGRATION_URL_TEST` con fallback al local).
