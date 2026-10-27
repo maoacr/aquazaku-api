@@ -257,7 +257,7 @@ describe('las bases', () => {
 
     const historial = (await comoAdmin({ method: 'GET', url: `/bases/${base.id}/historial` })).json()
 
-    expect(historial.map((m: { tipo: string }) => m.tipo)).toEqual(['alta', 'prestamo', 'retorno'])
+    expect(historial.map((m: { tipo: string }) => m.tipo)).toEqual(['retorno', 'prestamo', 'alta'])
   })
 
   it('el `contador` mira y no presta', async () => {
