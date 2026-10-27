@@ -189,9 +189,9 @@ describe('el retorno y el descarte', () => {
 
     expect(retornada.direccionId).toBeNull()
     expect((await historialDe(base.id)).map((m) => m.tipo)).toEqual([
-      'alta',
-      'prestamo',
       'retorno',
+      'prestamo',
+      'alta',
     ])
   })
 

@@ -1,4 +1,4 @@
-import { and, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
+import { and, desc, eq, gte, isNotNull, isNull, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
 import {
   type Base,
@@ -614,7 +614,7 @@ export async function historialDe(baseId: string): Promise<MovimientoBase[]> {
     .select()
     .from(movimientosBase)
     .where(eq(movimientosBase.baseId, baseId))
-    .orderBy(movimientosBase.createdAt)
+    .orderBy(desc(movimientosBase.createdAt))
 }
 
 /** Las bases prestadas a una dirección — el tercer saldo de RN-CLI-06. */
