@@ -24,13 +24,13 @@ tests {
     expect(res.getStatus()).to.equal(200);
   });
 
-  test("dos hechos, en el orden en que pasaron", function() {
+  test("dos hechos, el más reciente primero", function() {
     expect(res.getBody()).to.have.lengthOf(2);
-    expect(res.getBody()[0].tipo).to.equal("alta");
-    expect(res.getBody()[1].tipo).to.equal("prestamo");
+    expect(res.getBody()[0].tipo).to.equal("prestamo");
+    expect(res.getBody()[1].tipo).to.equal("alta");
   });
 
   test("y el préstamo dice a qué dirección fue", function() {
-    expect(res.getBody()[1].direccionId).to.equal(bru.getVar("parqueDireccionId"));
+    expect(res.getBody()[0].direccionId).to.equal(bru.getVar("parqueDireccionId"));
   });
 }
