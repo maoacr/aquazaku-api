@@ -303,14 +303,20 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requirePermission('bases', 'ver')] },
     async () => {
       const filas = await db
-        .select({ base: bases, direccion: direcciones, clienteNombre: clientes.nombre })
+        .select({
+          base: bases,
+          direccion: direcciones,
+          clienteNombre: clientes.nombre,
+          clienteApodo: clientes.apodo,
+          clienteDocumento: clientes.numeroDocumento,
+        })
         .from(bases)
         .leftJoin(direcciones, eq(direcciones.id, bases.direccionId))
         .leftJoin(clientes, eq(clientes.id, direcciones.clienteId))
         .where(eq(bases.activa, true))
         .orderBy(bases.idSticker)
 
-      return filas.map(({ base, direccion, clienteNombre }) => ({
+      return filas.map(({ base, direccion, clienteNombre, clienteApodo, clienteDocumento }) => ({
         ...base,
         // `null` cuando está en la bodega, que es el caso común.
         ubicacion:
@@ -324,6 +330,8 @@ export async function retornablesRoutes(app: FastifyInstance): Promise<void> {
                 legible: direccionLegible(direccion),
                 clienteId: direccion.clienteId,
                 clienteNombre: clienteNombre!,
+                clienteApodo: clienteApodo ?? null,
+                clienteDocumento: clienteDocumento ?? null,
               },
       }))
     },
