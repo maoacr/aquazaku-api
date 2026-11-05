@@ -52,6 +52,11 @@ const MODULOS = join(import.meta.dirname, '../..')
  */
 const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string[]; nota: string }> =
   {
+    'clientes/a-llamar.ts': {
+      transaccional: true,
+      acciones: ['clientes:ocultar_seguimiento'],
+      nota: 'ocultar y devolver comparten acción y se distinguen por `payload.operacion`, igual que `bases:descartar` con el daño; la fila va en la transacción que escribe o borra el ocultamiento porque la tabla se puede vaciar —devolver BORRA el registro— y entonces `audit_log` es el único lugar que conserva quién sacó a un cliente de la lista de llamados',
+    },
     'clientes/credito.ts': {
       transaccional: true,
       acciones: ['clientes:habilitar_credito'],
