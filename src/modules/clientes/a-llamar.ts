@@ -64,6 +64,15 @@ export interface TelefonoParaLlamar {
 export interface DireccionALlamar {
   clienteId: string
   nombre: string
+  /**
+   * Cómo lo conocen, cuando no es por su nombre.
+   *
+   * Viaja aunque la lista no lo pinte: la pantalla de Seguimientos FILTRA por
+   * él. Quien se sienta a marcar busca «La Flaca», no «Yeimy Padilla» — y en
+   * `clientes.nombre` ese apodo no está, porque esa columna la genera la base
+   * concatenando nombres y apellidos (ADR-0006).
+   */
+  apodo: string | null
   /** `null` cuando el cliente se registró sin documento — RN-CLI-20. */
   documento: string | null
   /** `null` cuando el cliente no tiene ninguna dirección activa cargada. */
@@ -244,7 +253,12 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
 
   const [fichas, activas, numeros] = await Promise.all([
     db
-      .select({ id: clientes.id, nombre: clientes.nombre, documento: clientes.numeroDocumento })
+      .select({
+        id: clientes.id,
+        nombre: clientes.nombre,
+        apodo: clientes.apodo,
+        documento: clientes.numeroDocumento,
+      })
       .from(clientes)
       .where(
         and(
@@ -394,6 +408,7 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
         return {
           clienteId: c.clienteId,
           nombre: ficha.nombre,
+          apodo: ficha.apodo,
           documento: ficha.documento,
           direccionId: c.direccionId,
           etiqueta: d?.etiqueta ?? null,

@@ -241,6 +241,36 @@ describe('la fila es la dirección, no el cliente', () => {
     })
     expect(fila!.direccion).toContain('Calle 5 #3-20')
   })
+  /*
+   * El apodo viaja aunque la lista no lo pinte — M15.
+   *
+   * No es para mostrarlo: es para BUSCARLO. La pantalla filtra esta lista por
+   * lo que quien marca tiene en la cabeza, y en el pueblo eso es el apodo antes
+   * que el nombre de la cédula. Sin esta columna en la respuesta, el buscador
+   * de Seguimientos no encontraría a «La Flaca» ni escribiéndolo completo.
+   *
+   * Es la misma razón por la que `buscarClientesAncho` ya lo mira. Que las dos
+   * búsquedas contesten lo mismo a la misma pregunta no es cosmético: la
+   * persona que no aparece en una lista se da por perdida.
+   */
+  it('el apodo viaja: es por lo que se busca a alguien, no solo su nombre', async () => {
+    await db.update(clientes).set({ apodo: 'La Flaca' }).where(eq(clientes.id, residencial))
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    const [fila] = (await clientesALlamar(HOY)).botellones
+
+    expect(fila).toMatchObject({ nombre: 'Yeimy Padilla', apodo: 'La Flaca' })
+  })
+
+  it('el apodo es null cuando no lo tiene: no se inventa ni se repite el nombre', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    const [fila] = (await clientesALlamar(HOY)).botellones
+
+    expect(fila!.apodo).toBeNull()
+  })
 })
 
 /**
