@@ -1,0 +1,42 @@
+meta {
+  name: Las ocultas se piden aparte
+  type: http
+  seq: 47
+}
+
+get {
+  url: {{baseUrl}}/clientes/a-llamar?ocultas=1
+}
+
+docs {
+  Mismo endpoint que la lista, con `?ocultas=1`. Es la misma lista —mismos
+  relojes, mismos teléfonos, mismo orden— vista del otro lado del ocultamiento;
+  un segundo endpoint duplicaría el armado entero para eso.
+
+  Lo que alimenta es el botón «mostrar clientes ocultos», que existe porque sin
+  él la X sería una trampa: una fila ocultada por error desaparecería hasta la
+  próxima venta de ese cliente, y en el medio nadie lo llama.
+
+  `ocultas` viaja SIEMPRE, incluso en cero: la pantalla decide con ese número si
+  ofrecer el botón, y un `undefined` la obligaría a tratar «no sé» y «ninguna»
+  como lo mismo.
+}
+
+tests {
+  test("responde 200", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+
+  test("trae los dos canales y el conteo de ocultas", function() {
+    const body = res.getBody();
+
+    expect(body).to.have.property("botellones");
+    expect(body).to.have.property("otros");
+    expect(body.ocultas).to.have.property("botellones");
+    expect(body.ocultas).to.have.property("otros");
+  });
+
+  test("el conteo es un número, no un nulo", function() {
+    expect(res.getBody().ocultas.botellones).to.be.a("number");
+  });
+}

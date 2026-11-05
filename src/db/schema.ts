@@ -15,6 +15,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
@@ -2090,3 +2091,96 @@ export const parametros = pgTable('parametros', {
    */
   actualizadoEn: tstz('actualizado_en').notNull().defaultNow(),
 })
+
+/**
+ * Los dos canales de seguimiento, ahora también en la base.
+ *
+ * Vivían solo en TypeScript porque nada se guardaba por canal. Desde que una
+ * fila se puede ocultar, el canal es parte de la clave: ocultar una dirección
+ * en botellones no la oculta en otros, y al revés.
+ *
+ * Son dos y van a seguir siendo dos: `otros` se define por descarte —«todo lo
+ * que no es una recarga de botellón»— así que una presentación nueva no agrega
+ * un canal, cae en el que ya existe.
+ */
+export const canalDeSeguimientoEnum = pgEnum('canal_de_seguimiento', ['botellones', 'otros'])
+
+/**
+ * Filas que alguien sacó a mano de la lista de seguimientos — RN-CLI-18.
+ *
+ * ── Qué NO es ───────────────────────────────────────────────────────────────
+ *
+ * No borra al cliente, no lo desactiva y no toca un solo dato suyo. Lo único
+ * que dice esta tabla es «no me muestres esta fila en esta lista». El cliente
+ * sigue entero, con sus ventas, sus teléfonos y su deuda.
+ *
+ * ── La unidad es la FILA, no el cliente ─────────────────────────────────────
+ *
+ * Y por eso la clave son tres columnas. Una fila de seguimientos es una
+ * dirección en un canal: el agua se entrega a una puerta, y un botellón y una
+ * paca llevan relojes distintos. Un cliente con casa y local tiene cuatro
+ * filas posibles, y ocultar una no dice nada de las otras tres.
+ *
+ * `direccion_id` admite `null` a propósito: es la fila de las ventas anteriores
+ * a la migración 0022, las que no registraron a qué dirección se entregaron.
+ * Son filas reales —y de las más ruidosas— así que tienen que poder ocultarse.
+ *
+ * ── Por qué la fecha, y no un booleano ──────────────────────────────────────
+ *
+ * Acá está todo el diseño. La regla es «si el cliente vuelve a comprar, la fila
+ * reaparece», y con un booleano eso exige alguien que lo apague: un trigger en
+ * `ventas`, o una tarea que barra la tabla. Las dos formas pueden fallar en
+ * silencio y dejar a un cliente invisible para siempre.
+ *
+ * Con una fecha no hay nada que apagar. La fila se oculta **solo si
+ * `ocultado_en` es posterior a su última venta**, así que una venta nueva la
+ * devuelve a la lista por aritmética. Nada que correr, nada que recordar.
+ *
+ * Corolario: el registro NO se borra cuando la fila reaparece. Queda, y volver
+ * a ocultar es mover la fecha — de ahí el `unique`, que convierte el segundo
+ * ocultamiento en un `UPSERT` en vez de una fila duplicada.
+ */
+export const seguimientosOcultos = pgTable(
+  'seguimientos_ocultos',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    clienteId: uuid('cliente_id')
+      .notNull()
+      .references(() => clientes.id, { onDelete: 'cascade' }),
+
+    /** `null` es la fila de las ventas que no registraron dirección — 0022. */
+    direccionId: uuid('direccion_id').references(() => direcciones.id, { onDelete: 'cascade' }),
+
+    canal: canalDeSeguimientoEnum('canal').notNull(),
+
+    /**
+     * Cuándo se ocultó. Es el dato que decide, no una marca de tiempo decorativa:
+     * se compara contra la última venta de la fila.
+     */
+    ocultadoEn: tstz('ocultado_en').notNull().defaultNow(),
+
+    /**
+     * Quién la sacó de la lista.
+     *
+     * `set null` y no `cascade`: que se borre un usuario no puede devolver filas
+     * a la lista de golpe. El quién autoritativo vive en `audit_log` (ADR-0004);
+     * esto es para poder preguntarle a alguien sin salir de la pantalla.
+     */
+    ocultadoPor: uuid('ocultado_por').references(() => users.id, { onDelete: 'set null' }),
+  },
+  (t) => [
+    /**
+     * `NULLS NOT DISTINCT`, y sin eso la tabla no sirve.
+     *
+     * Postgres trata cada `NULL` como distinto de todos los demás, así que un
+     * `UNIQUE` normal dejaría ocultar veinte veces la misma fila sin dirección
+     * —y cada `UPSERT` crearía una fila nueva en vez de mover la fecha—.
+     * Requiere Postgres 15; acá corre 17.
+     */
+    unique('seguimientos_ocultos_fila').on(t.clienteId, t.direccionId, t.canal).nullsNotDistinct(),
+
+    /* La lista se arma preguntando «qué está oculto», nunca al revés. */
+    index('seguimientos_ocultos_canal_idx').on(t.canal, t.clienteId),
+  ],
+)

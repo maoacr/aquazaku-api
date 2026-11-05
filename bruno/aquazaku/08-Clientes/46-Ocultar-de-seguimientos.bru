@@ -1,0 +1,42 @@
+meta {
+  name: Quitar una fila de seguimientos
+  type: http
+  seq: 46
+}
+
+post {
+  url: {{baseUrl}}/clientes/a-llamar/ocultar
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{clienteId}}",
+    "direccionId": null,
+    "canal": "botellones"
+  }
+}
+
+docs {
+  RN-CLI-18. La lista de seguimientos es el padrón completo: entra todo el que
+  alguna vez compró. Eso deja filas que la operación sabe que no hay que llamar
+  —el que avisó que se muda, el local que cerró— y esto las saca.
+
+  **No borra al cliente ni toca un dato suyo.** Lo único que escribe es «no me
+  muestres esta fila en esta lista».
+
+  `direccionId: null` no es un descuido: es la fila de las ventas anteriores a
+  la migración 0022, las que no registraron a qué dirección se entregaron. Y es
+  el caso que necesita `NULLS NOT DISTINCT` en el unique — sin eso, Postgres
+  trata cada null como distinto y la misma fila se podría ocultar veinte veces.
+
+  Las tres columnas van juntas porque una fila ES una dirección en un canal: un
+  cliente con casa y local tiene cuatro filas posibles, y ocultar una no dice
+  nada de las otras tres.
+}
+
+tests {
+  test("responde 204: no devuelve cuerpo", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

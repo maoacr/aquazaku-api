@@ -204,6 +204,13 @@
       "when": 1790960000000,
       "tag": "0028_sticker_con_forma",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793901592923,
+      "tag": "0029_ocultar_de_seguimientos",
+      "breakpoints": true
     }
   ]
 }

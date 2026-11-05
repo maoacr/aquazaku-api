@@ -1,0 +1,40 @@
+meta {
+  name: Devolverla a la lista
+  type: http
+  seq: 48
+}
+
+delete {
+  url: {{baseUrl}}/clientes/a-llamar/ocultar
+  body: json
+}
+
+body:json {
+  {
+    "clienteId": "{{clienteId}}",
+    "direccionId": null,
+    "canal": "botellones"
+  }
+}
+
+docs {
+  La mitad que convierte la X en una acción y no en una trampa.
+
+  El otro camino de vuelta es automático: el ocultamiento se guarda con FECHA y
+  pierde efecto cuando el cliente vuelve a comprar, porque la fila se oculta
+  solo si se ocultó DESPUÉS de su última venta. Así la regla «si registra una
+  venta, reaparece» no necesita un trigger ni una tarea programada — las dos
+  formas pueden fallar en silencio, y lo que dejan cuando fallan es un cliente
+  al que nadie va a llamar nunca.
+
+  Este DELETE es para no tener que esperar esa venta.
+
+  No pide motivo, a diferencia de todo lo irreversible del sistema: esto se
+  deshace con un clic, y pedir un motivo para eso es ceremonia.
+}
+
+tests {
+  test("responde 204", function() {
+    expect(res.getStatus()).to.equal(204);
+  });
+}

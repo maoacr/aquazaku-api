@@ -5,7 +5,7 @@ import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { basesPrestadasA } from '@/modules/retornables/bases'
 import { botellonesDe } from '@/modules/retornables/conservacion'
-import { clientesALlamar } from './a-llamar'
+import { clientesALlamar, mostrarEnSeguimientos, ocultarDeSeguimientos } from './a-llamar'
 import { configurarCredito } from './credito'
 import {
   agregarDireccion,
@@ -34,6 +34,7 @@ import {
   esquemaDeTelefono,
   esquemaDeEdicion,
   esquemaDeEstado,
+  esquemaDeFilaDeSeguimiento,
   esquemaDeReversion,
 } from './validation'
 import { revertirVerificacion, verificarDocumento } from './verificacion'
@@ -129,7 +130,78 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
   app.get(
     '/clientes/a-llamar',
     { preHandler: [requireAuth, requirePermission('clientes', 'ver')] },
-    async () => clientesALlamar(hoyEnLaPlanta()),
+    /*
+     * `?ocultas=1` devuelve las que alguien sacó a mano, en vez de las visibles.
+     *
+     * Mismo endpoint y no uno aparte: es la misma lista —mismos relojes, mismos
+     * teléfonos, mismo orden—. Lo único que cambia es de qué lado del
+     * ocultamiento se mira, y un segundo endpoint duplicaría el armado entero
+     * para eso.
+     */
+    async (req) => {
+      const { ocultas } = req.query as { ocultas?: string }
+
+      return clientesALlamar(hoyEnLaPlanta(), { soloOcultas: ocultas === '1' })
+    },
+  )
+
+  /**
+   * Sacar una fila de la lista a mano, y devolverla — RN-CLI-18.
+   *
+   * ── Por qué no es `clientes:editar` ────────────────────────────────────────
+   *
+   * Porque no edita al cliente. No lo desactiva, no le borra un dato y no le
+   * toca la ficha: dice «a esta puerta no hay que llamarla por ahora». Con el
+   * permiso de editar, cualquiera que corrige un teléfono podría vaciar la
+   * lista de llamados, y la bitácora no distinguiría una cosa de la otra.
+   *
+   * ── Y por qué el DELETE no pide motivo ─────────────────────────────────────
+   *
+   * Todo lo irreversible de este sistema exige motivo. Esto no es irreversible
+   * por diseño: una venta nueva devuelve la fila sola, y mientras eso no pase
+   * el botón de «mostrar ocultos» la trae de vuelta. Pedir un motivo para algo
+   * que se deshace con un clic es ceremonia.
+   */
+  app.post(
+    '/clientes/a-llamar/ocultar',
+    {
+      preHandler: [requireAuth, requirePermission('clientes', 'ocultar_seguimiento')],
+    },
+    async (req, reply) => {
+      const fila = validar(esquemaDeFilaDeSeguimiento, req.body, reply)
+      if (!fila) return
+
+      await ocultarDeSeguimientos(fila, req.user?.id ?? null, {
+        userId: req.user?.id ?? null,
+        rolEjercido: req.user?.roles ?? [],
+        requestId: String(req.id),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      })
+
+      return reply.code(204).send()
+    },
+  )
+
+  app.delete(
+    '/clientes/a-llamar/ocultar',
+    {
+      preHandler: [requireAuth, requirePermission('clientes', 'ocultar_seguimiento')],
+    },
+    async (req, reply) => {
+      const fila = validar(esquemaDeFilaDeSeguimiento, req.body, reply)
+      if (!fila) return
+
+      await mostrarEnSeguimientos(fila, {
+        userId: req.user?.id ?? null,
+        rolEjercido: req.user?.roles ?? [],
+        requestId: String(req.id),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      })
+
+      return reply.code(204).send()
+    },
   )
 
   app.get(

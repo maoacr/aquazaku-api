@@ -68,6 +68,16 @@ export type Action =
   | 'operativos'
   | 'financieros'
   | 'descargar_pdf'
+  /**
+   * Sacar una fila de la lista de seguimientos a mano — RN-CLI-18.
+   *
+   * Acción propia y no `editar`, aunque las dos escriban una fila. `editar`
+   * cambia los DATOS del cliente —su nombre, su teléfono— y acá no se toca
+   * ninguno: solo se decide a quién no hay que llamar. Separarlas deja que la
+   * bitácora conteste «quién sacó a este cliente de la lista» sin mezclarlo con
+   * las correcciones de ficha, que son el 99% de `clientes:editar`.
+   */
+  | 'ocultar_seguimiento'
 
 /**
  * Alcances. Los cuatro primeros filtran filas de una tabla; `prep` y
@@ -130,6 +140,7 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'clientes', action: 'ver', scope: 'todo' },
     { resource: 'clientes', action: 'crear', scope: 'todo' },
     { resource: 'clientes', action: 'verificar_documento', scope: 'todo' },
+    { resource: 'clientes', action: 'ocultar_seguimiento', scope: 'todo' },
     { resource: 'clientes', action: 'editar', scope: 'todo' },
     { resource: 'clientes', action: 'habilitar_credito', scope: 'todo' },
 
@@ -208,6 +219,7 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'clientes', action: 'ver', scope: 'todo' },
     { resource: 'clientes', action: 'crear', scope: 'todo' },
     { resource: 'clientes', action: 'verificar_documento', scope: 'todo' },
+    { resource: 'clientes', action: 'ocultar_seguimiento', scope: 'todo' },
 
     { resource: 'stock', action: 'ver', scope: 'todo' },
     { resource: 'botellones', action: 'ver', scope: 'todo' },
@@ -235,6 +247,7 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'clientes', action: 'ver', scope: 'todo' },
     { resource: 'clientes', action: 'crear', scope: 'todo' },
     { resource: 'clientes', action: 'verificar_documento', scope: 'todo' },
+    { resource: 'clientes', action: 'ocultar_seguimiento', scope: 'todo' },
 
     /**
      * `todo` y no `BODEGA` — M2.

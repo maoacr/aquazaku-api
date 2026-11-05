@@ -52,7 +52,7 @@ describe('el ruteo', () => {
      * ninguna, así que pedirlas por separado sería un viaje para pintar un
      * número que ya se podía traer.
      */
-    expect(res.json()).toEqual({ botellones: [], otros: [] })
+    expect(res.json()).toEqual({ botellones: [], otros: [], ocultas: { botellones: 0, otros: 0 } })
   })
 
   /*
@@ -108,4 +108,122 @@ describe('el permiso', () => {
       expect(res.statusCode).toBe(200)
     },
   )
+})
+
+/**
+ * Ocultar y mostrar una fila — RN-CLI-18.
+ *
+ * ── Lo que vigila ───────────────────────────────────────────────────────────
+ *
+ * El PERMISO, antes que nada. `clientes:ocultar_seguimiento` lo tienen los tres
+ * roles operativos y NO `contador`, que es de solo lectura. Esconder el botón
+ * en la pantalla no es control de acceso (RN-ACC-02): la barrera real es ésta,
+ * y si no está, cualquiera con sesión puede vaciar la lista de llamados.
+ *
+ * Y que `/clientes/a-llamar/ocultar` no se lea como un id. Es el mismo riesgo
+ * de ruteo que arriba, con un segmento más.
+ */
+describe('ocultar una fila por la api', () => {
+  const unaFila = {
+    clienteId: '00000000-0000-4000-8000-000000000001',
+    direccionId: null,
+    canal: 'botellones',
+  }
+
+  it('el contador NO puede: es de solo lectura', async () => {
+    const { cookie } = await usuarioAutenticado('contador')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/clientes/a-llamar/ocultar',
+      headers: { cookie },
+      payload: unaFila,
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('sin sesión tampoco', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/clientes/a-llamar/ocultar',
+      payload: unaFila,
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('el vendedor sí: es quien recorre la lista marcando', async () => {
+    const { cookie, usuario } = await usuarioAutenticado('seller')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/clientes/a-llamar/ocultar',
+      headers: { cookie },
+      payload: { ...unaFila, clienteId: usuario.id },
+    })
+
+    /*
+     * 400 si el cliente no existe —la FK lo rechaza— pero NUNCA 403: lo que se
+     * prueba acá es el permiso, y el id de un usuario no es el de un cliente.
+     */
+    expect(res.statusCode).not.toBe(403)
+  })
+
+  /*
+   * El canal es parte de la clave, así que un valor inventado no puede pasar:
+   * la columna es un enum y un `canal: 'pacas'` escribiría una fila que ninguna
+   * consulta encontraría — un ocultamiento fantasma.
+   */
+  it('un canal que no existe se rechaza con 400, no con un 500 de la base', async () => {
+    const { cookie } = await usuarioAutenticado('admin')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/clientes/a-llamar/ocultar',
+      headers: { cookie },
+      payload: { ...unaFila, canal: 'pacas' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('omitir `direccionId` se rechaza: `null` tiene que ser explícito', async () => {
+    const { cookie } = await usuarioAutenticado('admin')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/clientes/a-llamar/ocultar',
+      headers: { cookie },
+      payload: { clienteId: unaFila.clienteId, canal: 'botellones' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('devolver a la lista pide el mismo permiso', async () => {
+    const { cookie } = await usuarioAutenticado('contador')
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/clientes/a-llamar/ocultar',
+      headers: { cookie },
+      payload: unaFila,
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('`?ocultas=1` responde 200 y la misma forma', async () => {
+    const { cookie } = await usuarioAutenticado('admin')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/clientes/a-llamar?ocultas=1',
+      headers: { cookie },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ botellones: [], otros: [], ocultas: { botellones: 0, otros: 0 } })
+  })
 })

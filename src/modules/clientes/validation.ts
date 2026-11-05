@@ -207,3 +207,22 @@ export const esquemaDeTelefono = z.object({
   numero: z.string().trim().min(7, 'un teléfono tiene al menos 7 dígitos').max(30),
   etiqueta: z.string().trim().max(60).optional(),
 })
+
+/**
+ * La fila de seguimientos que se saca —o se devuelve— a mano: RN-CLI-18.
+ *
+ * Las tres columnas son la clave, y van las tres: una fila de seguimientos es
+ * una dirección en un canal. Mandar solo el cliente ocultaría sus cuatro filas
+ * posibles de una, y la operación perdería la capacidad de decir «el local sí,
+ * la casa no».
+ *
+ * `direccionId` admite `null` explícito y no se puede omitir. Es la fila de las
+ * ventas anteriores a la 0022 —las que no registraron dirección— y tiene que
+ * poder nombrarse: omitir el campo y querer decir «la de sin dirección» haría
+ * que un bug de serialización en el cliente oculte la fila equivocada.
+ */
+export const esquemaDeFilaDeSeguimiento = z.object({
+  clienteId: z.string().uuid(),
+  direccionId: z.string().uuid().nullable(),
+  canal: z.enum(['botellones', 'otros']),
+})

@@ -1,8 +1,17 @@
-import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { db } from '@/db/client'
-import { clientes, direcciones, lineasDeVenta, productos, telefonos, ventas } from '@/db/schema'
+import {
+  clientes,
+  direcciones,
+  lineasDeVenta,
+  productos,
+  seguimientosOcultos,
+  telefonos,
+  ventas,
+} from '@/db/schema'
 import { diaEnLaPlanta } from '@/lib/dia'
 import { leerParametro } from '@/modules/alertas/parametros'
+import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import { direccionLegible } from './direccion-legible'
 import { numeroParaWhatsapp } from './whatsapp'
 
@@ -118,6 +127,13 @@ export interface DireccionALlamar {
    * que BAJA mientras se trabaja.
    */
   cuantasVentas: number
+  /**
+   * Desde cuándo está fuera de la lista, si alguien la sacó a mano — RN-CLI-18.
+   *
+   * `null` en la lista normal: las ocultas no están ahí. Tiene valor solo
+   * cuando se piden las ocultas, y es lo que deja decidir si devolverla.
+   */
+  ocultadaEn: Date | null
   telefonos: TelefonoParaLlamar[]
 }
 
@@ -126,9 +142,25 @@ export interface SeguimientosALlamar {
   botellones: DireccionALlamar[]
   /** Ventas que incluyeron algún producto que no es una recarga de botellón. */
   otros: DireccionALlamar[]
+  /**
+   * Cuántas filas sacó alguien a mano de cada canal — RN-CLI-18.
+   *
+   * La pantalla lo necesita para decidir si ofrecer «mostrar clientes ocultos»:
+   * un botón que aparece siempre, y que la mitad de los días no tiene nada que
+   * mostrar, es ruido en una cabecera que se lee de reojo.
+   */
+  ocultas: { botellones: number; otros: number }
 }
 
-type Canal = keyof SeguimientosALlamar
+/**
+ * Los dos canales, escritos.
+ *
+ * Era `keyof SeguimientosALlamar`, y funcionaba mientras el payload fuera
+ * exactamente las dos listas. Al sumarle `ocultas` el atajo dejó de ser cierto:
+ * `keyof` pasó a incluir una clave que no es un canal. Los canales son dos
+ * porque el negocio tiene dos relojes, no porque el tipo tenga dos campos.
+ */
+type Canal = 'botellones' | 'otros'
 
 /** Una candidata mientras se arma: la dirección con el reloj que va ganando. */
 interface Candidata {
@@ -138,9 +170,141 @@ interface Candidata {
   ventaSinDireccion: boolean
   ventaId: string
   cuantasVentas: number
+  /**
+   * Cuándo fue la última venta de esta fila, al instante y no al día.
+   *
+   * Es lo que decide si un ocultamiento sigue en pie: la fila está oculta solo
+   * si se ocultó DESPUÉS de su última compra. `dias` no alcanza —es un entero
+   * de días— y comparar días con timestamps haría que ocultar y comprar el
+   * mismo día dependa de cómo redondea cada lado.
+   */
+  ultimaVentaEn: Date
 }
 
-export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar> {
+/** La clave de una fila: cliente, dirección —o su ausencia— y canal. */
+export interface FilaDeSeguimiento {
+  clienteId: string
+  direccionId: string | null
+  canal: 'botellones' | 'otros'
+}
+
+/** Una fila ocultada a mano, con la clave con la que se la encuentra. */
+const claveDeFila = (clienteId: string, direccionId: string | null, canal: string) =>
+  `${clienteId}|${direccionId ?? ''}|${canal}`
+
+/**
+ * Sacar una fila de la lista de seguimientos — RN-CLI-18.
+ *
+ * No borra al cliente ni toca un dato suyo: escribe «no me muestres esta fila
+ * en esta lista». Y lo hace con una FECHA, así que una venta posterior la
+ * devuelve sola (ver la migración 0029 para el argumento completo).
+ *
+ * `onConflictDoUpdate` y no un insert pelado: volver a ocultar mueve la fecha.
+ * Sin eso, la segunda vez tiraría error de unicidad en la cara de alguien que
+ * solo apretó una X.
+ */
+export async function ocultarDeSeguimientos(
+  fila: FilaDeSeguimiento,
+  ocultadoPor: string | null,
+  contexto: ContextoDeAuditoria,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(seguimientosOcultos)
+      .values({ ...fila, ocultadoPor, ocultadoEn: new Date() })
+      .onConflictDoUpdate({
+        target: [
+          seguimientosOcultos.clienteId,
+          seguimientosOcultos.direccionId,
+          seguimientosOcultos.canal,
+        ],
+        set: { ocultadoEn: new Date(), ocultadoPor },
+      })
+
+    /*
+     * La fila de bitácora va DENTRO de la transacción, con `tx` — ADR-0007.
+     *
+     * Un `emit` con `db` acá, mientras la transacción de arriba tiene la fila
+     * tomada, se bloquea contra sí mismo y la petición cuelga sin error.
+     *
+     * Y se audita porque la pregunta «¿por qué nadie llamó a este cliente?»
+     * tiene que tener respuesta. La tabla dice quién y cuándo, pero se puede
+     * borrar al mostrar de nuevo; `audit_log` no (ADR-0004).
+     */
+    await emit(
+      {
+        ...contexto,
+        action: 'clientes:ocultar_seguimiento',
+        resource: 'clientes',
+        resourceId: fila.clienteId,
+        result: 'ok',
+        payload: { operacion: 'ocultar', ...fila },
+      },
+      tx,
+    )
+  })
+}
+
+/**
+ * Devolver una fila a la lista sin esperar una venta.
+ *
+ * Borra el registro en vez de marcarlo: lo que importa es que la fila vuelva, y
+ * el quién-y-cuándo autoritativo vive en `audit_log` (ADR-0004). Dejar filas
+ * «anuladas» acá solo daría dos estados para la misma pregunta.
+ */
+export async function mostrarEnSeguimientos(
+  fila: FilaDeSeguimiento,
+  contexto: ContextoDeAuditoria,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(seguimientosOcultos)
+      .where(
+        and(
+          eq(seguimientosOcultos.clienteId, fila.clienteId),
+          /*
+           * `IS NULL` y no `= null`: la fila sin dirección se identifica por la
+           * ausencia, y en SQL `= null` no coincide con nada —ni con null—. Sin
+           * esta rama, devolver a la lista una fila sin dirección no borraría
+           * nada y la X quedaría pegada.
+           */
+          fila.direccionId === null
+            ? isNull(seguimientosOcultos.direccionId)
+            : eq(seguimientosOcultos.direccionId, fila.direccionId),
+          eq(seguimientosOcultos.canal, fila.canal),
+        ),
+      )
+
+    /* Misma acción que ocultar, distinta `operacion` — el patrón de
+       `bases:descartar`, que comparte acción con el daño. */
+    await emit(
+      {
+        ...contexto,
+        action: 'clientes:ocultar_seguimiento',
+        resource: 'clientes',
+        resourceId: fila.clienteId,
+        result: 'ok',
+        payload: { operacion: 'mostrar', ...fila },
+      },
+      tx,
+    )
+  })
+}
+
+export async function clientesALlamar(
+  hoy: string,
+  opciones: {
+    /**
+     * Devolver SOLO las filas ocultas, en vez de solo las visibles.
+     *
+     * Es el modo que alimenta «mostrar clientes ocultos». Va como opción y no
+     * como un endpoint aparte porque la lista es la misma —mismos relojes,
+     * mismos teléfonos, mismo orden—: lo único que cambia es de qué lado del
+     * ocultamiento se mira.
+     */
+    soloOcultas?: boolean
+  } = {},
+): Promise<SeguimientosALlamar> {
   const [aviso, urgente] = await Promise.all([
     leerParametro('dias_recompra_aviso'),
     leerParametro('dias_recompra_urgente'),
@@ -229,6 +393,15 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
        * por cada producto que llevó.
        */
       cuantasVentas: sql<string>`count(distinct ${ventas.id})`,
+      /*
+       * El instante de la última venta del grupo.
+       *
+       * `dias` ya dice hace cuánto fue, pero en días enteros y «visto desde la
+       * planta». Para decidir si un ocultamiento sigue en pie hace falta el
+       * instante: ocultar a las 10 y vender a las 15 del mismo día tiene que
+       * devolver la fila, y con días los dos valores serían 0.
+       */
+      ultimaVentaEn: sql<Date>`max(${ventas.createdAt})`,
     })
     .from(ventas)
     .innerJoin(lineasDeVenta, eq(lineasDeVenta.ventaId, ventas.id))
@@ -247,11 +420,15 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
    * agrupado. No es una recompra, es un cliente nuevo — si entrara, cada alta
    * figuraría como urgente el mismo día de registrarse.
    */
-  if (grupos.length === 0) return { botellones: [], otros: [] }
+  /* Sin ventas no hay filas, y sin filas no hay nada oculto: los ceros son
+     reales, no un «no sé». */
+  if (grupos.length === 0) {
+    return { botellones: [], otros: [], ocultas: { botellones: 0, otros: 0 } }
+  }
 
   const ids = [...new Set(grupos.map((g) => g.clienteId!))]
 
-  const [fichas, activas, numeros] = await Promise.all([
+  const [fichas, activas, numeros, ocultos] = await Promise.all([
     db
       .select({
         id: clientes.id,
@@ -310,9 +487,46 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
       .from(telefonos)
       .where(and(inArray(telefonos.clienteId, ids), eq(telefonos.activo, true)))
       .orderBy(desc(telefonos.createdAt)),
+
+    /*
+     * Las filas ocultadas a mano — RN-CLI-18.
+     *
+     * Viene la tabla entera de los clientes de esta lista, sin comparar fechas
+     * todavía: si el ocultamiento sigue en pie se decide por fila, contra la
+     * última venta de ESE grupo, y eso recién se sabe más abajo.
+     */
+    db
+      .select()
+      .from(seguimientosOcultos)
+      .where(inArray(seguimientosOcultos.clienteId, ids)),
   ])
 
   const porId = new Map(fichas.map((f) => [f.id, f]))
+
+  const ocultoPorClave = new Map(
+    ocultos.map((o) => [claveDeFila(o.clienteId, o.direccionId, o.canal), o.ocultadoEn]),
+  )
+
+  /**
+   * Desde cuándo está oculta esta fila — o `null` si no lo está.
+   *
+   * ── El corazón del diseño ─────────────────────────────────────────────────
+   *
+   * El registro de ocultamiento NO se borra cuando el cliente vuelve a comprar.
+   * Lo que lo deja sin efecto es la comparación: si la última venta de la fila
+   * es POSTERIOR al ocultamiento, la fila vuelve a la lista.
+   *
+   * Eso cumple «si registra una venta nueva, reaparece» sin un trigger en
+   * `ventas` y sin una tarea que barra la tabla. Las dos alternativas pueden
+   * fallar en silencio, y lo que dejan cuando fallan es un cliente invisible —
+   * que acá significa un cliente al que nadie va a llamar nunca.
+   */
+  const ocultaDesde = (c: Candidata, canal: Canal): Date | null => {
+    const ocultadoEn = ocultoPorClave.get(claveDeFila(c.clienteId, c.direccionId, canal))
+    if (ocultadoEn === undefined) return null
+
+    return ocultadoEn > c.ultimaVentaEn ? ocultadoEn : null
+  }
 
   const direccionPorId = new Map(activas.map((d) => [d.id, d]))
 
@@ -380,6 +594,7 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
       ventaSinDireccion: g.direccionId === null,
       ventaId: g.ventaId,
       cuantasVentas: Number(g.cuantasVentas),
+      ultimaVentaEn: new Date(g.ultimaVentaEn),
     })
   }
 
@@ -401,6 +616,14 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
 
   const armar = (canal: Canal): DireccionALlamar[] =>
     [...candidatas[canal].values()]
+      /*
+       * El filtro va ANTES del map, y no después.
+       *
+       * Después también funcionaría, pero este `map` arma la dirección legible
+       * y los teléfonos de cada fila: filtrar primero evita construir lo que no
+       * se va a devolver.
+       */
+      .filter((c) => (ocultaDesde(c, canal) !== null) === (opciones.soloOcultas === true))
       .map((c) => {
         const ficha = porId.get(c.clienteId)!
         const d = c.direccionId === null ? undefined : direccionPorId.get(c.direccionId)
@@ -427,6 +650,13 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
           ventaSinDireccion: c.ventaSinDireccion,
           ventaId: c.ventaId,
           cuantasVentas: c.cuantasVentas,
+          /*
+           * Solo tiene sentido en el modo `soloOcultas`: en la lista normal es
+           * `null` por definición —las ocultas no están ahí— y en la vista de
+           * ocultas dice desde cuándo, que es lo que alguien necesita para
+           * decidir si la devuelve.
+           */
+          ocultadaEn: ocultaDesde(c, canal),
           telefonos: porCliente.get(c.clienteId) ?? [],
         }
       })
@@ -456,5 +686,23 @@ export async function clientesALlamar(hoy: string): Promise<SeguimientosALlamar>
           (a.etiqueta ?? '').localeCompare(b.etiqueta ?? '', 'es'),
       )
 
-  return { botellones: armar('botellones'), otros: armar('otros') }
+  /**
+   * Cuántas hay ocultas en cada canal.
+   *
+   * Viaja siempre, incluso en cero, porque la pantalla decide con esto si
+   * ofrecer «mostrar clientes ocultos». Un `undefined` la obligaría a tratar
+   * «no sé» y «ninguna» como lo mismo.
+   *
+   * Cuenta las que están ocultas DE VERDAD —las que pasaron la comparación con
+   * su última venta— y no las filas de la tabla: un registro cuyo cliente ya
+   * volvió a comprar no es una fila oculta, es historia.
+   */
+  const cuantasOcultas = (canal: Canal): number =>
+    [...candidatas[canal].values()].filter((c) => ocultaDesde(c, canal) !== null).length
+
+  return {
+    botellones: armar('botellones'),
+    otros: armar('otros'),
+    ocultas: { botellones: cuantasOcultas('botellones'), otros: cuantasOcultas('otros') },
+  }
 }
