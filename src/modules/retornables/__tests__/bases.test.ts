@@ -365,3 +365,127 @@ describe('la compra de bases', () => {
     }
   })
 })
+
+/**
+ * La trazabilidad del historial — RN-BAS-05.
+ *
+ * ── Qué se reportó ──────────────────────────────────────────────────────────
+ *
+ * «El historial no refleja toda la trazabilidad de la base». Medido sobre datos
+ * inyectados en desarrollo: de 9 movimientos, 5 no decían dónde había estado.
+ *
+ * Eran tres fallas distintas, y las tres importan por la misma razón: esta
+ * pantalla existe para sostener una discusión de plata —un cliente que dice que
+ * la base ya estaba rota cuando se la llevaron— y un hueco ahí vuelve la
+ * respuesta a ser la palabra de uno contra la del otro.
+ */
+describe('el historial dice DÓNDE estuvo la base', () => {
+  it('el retorno registra de dónde volvió, no solo que volvió', async () => {
+    const base = await darDeAltaBase('0913', 'estructura', null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
+    await retornarBase(base.id, null, UN_CONTEXTO)
+
+    const [retorno] = await historialDe(base.id)
+
+    /*
+     * Sin esto el historial dice «Volvió a la bodega» y se queda ahí. De quién
+     * volvió solo se podía INFERIR del préstamo anterior — y eso exige que el
+     * orden sea confiable, que era la otra mitad del defecto.
+     */
+    expect(retorno!.tipo).toBe('retorno')
+    expect(retorno!.direccionId).toBe(direccionId)
+  })
+
+  it('cada movimiento trae el lugar ya legible: un UUID no le dice nada a nadie', async () => {
+    const base = await darDeAltaBase('0913', 'estructura', null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
+
+    const [prestamo] = await historialDe(base.id)
+
+    expect(prestamo!.lugar).toBe('Yeimy — La casa, Calle 5 #3-20')
+  })
+
+  it('el alta no tiene lugar, y eso no es un hueco: estaba en la bodega', async () => {
+    const base = await darDeAltaBase('0913', 'estructura', null)
+
+    const [alta] = await historialDe(base.id)
+
+    expect(alta!.lugar).toBeNull()
+  })
+
+  /*
+   * ── Las dos desactivaciones ───────────────────────────────────────────────
+   *
+   * La pantalla traducía el `direccionId` pidiendo `/clientes` —que sin
+   * `?estado=todos` trae solo activos— y la ficha de cada uno, que a su vez usa
+   * `direccionesDe` con `soloActivas = true`. Así, desactivar un cliente o una
+   * dirección borraba el lugar de un préstamo que SÍ ocurrió.
+   *
+   * Y el flujo que lo produce es real: al desactivar un cliente la app retorna
+   * sus bases y lo deja inactivo. Las dos mitades caían juntas — el préstamo
+   * perdía el lugar y el retorno nunca lo había guardado.
+   *
+   * El historial NO filtra por activo. Lo que pasó, pasó.
+   */
+  it('el lugar sobrevive a que la dirección se desactive', async () => {
+    const base = await darDeAltaBase('0913', 'estructura', null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
+
+    await db.update(direcciones).set({ activa: false }).where(eq(direcciones.id, direccionId))
+
+    const [prestamo] = await historialDe(base.id)
+
+    expect(prestamo!.lugar).toBe('Yeimy — La casa, Calle 5 #3-20')
+  })
+
+  it('el lugar sobrevive a que el cliente se desactive', async () => {
+    const base = await darDeAltaBase('0913', 'estructura', null)
+    await prestarBase(base.id, direccionId, null, UN_CONTEXTO)
+
+    await db.update(clientes).set({ activo: false }).where(eq(clientes.id, clienteId))
+
+    const [prestamo] = await historialDe(base.id)
+
+    expect(prestamo!.lugar).toBe('Yeimy — La casa, Calle 5 #3-20')
+  })
+
+  /*
+   * ── El empate ─────────────────────────────────────────────────────────────
+   *
+   * `created_at` es `defaultNow()`, y `now()` es CONSTANTE durante toda la
+   * transacción: dos movimientos de la misma base escritos juntos empatan
+   * siempre. Un `ORDER BY created_at DESC` pelado deja el orden a criterio del
+   * planner, y en un historial el orden ES la información.
+   *
+   * El desempate no adivina cuál pasó primero —no hay dato que lo diga— pero
+   * garantiza UNA sola respuesta: el mismo historial no puede devolver dos
+   * listas distintas.
+   */
+  it('con el mismo instante, el orden lo decide una REGLA y no el planner', async () => {
+    const base = await darDeAltaBase('0913', 'estructura', null)
+    const mismoInstante = new Date('2026-08-01T12:00:00Z')
+
+    /*
+     * Ocho, y no dos. Con dos, un orden accidental acierta la mitad de las
+     * veces y el test pasaría sobre el defecto. Con ocho hay 40.320 órdenes
+     * posibles: si sale el declarado, es porque está declarado.
+     */
+    await db.insert(movimientosBase).values(
+      Array.from({ length: 8 }, () => ({
+        baseId: base.id,
+        tipo: 'prestamo' as const,
+        direccionId,
+        createdAt: mismoInstante,
+      })),
+    )
+
+    const empatados = (await historialDe(base.id)).filter(
+      (m) => m.createdAt.getTime() === mismoInstante.getTime(),
+    )
+
+    expect(empatados).toHaveLength(8)
+
+    const ids = empatados.map((m) => m.id)
+    expect(ids).toEqual([...ids].sort().reverse())
+  })
+})
