@@ -17,6 +17,11 @@ docs {
   reconstruir quién la tenía cuando se rompió. El estado responde *¿dónde
   está?*; el historial responde *¿qué pasó?*. Ninguna de las dos se deduce de la
   otra.
+
+  `lugar` viene armado acá y no se resuelve en el cliente. La pantalla lo hacía
+  por su cuenta —pedía la ficha de cada cliente del padrón— y lo hacía mal: esas
+  consultas traen solo lo activo, así que desactivar un cliente o una dirección
+  borraba el lugar de un préstamo que sí ocurrió.
 }
 
 tests {
@@ -32,5 +37,14 @@ tests {
 
   test("y el préstamo dice a qué dirección fue", function() {
     expect(res.getBody()[0].direccionId).to.equal(bru.getVar("parqueDireccionId"));
+  });
+
+  test("el lugar viene en palabras, no como UUID", function() {
+    expect(res.getBody()[0].lugar).to.be.a("string");
+    expect(res.getBody()[0].lugar).to.not.be.empty;
+  });
+
+  test("el alta no tiene lugar: estaba en la bodega", function() {
+    expect(res.getBody()[1].lugar).to.equal(null);
   });
 }

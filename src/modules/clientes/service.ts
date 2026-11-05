@@ -575,6 +575,16 @@ export async function desactivarClienteConReversion(
      * y la otra no, el libro dice que volvió pero la base sigue prestada.
      */
     for (const base of basesDelCliente) {
+      /*
+       * De dónde volvía se lee ANTES del update, que es cuando todavía existe.
+       *
+       * Sin esto el movimiento quedaba sin `direccion_id` y el historial decía
+       * «Volvió a la bodega» sin decir de quién — en el mismo flujo que deja al
+       * cliente inactivo, así que el préstamo anterior tampoco se podía
+       * traducir. El cliente que se iba se llevaba el rastro completo.
+       */
+      const volvioDe = base.direccionId
+
       await tx
         .update(bases)
         .set({ direccionId: null })
@@ -583,6 +593,7 @@ export async function desactivarClienteConReversion(
       await tx.insert(movimientosBase).values({
         baseId: base.id,
         tipo: 'retorno',
+        direccionId: volvioDe,
         motivo: motivo.trim(),
         registradoPor,
       })

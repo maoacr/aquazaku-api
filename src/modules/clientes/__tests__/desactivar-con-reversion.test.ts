@@ -11,7 +11,7 @@ import {
 } from '@/db/schema'
 import { desactivarClienteConReversion } from '@/modules/clientes/service'
 import { comprarBotellones, entregarBotellones } from '@/modules/retornables/botellones'
-import { darDeAltaBase, prestarBase } from '@/modules/retornables/bases'
+import { darDeAltaBase, historialDe, prestarBase } from '@/modules/retornables/bases'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
@@ -246,3 +246,49 @@ describe('desactivar un cliente revierte lo que tiene en su poder', () => {
 void ventas
 void direcciones
 void sql
+
+describe('la reversión no borra la historia de la base', () => {
+  /*
+   * ── El peor de los tres huecos de RN-BAS-05 ───────────────────────────────
+   *
+   * Este flujo hacía las dos mitades del daño a la vez: retornaba las bases con
+   * un movimiento SIN `direccion_id`, y dejaba al cliente inactivo —así que el
+   * préstamo anterior tampoco se podía traducir a un lugar, porque la pantalla
+   * solo miraba clientes activos—.
+   *
+   * Resultado: el cliente que se va se lleva consigo el rastro de las bases que
+   * tuvo. Y es exactamente con ese con el que después hay que discutir quién
+   * rompió una.
+   */
+  it('el retorno masivo registra de qué dirección volvió cada base', async () => {
+    const { cliente, direccion } = await clienteConDireccion()
+    const admin = await usuarioAutenticado('admin')
+
+    const base = await darDeAltaBase('0001', 'estructura', admin.usuario.id)
+    await prestarBase(base.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
+
+    await desactivarClienteConReversion(cliente.id, 'se mudó y devolvió todo', UN_CONTEXTO)
+
+    const [retorno] = await historialDe(base.id)
+
+    expect(retorno!.tipo).toBe('retorno')
+    expect(retorno!.direccionId).toBe(direccion.id)
+  })
+
+  it('el historial sigue diciendo el lugar aunque el cliente quede inactivo', async () => {
+    const { cliente, direccion } = await clienteConDireccion()
+    const admin = await usuarioAutenticado('admin')
+
+    const base = await darDeAltaBase('0001', 'estructura', admin.usuario.id)
+    await prestarBase(base.id, direccion.id, admin.usuario.id, UN_CONTEXTO)
+
+    await desactivarClienteConReversion(cliente.id, 'se mudó y devolvió todo', UN_CONTEXTO)
+
+    const historial = await historialDe(base.id)
+    const conLugar = historial.filter((m) => m.lugar !== null)
+
+    /* El préstamo Y el retorno: los dos ocurrieron en esa puerta. */
+    expect(conLugar).toHaveLength(2)
+    expect(conLugar.every((m) => m.lugar!.includes(direccion.etiqueta))).toBe(true)
+  })
+})

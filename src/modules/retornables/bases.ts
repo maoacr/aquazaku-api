@@ -14,6 +14,7 @@ import { LARGO_MINIMO_MOTIVO, motivoEsSuficiente } from '@/lib/motivos'
 import { leerParametro } from '@/modules/alertas/parametros'
 import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 import type { Ejecutor, Transaccion } from '@/modules/stock/saldo'
+import { direccionLegible } from '@/modules/clientes/direccion-legible'
 import { esCodigoDeBase, proximoCodigo } from './codigo'
 
 /**
@@ -497,7 +498,23 @@ export async function retornarBase(
       .where(eq(bases.id, baseId))
       .returning()
 
-    await tx.insert(movimientosBase).values({ baseId, tipo: 'retorno', registradoPor })
+    /*
+     * El retorno guarda DE DÓNDE volvió.
+     *
+     * Antes era `{ baseId, tipo, registradoPor }` y nada más, así que el
+     * historial decía «Volvió a la bodega» sin decir de quién. De dónde venía
+     * solo se podía inferir del préstamo anterior — y eso exige que el orden
+     * sea confiable, que era la otra mitad del mismo defecto.
+     *
+     * `base.direccionId` se lee ANTES del update, que es el único momento en
+     * que todavía existe: el update lo pone en `null`.
+     */
+    await tx.insert(movimientosBase).values({
+      baseId,
+      tipo: 'retorno',
+      direccionId: base.direccionId,
+      registradoPor,
+    })
 
     /*
      * RN-ACC-04 nombra el retiro de bases igual que el préstamo, y por la misma
@@ -600,21 +617,75 @@ export async function descartarBase(
 export async function basesPrestadasA(
   clienteId: string,
   ejecutor: Ejecutor = db,
-): Promise<{ id: string; idSticker: string }[]> {
+): Promise<{ id: string; idSticker: string; direccionId: string | null }[]> {
   return ejecutor
-    .select({ id: bases.id, idSticker: bases.idSticker })
+    .select({ id: bases.id, idSticker: bases.idSticker, direccionId: bases.direccionId })
     .from(bases)
     .innerJoin(direcciones, eq(direcciones.id, bases.direccionId))
     .where(and(eq(direcciones.clienteId, clienteId), isNotNull(bases.direccionId)))
 }
 
-/** El historial de una base — RN-BAS-05. Dónde estuvo y quién la tuvo. */
-export async function historialDe(baseId: string): Promise<MovimientoBase[]> {
-  return db
-    .select()
+/**
+ * Un movimiento con el lugar ya dicho en palabras.
+ *
+ * El `direccionId` solo sirve para quien tenga el padrón entero a mano. La
+ * pantalla lo resolvía por su cuenta: pedía `/clientes` y después la ficha de
+ * CADA uno —una petición por cliente del padrón— para traducir un puñado de
+ * direcciones. Y lo resolvía mal, porque las dos consultas traen solo lo activo.
+ */
+export interface MovimientoDeBaseConLugar extends MovimientoBase {
+  /** `null` cuando el movimiento no ocurrió en una puerta: el alta, el descarte. */
+  lugar: string | null
+}
+
+/**
+ * El historial de una base — RN-BAS-05. Dónde estuvo y quién la tuvo.
+ *
+ * ── Por qué el lugar se arma ACÁ ────────────────────────────────────────────
+ *
+ * Porque acá es el único lado que puede hacerlo bien. `leftJoin` sin condición
+ * de actividad: **lo que pasó, pasó**. Desactivar un cliente o una dirección
+ * cambia a quién se le puede vender hoy, no dónde estuvo una base en marzo.
+ *
+ * Y eso no era una hipótesis: desactivar un cliente dejaba sin lugar a sus
+ * préstamos, en el mismo flujo que además retorna sus bases. Las dos mitades
+ * del hueco caían juntas, justo con el cliente que se fue — que es con el que
+ * más falta hace poder reconstruir la historia.
+ *
+ * ── Y por qué el orden lleva desempate ──────────────────────────────────────
+ *
+ * `created_at` es `defaultNow()`, y `now()` es CONSTANTE durante toda la
+ * transacción: dos movimientos escritos juntos empatan siempre. Con un
+ * `ORDER BY created_at DESC` pelado, cuál va primero lo decide el planner, y
+ * puede cambiar entre dos corridas del mismo historial.
+ *
+ * El `id` no dice cuál ocurrió antes —es aleatorio— y no pretende decirlo. Lo
+ * que garantiza es que haya UNA sola respuesta. Un historial que se lee dos
+ * veces y da dos secuencias distintas no sirve para sostener un cobro.
+ *
+ * Si algún día hace falta el orden lógico real dentro de un empate, el arreglo
+ * es una columna `bigserial` y es una migración: el dato hoy no existe.
+ */
+export async function historialDe(baseId: string): Promise<MovimientoDeBaseConLugar[]> {
+  const filas = await db
+    .select({ movimiento: movimientosBase, direccion: direcciones, cliente: clientes })
     .from(movimientosBase)
+    .leftJoin(direcciones, eq(direcciones.id, movimientosBase.direccionId))
+    .leftJoin(clientes, eq(clientes.id, direcciones.clienteId))
     .where(eq(movimientosBase.baseId, baseId))
-    .orderBy(desc(movimientosBase.createdAt))
+    .orderBy(desc(movimientosBase.createdAt), desc(movimientosBase.id))
+
+  return filas.map(({ movimiento, direccion, cliente }) => ({
+    ...movimiento,
+    /*
+     * El mismo formato que ya mostraba la pantalla, para que nadie note el
+     * cambio salvo por los huecos que desaparecen.
+     */
+    lugar:
+      direccion && cliente
+        ? `${cliente.nombre} — ${direccion.etiqueta}, ${direccionLegible(direccion)}`
+        : null,
+  }))
 }
 
 /** Las bases prestadas a una dirección — el tercer saldo de RN-CLI-06. */
