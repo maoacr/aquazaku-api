@@ -195,6 +195,11 @@ const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string
       acciones: ['clientes:crear', 'clientes:desactivar'],
       nota: 'el alta y la baja ya eran transaccionales; ahora la fila va adentro, y la baja la escribe con los conteos de bases y botellones devueltos',
     },
+    'clientes/direcciones.ts': {
+      transaccional: true,
+      acciones: ['clientes:dar_de_baja_direccion'],
+      nota: 'la baja de una dirección devuelve al parque las bases prestadas ahí; la fila va en la misma transacción que los retornos, con la etiqueta, el motivo y cuántas volvieron',
+    },
     'clientes/verificacion.ts': {
       transaccional: true,
       acciones: ['clientes:verificar_documento'],

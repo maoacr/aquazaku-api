@@ -347,3 +347,145 @@ describe('la ficha', () => {
     expect(ficha.direcciones[0].etiqueta).toBe('La casa')
   })
 })
+
+/**
+ * PATCH /direcciones/:id/desactivar — RN-CLI-07 + RN-BAS-04.
+ *
+ * El endpoint no tenía NINGÚN test de HTTP. Por eso exigirle motivo —un cambio
+ * de contrato— no rompió nada: no había nadie mirando. El servicio sí estaba
+ * cubierto; la puerta, no.
+ */
+describe('PATCH /direcciones/:id/desactivar', () => {
+  const UN_MOTIVO = 'el cliente devolvió el equipo de ese local'
+
+  /**
+   * Un cliente con una dirección, por HTTP como lo hace la pantalla.
+   *
+   * El documento se verifica porque prestar una base lo exige (RN-BAS-02): sin
+   * eso, montar el caso falla antes de llegar a lo que se está probando.
+   */
+  async function conDireccion() {
+    const cliente = await crear()
+    const { verificarDocumento } = await import('@/modules/clientes/verificacion')
+    await verificarDocumento(cliente.id, ['admin'], {
+      userId: null,
+      rolEjercido: ['admin'],
+      requestId: 'req-de-prueba',
+    })
+    const direccion = (
+      await comoAdmin({
+        method: 'POST',
+        url: `/clientes/${cliente.id}/direcciones`,
+        payload: { etiqueta: 'El depósito', direccion: 'Carrera 8 #1-40' },
+      })
+    ).json()
+
+    return { cliente, direccion }
+  }
+
+  /*
+   * 400 y no 422: el motivo ausente es un problema de FORMA y lo ataja `validar`
+   * — la convención de `lib/http.ts`. El 422 queda para las reglas de negocio
+   * («ya estaba dada de baja»), que es lo que distingue «mandaste mal el pedido»
+   * de «el pedido está bien pero no se puede».
+   *
+   * El servicio lo vuelve a exigir con `MOTIVO_REQUERIDO`, y eso no es
+   * redundante: cubre a quien lo llame desde adentro, sin pasar por la ruta.
+   */
+  it('sin motivo: 400, y la dirección sigue activa', async () => {
+    const { cliente, direccion } = await conDireccion()
+
+    const res = await comoAdmin({
+      method: 'PATCH',
+      url: `/direcciones/${direccion.id}/desactivar`,
+      payload: {},
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('VALIDATION_ERROR')
+
+    const ficha = (await comoAdmin({ method: 'GET', url: `/clientes/${cliente.id}` })).json()
+    expect(ficha.direcciones).toHaveLength(1)
+  })
+
+  it('con motivo: 200, y responde cuántas bases volvieron al parque', async () => {
+    const { cliente, direccion } = await conDireccion()
+    const { darDeAltaBase, prestarBase } = await import('@/modules/retornables/bases')
+    const contexto = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
+    const base = await darDeAltaBase('0001', 'estructura', admin.usuario.id)
+    await prestarBase(base.id, direccion.id, admin.usuario.id, contexto)
+
+    const res = await comoAdmin({
+      method: 'PATCH',
+      url: `/direcciones/${direccion.id}/desactivar`,
+      payload: { motivo: UN_MOTIVO },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().activa).toBe(false)
+    expect(res.json().basesDevueltas).toBe(1)
+
+    /* Y la ficha ya no la lista: `direccionesDe` trae solo las activas. */
+    const ficha = (await comoAdmin({ method: 'GET', url: `/clientes/${cliente.id}` })).json()
+    expect(ficha.direcciones).toHaveLength(0)
+    expect(ficha.saldos.bases).toBe(0)
+  })
+
+  /*
+   * El punto de `auditaLaRuta`: la fila genérica del middleware diría «alguien
+   * con permiso editó algo de un cliente», sin la dirección, sin el motivo y
+   * sin las bases. Con las dos, además, el conteo de la acción daría el doble.
+   */
+  it('deja UNA fila, y es la precisa: no la genérica de `clientes:editar`', async () => {
+    const { direccion } = await conDireccion()
+
+    await comoAdmin({
+      method: 'PATCH',
+      url: `/direcciones/${direccion.id}/desactivar`,
+      payload: { motivo: UN_MOTIVO },
+    })
+
+    const filas = await db.select().from(auditLog).orderBy(desc(auditLog.createdAt))
+    const deLaBaja = filas.filter((f) => f.resourceId === direccion.id && f.result === 'ok')
+
+    expect(deLaBaja).toHaveLength(1)
+    expect(deLaBaja[0]!.action).toBe('clientes:dar_de_baja_direccion')
+  })
+
+  /*
+   * El modal de `web/` pregunta antes de una operación que mueve un activo, así
+   * que tiene que poder decir CUÁNTAS bases se van a devolver. El número sale de
+   * `basesPrestadasEn` —la misma consulta que ejecuta la devolución—, no de una
+   * copia: con dos consultas distintas, la pantalla puede decir «ninguna»
+   * mientras la transacción devuelve tres.
+   */
+  it('la ficha dice cuántas bases tiene cada dirección', async () => {
+    const { cliente, direccion } = await conDireccion()
+    const segunda = (
+      await comoAdmin({
+        method: 'POST',
+        url: `/clientes/${cliente.id}/direcciones`,
+        payload: { etiqueta: 'La casa', direccion: 'Calle 5 #3-20' },
+      })
+    ).json()
+
+    const { darDeAltaBase, prestarBase } = await import('@/modules/retornables/bases')
+    const contexto = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
+
+    const base = await darDeAltaBase('0001', 'estructura', admin.usuario.id)
+    await prestarBase(base.id, direccion.id, admin.usuario.id, contexto)
+
+    const ficha = (await comoAdmin({ method: 'GET', url: `/clientes/${cliente.id}` })).json()
+    const porEtiqueta = Object.fromEntries(
+      ficha.direcciones.map((d: { etiqueta: string; basesPrestadas: number }) => [
+        d.etiqueta,
+        d.basesPrestadas,
+      ]),
+    )
+
+    expect(porEtiqueta['El depósito']).toBe(1)
+    expect(porEtiqueta['La casa']).toBe(0)
+    expect(segunda.etiqueta).toBe('La casa')
+  })
+})

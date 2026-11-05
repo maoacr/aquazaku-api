@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { LARGO_MINIMO_MOTIVO } from '@/lib/motivos'
 
 /**
  * Esquemas de clientes — M5.
@@ -149,6 +150,26 @@ export const esquemaDeCredito = z.object({
   habilitado: z.boolean(),
   /** `null` explícito es «sin tope». Omitirlo conserva el que estaba. */
   limite: z.number().positive('un límite de cero o menos no es un límite').nullable().optional(),
+})
+
+/**
+ * Dar de baja una dirección exige motivo — RN-BAS-04.
+ *
+ * No es la misma operación que editarla: puede devolver bases al parque, y ese
+ * movimiento tiene que quedar explicado en el libro. El piso es el mismo que
+ * descartar una base o anular una venta.
+ *
+ * `LARGO_MINIMO_MOTIVO` y no un `10` escrito acá: la convención es transversal
+ * y el día que suba, tiene que subir en un solo lugar.
+ */
+export const esquemaDeBajaDeDireccion = z.object({
+  motivo: z
+    .string()
+    .trim()
+    .min(
+      LARGO_MINIMO_MOTIVO,
+      'dar de baja una dirección necesita un motivo: puede devolver bases al parque',
+    ),
 })
 
 export const esquemaDeReversion = z.object({

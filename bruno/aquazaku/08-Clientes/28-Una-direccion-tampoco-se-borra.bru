@@ -6,7 +6,13 @@ meta {
 
 patch {
   url: {{baseUrl}}/direcciones/{{direccionId}}/desactivar
-  body: none
+  body: json
+}
+
+body:json {
+  {
+    "motivo": "el cliente devolvió el equipo de ese local"
+  }
 }
 
 docs {
@@ -23,6 +29,15 @@ docs {
   Ojo con el nombre del campo: las direcciones usan `activa` y los teléfonos
   `activo`. No es un descuido, es concordancia — pero el que escribe el test
   tropieza igual.
+
+  **Pero la base que está ahí HOY vuelve al parque** (RN-BAS-04). La dirección
+  queda en pie para el historial; la base no se queda colgada de ella. Antes sí:
+  conservaba el `direccion_id` de una puerta inactiva, así que no estaba en
+  bodega —`disponibilidadDeBases` cuenta las que no tienen dirección— ni en una
+  dirección a la que ir a reclamarla. Había que retornarla a mano.
+
+  Por eso ahora exige `motivo`, como todo lo que mueve un activo, y responde
+  `basesDevueltas`. Sin cuerpo devuelve 400: la forma la ataja `validar`.
 }
 
 tests {
@@ -33,5 +48,14 @@ tests {
   test("queda apagada, no borrada", function() {
     expect(res.getBody().activa).to.equal(false);
     expect(res.getBody().id).to.equal(bru.getVar("direccionId"));
+  });
+
+  /*
+   * El conteo viaja de vuelta aunque sea cero: es lo que la pantalla usa para
+   * decir qué se movió. Un campo ausente se lee como «ninguna» —y acá, en esta
+   * dirección, de verdad no había ninguna.
+   */
+  test("responde cuántas bases volvieron al parque", function() {
+    expect(res.getBody().basesDevueltas).to.be.a("number");
   });
 }
