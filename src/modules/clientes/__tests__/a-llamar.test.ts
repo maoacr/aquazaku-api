@@ -4,13 +4,18 @@ import { closeDb, db } from '@/db/client'
 import {
   clientes,
   direcciones,
+  seguimientosOcultos,
   lineasDeVenta,
   parametros,
   productos,
   telefonos,
   ventas,
 } from '@/db/schema'
-import { clientesALlamar } from '@/modules/clientes/a-llamar'
+import {
+  clientesALlamar,
+  mostrarEnSeguimientos,
+  ocultarDeSeguimientos,
+} from '@/modules/clientes/a-llamar'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
 
@@ -35,6 +40,8 @@ import { resetDb } from '@/test/db'
  */
 
 const HOY = '2026-09-10'
+
+const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' }
 
 let residencial: string
 let comercial: string
@@ -838,5 +845,261 @@ describe('cuando la venta vieja recibe su dirección', () => {
       ventaSinDireccion: false,
       urgencia: 'al-dia',
     })
+  })
+})
+
+/**
+ * Sacar una fila de la lista, a mano — RN-CLI-18.
+ *
+ * ── Por qué existe ──────────────────────────────────────────────────────────
+ *
+ * La lista es el padrón completo: entra todo el que alguna vez compró. Eso es a
+ * propósito —antes filtraba por umbral y la única forma de ver a un cliente era
+ * que estuviera atrasado— pero deja filas que la operación sabe que no hay que
+ * llamar: el que avisó que se muda, el local que cerró, el evento de una vez.
+ *
+ * ── Lo que estos tests protegen ─────────────────────────────────────────────
+ *
+ * Que ocultar sea REVERSIBLE por sí solo. La regla es que una venta nueva
+ * devuelve la fila a la lista, y se cumple comparando fechas en vez de apagando
+ * un booleano. Si eso se rompe, un cliente queda invisible para siempre — y un
+ * cliente invisible acá es un cliente al que nadie va a llamar nunca.
+ *
+ * Y que la unidad sea la FILA. Ocultar la casa no puede ocultar el local, ni
+ * ocultar en botellones puede ocultar en otros: son relojes distintos, y
+ * mezclarlos desarmaría la razón de ser de esta pantalla.
+ */
+describe('ocultar una fila a mano', () => {
+  it('la saca de la lista', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+  })
+
+  it('no borra nada del cliente: sigue entero', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    const [cliente] = await db.select().from(clientes).where(eq(clientes.id, residencial))
+    const [direccion] = await db.select().from(direcciones).where(eq(direcciones.id, casa))
+
+    expect(cliente!.activo).toBe(true)
+    expect(direccion!.activa).toBe(true)
+  })
+
+  it('ocultar en botellones NO la oculta en otros: son dos relojes', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 18, direccionId: casa, productos: ['paca'] })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    const lista = await clientesALlamar(HOY)
+
+    expect(lista.botellones).toHaveLength(0)
+    expect(lista.otros).toHaveLength(1)
+  })
+
+  it('ocultar la casa NO oculta el local: la unidad es la fila', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    const local = await direccionNueva(residencial, 'el local')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 15, direccionId: local })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    const visibles = (await clientesALlamar(HOY)).botellones
+
+    expect(visibles).toHaveLength(1)
+    expect(visibles[0]!.etiqueta).toBe('el local')
+  })
+
+  /*
+   * La fila sin dirección es la de las ventas anteriores a la 0022. Se oculta
+   * con `direccionId: null`, y por eso el UNIQUE lleva `NULLS NOT DISTINCT`:
+   * sin eso, Postgres trataría cada null como distinto y el UPSERT duplicaría.
+   */
+  it('la fila SIN dirección también se puede ocultar', async () => {
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: null })
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: null, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+  })
+})
+
+/**
+ * Mueve el ocultamiento al reloj FICTICIO de este archivo.
+ *
+ * `ocultarDeSeguimientos` sella con el instante real, igual que en producción.
+ * Pero las ventas de este suite viven en `HOY` —una fecha fija, meses atrás— así
+ * que sin alinear los dos relojes CUALQUIER venta de acá es anterior al
+ * ocultamiento, y la regla «una venta nueva la devuelve» quedaría imposible de
+ * probar: el test fallaría por el calendario y no por el código.
+ *
+ * En producción no hace falta nada de esto: ocultar y vender usan el mismo
+ * reloj, así que una venta posterior es posterior.
+ */
+async function ocultadoALas(hora: string) {
+  await db.update(seguimientosOcultos).set({ ocultadoEn: new Date(`${HOY}T${hora}Z`) })
+}
+
+describe('una venta nueva la devuelve a la lista', () => {
+  /*
+   * El constraint que pidió la operación, y la razón de que `ocultado_en` sea
+   * una fecha y no un booleano: no hay nada que apagar.
+   */
+  it('reaparece sola, sin que nadie la muestre', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+    /* Se ocultó a las 06:00; la compra de hoy entra a las 12:00. */
+    await ocultadoALas('06:00:00')
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+
+    await comprar({ cliente: residencial, haceDias: 0, direccionId: casa })
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
+  })
+
+  it('una venta ANTERIOR al ocultamiento no la devuelve: ya estaba contada', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 30, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+  })
+
+  it('volver a ocultar después de la venta nueva la saca otra vez', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    const fila = { clienteId: residencial, direccionId: casa, canal: 'botellones' as const }
+
+    await ocultarDeSeguimientos(fila, null, UN_CONTEXTO)
+    await ocultadoALas('06:00:00')
+    await comprar({ cliente: residencial, haceDias: 0, direccionId: casa })
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
+
+    /* El segundo ocultamiento sella DESPUÉS de esa venta: vuelve a salir. */
+    await ocultarDeSeguimientos(fila, null, UN_CONTEXTO)
+    await ocultadoALas('18:00:00')
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+  })
+
+  /*
+   * El UNIQUE convierte el segundo ocultamiento en un UPSERT. Sin él serían dos
+   * filas, y «cuál vale» pasaría a depender del orden de lectura.
+   */
+  it('ocultar dos veces deja UNA fila, con la fecha movida', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    const fila = { clienteId: residencial, direccionId: casa, canal: 'botellones' as const }
+
+    await ocultarDeSeguimientos(fila, null, UN_CONTEXTO)
+    const [primera] = await db.select().from(seguimientosOcultos)
+
+    await ocultarDeSeguimientos(fila, null, UN_CONTEXTO)
+    const todas = await db.select().from(seguimientosOcultos)
+
+    expect(todas).toHaveLength(1)
+    expect(todas[0]!.ocultadoEn.getTime()).toBeGreaterThanOrEqual(primera!.ocultadoEn.getTime())
+  })
+})
+
+describe('volver a mostrarla a mano', () => {
+  it('la devuelve a la lista sin esperar una venta', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    const fila = { clienteId: residencial, direccionId: casa, canal: 'botellones' as const }
+
+    await ocultarDeSeguimientos(fila, null, UN_CONTEXTO)
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(0)
+
+    await mostrarEnSeguimientos(fila, UN_CONTEXTO)
+
+    expect((await clientesALlamar(HOY)).botellones).toHaveLength(1)
+  })
+
+  it('no deja el registro atrás: mostrar borra la fila de la tabla', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    const fila = { clienteId: residencial, direccionId: casa, canal: 'botellones' as const }
+
+    await ocultarDeSeguimientos(fila, null, UN_CONTEXTO)
+    await mostrarEnSeguimientos(fila, UN_CONTEXTO)
+
+    expect(await db.select().from(seguimientosOcultos)).toHaveLength(0)
+  })
+})
+
+describe('cuántas hay ocultas, y cuáles', () => {
+  /*
+   * El conteo va en el payload porque la pantalla lo necesita para decidir si
+   * ofrecer «mostrar ocultas». Y tiene que contar por canal: el botón vive en
+   * una pestaña.
+   */
+  it('el conteo viaja por canal', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 18, direccionId: casa, productos: ['paca'] })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    const lista = await clientesALlamar(HOY)
+
+    expect(lista.ocultas).toEqual({ botellones: 1, otros: 0 })
+  })
+
+  it('sin nada oculto, el conteo es cero y no undefined', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    expect((await clientesALlamar(HOY)).ocultas).toEqual({ botellones: 0, otros: 0 })
+  })
+
+  it('pedidas aparte, vienen SOLO las ocultas y con su fecha', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    const local = await direccionNueva(residencial, 'el local')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+    await comprar({ cliente: residencial, haceDias: 15, direccionId: local })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+
+    const soloOcultas = (await clientesALlamar(HOY, { soloOcultas: true })).botellones
+
+    expect(soloOcultas).toHaveLength(1)
+    expect(soloOcultas[0]!.etiqueta).toBe('la casa')
+    expect(soloOcultas[0]!.ocultadaEn).not.toBeNull()
+  })
+
+  it('una oculta que ya reapareció por una venta NO figura como oculta', async () => {
+    const casa = await direccionNueva(residencial, 'la casa')
+    await comprar({ cliente: residencial, haceDias: 20, direccionId: casa })
+
+    await ocultarDeSeguimientos({ clienteId: residencial, direccionId: casa, canal: 'botellones' }, null, UN_CONTEXTO)
+    await ocultadoALas('06:00:00')
+    await comprar({ cliente: residencial, haceDias: 0, direccionId: casa })
+
+    const lista = await clientesALlamar(HOY)
+
+    expect(lista.ocultas).toEqual({ botellones: 0, otros: 0 })
+    expect((await clientesALlamar(HOY, { soloOcultas: true })).botellones).toHaveLength(0)
   })
 })
