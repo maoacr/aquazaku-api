@@ -9,7 +9,7 @@ import { clientesALlamar, mostrarEnSeguimientos, ocultarDeSeguimientos } from '.
 import { configurarCredito } from './credito'
 import {
   agregarDireccion,
-  desactivarDireccion,
+  desactivarDireccionConReversion,
   direccionesDe,
   editarDireccion,
 } from './direcciones'
@@ -28,14 +28,15 @@ import {
 } from './service'
 import {
   esquemaDeAlta,
+  esquemaDeBajaDeDireccion,
   esquemaDeCredito,
   esquemaDeDesactivacion,
   esquemaDeDireccion,
-  esquemaDeTelefono,
   esquemaDeEdicion,
   esquemaDeEstado,
   esquemaDeFilaDeSeguimiento,
   esquemaDeReversion,
+  esquemaDeTelefono,
 } from './validation'
 import { revertirVerificacion, verificarDocumento } from './verificacion'
 import { hoyEnLaPlanta } from '@/lib/dia'
@@ -604,18 +605,44 @@ export async function clientesRoutes(app: FastifyInstance): Promise<void> {
     },
   )
 
+  /**
+   * Dar de baja una dirección — RN-CLI-07 + RN-BAS-04.
+   *
+   * Devuelve al parque las bases prestadas ahí, con su movimiento de retorno y
+   * el motivo. Antes solo escribía `activa = false` y la base quedaba colgada de
+   * una puerta que ya no existe — fuera del parque disponible y sin retorno en
+   * el libro.
+   *
+   * `auditaLaRuta: true` apaga la fila genérica del middleware, que diría
+   * «alguien editó algo de un cliente». El servicio escribe
+   * `clientes:dar_de_baja_direccion` con la etiqueta, el motivo y cuántas bases
+   * volvieron, en la misma transacción que las devuelve.
+   */
   app.patch(
     '/direcciones/:id/desactivar',
     {
-      preHandler: [requireAuth, requirePermission('clientes', 'editar')],
+      preHandler: [
+        requireAuth,
+        requirePermission('clientes', 'editar', { auditaLaRuta: true }),
+      ],
     },
     async (req, reply) => {
       const { id } = req.params as { id: string }
+      const datos = validar(esquemaDeBajaDeDireccion, req.body, reply)
+      if (!datos) return
 
       try {
-        return await desactivarDireccion(id)
+        const resultado = await desactivarDireccionConReversion(id, datos.motivo, {
+          userId: req.user?.id ?? null,
+          rolEjercido: req.user?.roles ?? [],
+          requestId: String(req.id),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+        })
+
+        return { ...resultado.direccion, basesDevueltas: resultado.basesDevueltas }
       } catch (err) {
-        return manejarError(err, req, reply, 'clientes:editar', id)
+        return manejarError(err, req, reply, 'clientes:dar_de_baja_direccion', id)
       }
     },
   )

@@ -43,8 +43,18 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
    * a la señora Gómez y volvieron 2 bases y 8 botellones» se lee de la fila, sin
    * cruzar `movimientos_base` con `movimientos_botellon`.
    */
+  /*
+   * DOS rutas comparten este permiso y las dos emiten su propia fila, con
+   * nombres de acción distintos porque son hechos distintos:
+   * `clientes:desactivar` (el cliente entero) y
+   * `clientes:dar_de_baja_direccion` (una de sus puertas).
+   *
+   * La clave de esta lista es `módulo → acción` del PERMISO, así que agregar la
+   * segunda ruta no movió el set y este test no se habría enterado. Queda
+   * escrito acá para que la próxima lectura no dé por cubierto lo que no mire.
+   */
   'clientes → clientes:editar':
-    'clientes/routes.ts — emite `clientes:desactivar` con el motivo y los conteos devueltos',
+    'clientes/routes.ts — emite `clientes:desactivar` con el motivo y los conteos devueltos, y `clientes:dar_de_baja_direccion` (en clientes/direcciones.ts) con la etiqueta, el motivo y las bases que volvieron al parque',
   /*
    * Comprar y ajustar comparten el permiso, así que comparten el nombre de la
    * acción. Las separa `operacion` en el payload: una compra suma parque, un

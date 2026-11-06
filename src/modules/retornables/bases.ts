@@ -626,6 +626,27 @@ export async function basesPrestadasA(
 }
 
 /**
+ * Las bases prestadas a UNA dirección — RN-BAS-04.
+ *
+ * La hermana de `basesPrestadasA`, una puerta en vez de un cliente. La usan la
+ * baja de la dirección (para devolverlas al parque) y la ficha del cliente
+ * (para decir cuántas van a volver antes de que el operador confirme).
+ *
+ * Que las dos salgan de acá es el punto: el número que la pantalla LEE y el que
+ * la baja EJECUTA tienen que ser el mismo. Con dos consultas distintas, el
+ * modal puede decir «ninguna» mientras la transacción devuelve tres.
+ */
+export async function basesPrestadasEn(
+  direccionId: string,
+  ejecutor: Ejecutor = db,
+): Promise<{ id: string; idSticker: string }[]> {
+  return ejecutor
+    .select({ id: bases.id, idSticker: bases.idSticker })
+    .from(bases)
+    .where(eq(bases.direccionId, direccionId))
+}
+
+/**
  * Un movimiento con el lugar ya dicho en palabras.
  *
  * El `direccionId` solo sirve para quien tenga el padrón entero a mano. La
