@@ -147,6 +147,29 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
     'produccion/agua.ts — emite con el delta CON SIGNO, el motivo y el saldo que quedó, en la transacción del ajuste',
   'proveedores → compras:crear':
     'proveedores/compras.ts — emite el registro y el pago separados por `operacion`, cada uno en su transacción; la consulta de lo vencido se exime por ser lectura',
+  /*
+   * ── M16 · Gastos y tesorería ───────────────────────────────────────────────
+   *
+   * TRES rutas comparten `gastos:crear` —egreso, ingreso y saldo inicial— y las
+   * tres emiten su propia fila. Lo que las distingue en la bitácora es
+   * `operacion`, igual que `compras:crear` separa la compra de su pago.
+   *
+   * Y las cuatro filas llevan `saldoResultante`, que es el dato por el que se va
+   * a leer esta bitácora: sin él dice que la plata se movió pero no contra qué
+   * saldo, y reconstruir un descuadre exige volver a sumar el libro entero
+   * hasta esa fecha.
+   */
+  'gastos → gastos:crear':
+    'gastos/libro.ts — emite con la cuenta, el monto, el concepto y el saldo resultante, separando egreso, ingreso y saldo inicial por `operacion`',
+  'gastos → gastos:anular':
+    'gastos/libro.ts — emite con el motivo, el efecto que revirtió y el saldo resultante, en la transacción que anula',
+  'gastos → cuentas:crear':
+    'gastos/cuentas.ts — emite con el nombre, el banco, el número y el tipo de cuenta',
+  /* Activar y desactivar son la misma ruta con distinto valor: el payload dice
+   * en cuál quedó. El permiso de la ruta es `desactivar` —el sentido que
+   * esconde la cuenta— y la acción de la fila sigue al sentido real. */
+  'gastos → cuentas:desactivar':
+    'gastos/cuentas.ts — emite `cuentas:desactivar` o `cuentas:editar` según el sentido, con el estado en que quedó',
   'proveedores → proveedores:crear':
     'proveedores/service.ts — emite con el nombre, el NIT y el contacto, en la transacción del alta',
   /* Activar y desactivar son la misma ruta con distinto valor (RN-PRO-01): el

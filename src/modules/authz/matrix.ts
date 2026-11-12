@@ -30,6 +30,8 @@ export type Resource =
   | 'tanques'
   | 'proveedores'
   | 'compras'
+  | 'gastos'
+  | 'cuentas'
   | 'rutas'
   | 'productos'
   | 'usuarios'
@@ -181,6 +183,30 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'proveedores', action: 'editar', scope: 'todo' },
     { resource: 'compras', action: 'crear', scope: 'todo' },
     { resource: 'compras', action: 'recibir', scope: 'todo' },
+
+    /*
+     * ── M16 · Gastos y tesorería ───────────────────────────────────────────
+     *
+     * Solo `admin`, y es una decisión, no un olvido. Un movimiento de dinero no
+     * tiene contraparte física que lo delate: un insumo mal cargado se ve en el
+     * conteo del estante, un gasto mal cargado solo se ve conciliando. Mientras
+     * el único control sea la bitácora, quien puede mover plata es quien ya
+     * responde por ella.
+     *
+     * `crear` cubre el libro entero —egreso, ingreso y saldo inicial— y la
+     * bitácora los distingue por `operacion`, igual que `compras:crear` separa
+     * la compra de su pago. Si mañana un ingreso necesita otro permiso, ahí se
+     * parte el recurso.
+     */
+    { resource: 'gastos', action: 'ver', scope: 'todo' },
+    { resource: 'gastos', action: 'crear', scope: 'todo' },
+    { resource: 'gastos', action: 'anular', scope: 'todo' },
+
+    /* Las cuentas son configuración del negocio, no una operación del día. */
+    { resource: 'cuentas', action: 'ver', scope: 'todo' },
+    { resource: 'cuentas', action: 'crear', scope: 'todo' },
+    { resource: 'cuentas', action: 'editar', scope: 'todo' },
+    { resource: 'cuentas', action: 'desactivar', scope: 'todo' },
 
     { resource: 'rutas', action: 'ver', scope: 'todo' },
     { resource: 'rutas', action: 'abrir', scope: 'todo' },

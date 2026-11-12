@@ -52,6 +52,25 @@ const MODULOS = join(import.meta.dirname, '../..')
  */
 const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string[]; nota: string }> =
   {
+    /*
+     * ── M16 · Gastos y tesorería ───────────────────────────────────────────
+     *
+     * Los dos emiten DENTRO de la transacción que escribe el cambio. En un
+     * libro de dinero eso no es una preferencia: si la fila de la bitácora
+     * sobreviviera a un rollback, quedaría registrado un gasto que nunca movió
+     * el saldo — y como el saldo ES la suma del libro (RN-GAS-01), la bitácora
+     * y la plata contarían historias distintas del mismo día.
+     */
+    'gastos/libro.ts': {
+      transaccional: true,
+      acciones: ['gastos:crear', 'gastos:anular'],
+      nota: 'el egreso, el ingreso y el saldo inicial comparten `gastos:crear` y se distinguen por `payload.operacion` —igual que `compras:crear` con el pago—; las cuatro filas llevan el saldo resultante, que es el número con el que se reconstruye un descuadre',
+    },
+    'gastos/cuentas.ts': {
+      transaccional: true,
+      acciones: ['cuentas:crear', 'cuentas:editar', 'cuentas:desactivar'],
+      nota: 'el alta emite en la transacción del INSERT; activar y desactivar comparten ruta y la fila dice a qué estado quedó, porque desactivar esconde una cuenta del total del negocio',
+    },
     'clientes/a-llamar.ts': {
       transaccional: true,
       acciones: ['clientes:ocultar_seguimiento'],
