@@ -2184,3 +2184,369 @@ export const seguimientosOcultos = pgTable(
     index('seguimientos_ocultos_canal_idx').on(t.canal, t.clienteId),
   ],
 )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Gastos y tesorería — M16
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Dónde vive la plata — M16.
+ *
+ * Las dos cajas son físicas y hay una sola de cada una (lo garantiza un índice
+ * parcial). Los bancos son N: una fila por cuenta, con su número, porque el
+ * número es lo que permite cotejar contra el extracto que manda el banco.
+ */
+export const tipoDeCuentaDeDineroEnum = pgEnum('tipo_de_cuenta_de_dinero', [
+  'caja_menor', // el efectivo del día a día
+  'caja_mayor', // el efectivo que no se toca para gastos chicos
+  'banco', // una cuenta bancaria
+])
+
+export const tipoDeCuentaBancariaEnum = pgEnum('tipo_de_cuenta_bancaria', ['ahorros', 'corriente'])
+
+/**
+ * Cómo se mueve la plata — M16.
+ *
+ * ── El signo lo da el tipo, no una columna ──────────────────────────────────
+ *
+ * Cada valor de este enum tiene UN signo y no puede tener otro. Por eso un
+ * faltante de arqueo es un tipo distinto de un sobrante, en vez de un `ajuste`
+ * con monto negativo: así `efecto` se puede generar desde el tipo y es imposible
+ * que un movimiento diga «entra» y reste.
+ *
+ * ── Los cuatro valores que todavía nadie escribe ────────────────────────────
+ *
+ * `traslado_*` y `*_de_arqueo` están declarados desde el primer día aunque el
+ * tramo 1 no tenga ruta que los produzca. No es especulación: `efecto` es una
+ * columna GENERATED cuya expresión enumera los tipos negativos, y agregarle un
+ * valor después obliga a reconstruir la columna sobre una tabla con historia.
+ * Declararlos hoy cuesta cuatro renglones y deja el tramo 2 puramente aditivo
+ * — el mismo argumento por el que `medio_de_pago` nació con `credito`.
+ */
+export const tipoMovimientoDineroEnum = pgEnum('tipo_movimiento_dinero', [
+  'saldo_inicial', // + la plata que ya había cuando la cuenta entró al sistema
+  'ingreso', // + entra plata
+  'egreso', // − sale plata: el gasto
+  'traslado_salida', // − sale de esta cuenta hacia otra
+  'traslado_entrada', // + entra a esta cuenta desde otra
+  'sobrante_de_arqueo', // + se contó más de lo que dice el libro
+  'faltante_de_arqueo', // − se contó menos de lo que dice el libro
+])
+
+/**
+ * Qué se pagó — M16.
+ *
+ * ── Es un HECHO, no una clasificación contable ──────────────────────────────
+ *
+ * Estos valores contestan «qué compré», que es lo que sabe quien registra el
+ * gasto. NO contestan «es costo, gasto o activo fijo»: esa respuesta la da una
+ * contadora, cambia según el umbral de capitalización, y grabarla en un
+ * `pg_enum` la congelaría. Vive en `clasificacion`, que nace en `NULL`.
+ *
+ * ── Lo que NO está, y por qué el doble conteo es imposible ──────────────────
+ *
+ * No hay `insumo`, ni `base`, ni `botellon`. Esos tres ya tienen su camino: una
+ * compra a proveedor (M9) escribe el documento y mueve el inventario en la misma
+ * transacción. Si se pudieran registrar también como egreso, el mes se contaría
+ * dos veces — y no por descuido, sino porque sería la forma natural de hacerlo.
+ *
+ * Generalizada, la regla de `lineas_compra_una_sola_cosa` dice: **lo que mueve
+ * inventario es una compra; lo que no mueve nada es un egreso. Nunca las dos.**
+ * Al no existir el valor, no hay dónde escribir el duplicado.
+ */
+export const tipoDeEgresoEnum = pgEnum('tipo_de_egreso', [
+  'recibo_publico', // agua, luz, gas, internet
+  'arriendo',
+  'nomina',
+  'software', // hosting, licencias, SaaS
+  'servicio', // desarrollo, contrataciones, mano de obra
+  'repuesto', // de la planta de tratamiento
+  'mantenimiento', // de la planta y de los equipos
+  'litografia', // facturas, stickers, publicidad, banners
+  'impuesto',
+  'equipo', // tecnológicos
+  'mueble', // para la planta y la oficina
+  'transporte', // combustible, fletes, domicilios
+  /*
+   * Cuota de manejo, 4x1000, costo de transferencia. Tipo propio y no `otro`
+   * porque es la razón número uno por la que una cuenta bancaria no cuadra
+   * contra el extracto: son débitos que el banco hace solo y que nadie registra.
+   */
+  'comision_bancaria',
+  /*
+   * Queda para revisión del admin, igual que `causa_descarte.otro`. Existe
+   * porque la alternativa es peor: sin un lugar donde caiga lo que no encaja,
+   * el gasto no se registra, y entonces la caja deja de cuadrar contra la plata
+   * física. Un gasto mal clasificado se corrige; uno que falta no se descubre.
+   */
+  'otro',
+])
+
+/** De dónde vino la plata que entró — M16. */
+export const tipoDeIngresoEnum = pgEnum('tipo_de_ingreso', [
+  'aporte_socio',
+  'prestamo',
+  /*
+   * El efectivo de las ventas cuando se mete a la caja.
+   *
+   * Es un registro de tesorería y NO toca M6: la venta ya quedó escrita cuando
+   * ocurrió, y esto dice en qué cuenta aterrizó la plata, que es un hecho
+   * distinto y posterior. Por eso el libro de dinero y el extracto del contador
+   * son dos libros: uno cuenta documentos, el otro cuenta plata.
+   */
+  'recaudo_de_ventas',
+  'devolucion_de_proveedor',
+  'otro',
+])
+
+/**
+ * Costo, gasto o activo fijo — M16, y nace en `NULL`.
+ *
+ * El hueco se registra en vez de inventarse. Clasificar depende del umbral de
+ * capitalización y de quién lleve la contabilidad; registrar el hecho no depende
+ * de nadie. Separarlos es lo que permite que el módulo funcione hoy.
+ */
+export const clasificacionDeEgresoEnum = pgEnum('clasificacion_de_egreso', [
+  'costo',
+  'gasto',
+  'activo_fijo',
+])
+
+/**
+ * Una cuenta donde vive plata — M16.
+ *
+ * No se borra: se desactiva. Su historial de movimientos sigue apuntándole, y
+ * borrarla dejaría el libro sin explicar de dónde salió un peso.
+ */
+export const cuentasDeDinero = pgTable(
+  'cuentas_de_dinero',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    nombre: text('nombre').notNull(),
+    tipo: tipoDeCuentaDeDineroEnum('tipo').notNull(),
+
+    /** Los tres van juntos y solo en las bancarias. Ver el CHECK. */
+    banco: text('banco'),
+    numero: text('numero'),
+    tipoDeCuentaBancaria: tipoDeCuentaBancariaEnum('tipo_de_cuenta_bancaria'),
+
+    activa: boolean('activa').notNull().default(true),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    check('cuentas_dinero_nombre_no_vacio', sql`length(btrim(${t.nombre})) > 0`),
+    /*
+     * Los datos del banco viajan juntos, en los dos sentidos. Una cuenta
+     * bancaria sin número no se puede cotejar con el extracto; una caja con
+     * banco es un dato que miente sobre dónde está la plata.
+     */
+    check(
+      'cuentas_dinero_banco_con_sus_datos',
+      sql`(${t.tipo} = 'banco') = (${t.banco} IS NOT NULL AND ${t.numero} IS NOT NULL AND ${t.tipoDeCuentaBancaria} IS NOT NULL)`,
+    ),
+    /*
+     * Una sola caja menor y una sola caja mayor activas. Dos cajas menores no
+     * son dos cajas: son la misma registrada dos veces, y el efectivo queda
+     * partido entre las dos sin que nadie sepa cuál mirar. Los bancos no tienen
+     * tope: cada cuenta real es una fila.
+     */
+    uniqueIndex('cuentas_dinero_una_sola_caja_por_tipo')
+      .on(t.tipo)
+      .where(sql`${t.tipo} IN ('caja_menor', 'caja_mayor') AND ${t.activa}`),
+    /* Dos cuentas con el mismo nombre parten el historial entre las dos. */
+    uniqueIndex('cuentas_dinero_nombre_idx')
+      .on(sql`lower(btrim(${t.nombre}))`)
+      .where(sql`${t.activa}`),
+  ],
+)
+
+/**
+ * El libro de dinero — M16. Todo peso que entra o sale pasa por acá.
+ *
+ * ── Por qué un libro único y no una tabla por documento ─────────────────────
+ *
+ * Si los gastos vivieran en una tabla, los traslados en otra y los ingresos en
+ * otra, el saldo de una cuenta sería la suma de N tablas. El día que alguien
+ * agregue la tabla N+1 y se olvide de sumarla, la caja descuadra **y nada
+ * falla**: la consulta sigue devolviendo un número, solo que el equivocado. Es
+ * el mismo modo de falla que el array de tipos de `mensual.ts`.
+ *
+ * Con un libro único, la única forma de mover plata es escribir una fila acá.
+ * Un documento nuevo no puede quedar afuera del saldo porque no tiene dónde
+ * existir afuera del libro. Es la ley de conservación de los botellones
+ * aplicada al dinero.
+ *
+ * ── El saldo no existe como dato ────────────────────────────────────────────
+ *
+ * `saldo(cuenta) = SUM(efecto)`. Sin columna, por ADR-0008: nadie se pelea por
+ * el último peso de la caja —los egresos de una misma cuenta los registra una
+ * persona, de a uno—, así que no hace falta descontar atómicamente. Y el premio
+ * es grande: anular un gasto revierte el saldo **sin escribir en ninguna otra
+ * tabla**, así que no puede quedar a medias. El sobregiro lo frena el servicio
+ * con un `FOR UPDATE` sobre la cuenta, que serializa sin materializar nada.
+ *
+ * ── Un egreso ES un movimiento, no un documento aparte ──────────────────────
+ *
+ * Un gasto no tiene líneas: no mueve inventario (si lo moviera sería una compra,
+ * M9). Entonces no hay nada que una tabla `egresos` agregaría más que una
+ * segunda copia del monto que habría que mantener de acuerdo con esta. El
+ * contexto del gasto —qué fue, a quién, con qué factura— son columnas de la
+ * fila, con sus CHECK para que no aparezcan donde no corresponden.
+ */
+export const movimientosDeDinero = pgTable(
+  'movimientos_de_dinero',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+
+    cuentaId: uuid('cuenta_id')
+      .notNull()
+      .references(() => cuentasDeDinero.id, { onDelete: 'restrict' }),
+
+    tipo: tipoMovimientoDineroEnum('tipo').notNull(),
+
+    /** Siempre POSITIVO. El signo lo pone `efecto` desde el tipo. */
+    monto: numeric('monto', { precision: 12, scale: 2 }).notNull(),
+
+    /**
+     * Cuánto mueve el saldo, con signo — columna generada.
+     *
+     * Es el mecanismo del ADR-0006 para que un derivado no pueda
+     * desincronizarse: el signo no se guarda, se deduce del tipo, y no hay forma
+     * de escribir una fila donde los dos se contradigan.
+     *
+     * Y `anulado` entra en la expresión a propósito: anular pone el efecto en
+     * cero, así que el movimiento sale del saldo por aritmética. Nada que
+     * revertir, nada que recordar, nada que pueda quedar a medias.
+     */
+    efecto: numeric('efecto', { precision: 12, scale: 2 }).generatedAlwaysAs(
+      sql`CASE
+        WHEN anulado THEN 0
+        WHEN tipo IN ('egreso', 'traslado_salida', 'faltante_de_arqueo') THEN -monto
+        ELSE monto
+      END`,
+    ),
+
+    /**
+     * Cuándo OCURRIÓ, que no es cuándo se registró — convención de hechos.
+     *
+     * Un recibo se paga el martes y se carga el viernes. El reporte del mes y el
+     * arqueo se leen por esta fecha; `created_at` dice cuándo entró al sistema y
+     * sirve para auditar, no para contar.
+     */
+    ocurridoEl: date('ocurrido_el').notNull(),
+
+    /** Qué fue, en palabras. Es lo que se lee en la lista. */
+    concepto: text('concepto').notNull(),
+
+    /* ── Contexto del egreso. Los CHECK impiden que aparezca en otro tipo ── */
+    tipoDeEgreso: tipoDeEgresoEnum('tipo_de_egreso'),
+    /** A quién se le pagó, cuando es un proveedor ya registrado. Opcional. */
+    proveedorId: uuid('proveedor_id').references(() => proveedores.id, { onDelete: 'restrict' }),
+    /** A quién se le pagó cuando no es un proveedor del sistema. */
+    beneficiario: text('beneficiario'),
+    /**
+     * El número de la factura, no un archivo.
+     *
+     * El sistema no guarda archivos todavía, y construir almacenamiento es otro
+     * módulo. El número es lo que de verdad sirve para cotejar contra el papel y
+     * para que no se pague dos veces el mismo recibo.
+     */
+    numeroDeFactura: text('numero_de_factura'),
+    /** Nace en `NULL`. Ver `clasificacion_de_egreso`. */
+    clasificacion: clasificacionDeEgresoEnum('clasificacion'),
+
+    /* ── Contexto del ingreso ── */
+    tipoDeIngreso: tipoDeIngresoEnum('tipo_de_ingreso'),
+
+    /* ── Contexto del traslado. Lo escribe el tramo 2 ── */
+    /** Agrupa las dos patas del mismo traslado. Sin tabla: son dos filas. */
+    trasladoId: uuid('traslado_id'),
+    /** La cuenta del otro lado, para que la fila se lea sola. */
+    cuentaContraparteId: uuid('cuenta_contraparte_id').references(
+      (): AnyPgColumn => cuentasDeDinero.id,
+      { onDelete: 'restrict' },
+    ),
+
+    /* ── No se edita: se anula con motivo ── */
+    anulado: boolean('anulado').notNull().default(false),
+    motivoAnulacion: text('motivo_anulacion'),
+
+    registradoPor: uuid('registrado_por').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: tstz('created_at').notNull().defaultNow(),
+  },
+  (t) => [
+    /* Un movimiento de cero no es un movimiento. El signo lo da el tipo. */
+    check('movimientos_dinero_monto_positivo', sql`${t.monto} > 0`),
+    check('movimientos_dinero_concepto_no_vacio', sql`length(btrim(${t.concepto})) > 0`),
+
+    /*
+     * Cada tipo trae su contexto y solo el suyo. Un ingreso con `tipo_de_egreso`
+     * se contaría como gasto en el reporte por tipo mientras suma al saldo: dos
+     * lecturas contradictorias de la misma fila.
+     */
+    check(
+      'movimientos_dinero_egreso_con_su_tipo',
+      sql`(${t.tipo} = 'egreso') = (${t.tipoDeEgreso} IS NOT NULL)`,
+    ),
+    check(
+      'movimientos_dinero_ingreso_con_su_tipo',
+      sql`(${t.tipo} = 'ingreso') = (${t.tipoDeIngreso} IS NOT NULL)`,
+    ),
+    /* Proveedor, factura y clasificación son del gasto y de nada más. */
+    check(
+      'movimientos_dinero_datos_de_egreso_solo_en_egresos',
+      sql`${t.tipo} = 'egreso' OR (${t.proveedorId} IS NULL AND ${t.numeroDeFactura} IS NULL AND ${t.clasificacion} IS NULL AND ${t.beneficiario} IS NULL)`,
+    ),
+
+    /*
+     * Las dos mitades del traslado viajan juntas: sin `traslado_id` las patas no
+     * se pueden emparejar, y sin la contraparte la fila no dice de dónde vino.
+     */
+    check(
+      'movimientos_dinero_traslado_con_sus_dos_datos',
+      sql`(${t.tipo} IN ('traslado_salida', 'traslado_entrada')) = (${t.trasladoId} IS NOT NULL AND ${t.cuentaContraparteId} IS NOT NULL)`,
+    ),
+    /* Trasladar plata a la misma cuenta no la mueve: es una fila que miente. */
+    check(
+      'movimientos_dinero_traslado_a_otra_cuenta',
+      sql`${t.cuentaContraparteId} IS NULL OR ${t.cuentaContraparteId} <> ${t.cuentaId}`,
+    ),
+
+    check(
+      'movimientos_dinero_anulacion_con_motivo',
+      sql`${t.anulado} = (${t.motivoAnulacion} IS NOT NULL)`,
+    ),
+
+    /* El saldo se calcula por cuenta: es la consulta más caliente del módulo. */
+    index('movimientos_dinero_por_cuenta_idx').on(t.cuentaId),
+    /* La lista y el reporte del mes se leen por la fecha del hecho. */
+    index('movimientos_dinero_por_fecha_idx').on(t.ocurridoEl),
+    /* Los gastos agrupados por tipo. */
+    index('movimientos_dinero_por_tipo_egreso_idx')
+      .on(t.tipoDeEgreso, t.ocurridoEl)
+      .where(sql`${t.tipoDeEgreso} IS NOT NULL`),
+    /*
+     * Un solo saldo inicial por cuenta.
+     *
+     * Cargarlo dos veces no es un duplicado inofensivo: es la plata del negocio
+     * contada dos veces, y el consolidado queda inflado sin un solo movimiento
+     * falso que lo delate — las dos filas son legítimas por separado.
+     *
+     * `WHERE NOT anulado` y no un índice seco: si el saldo inicial se cargó mal,
+     * se anula y se vuelve a cargar. Lo que no se puede es tener dos vigentes.
+     */
+    uniqueIndex('movimientos_dinero_un_solo_saldo_inicial')
+      .on(t.cuentaId)
+      .where(sql`${t.tipo} = 'saldo_inicial' AND NOT ${t.anulado}`),
+    /*
+     * Una sola pata por cuenta en cada traslado. Sin esto, un reintento podría
+     * escribir dos salidas del mismo traslado y la plata se iría dos veces.
+     */
+    uniqueIndex('movimientos_dinero_una_pata_por_cuenta')
+      .on(t.trasladoId, t.cuentaId)
+      .where(sql`${t.trasladoId} IS NOT NULL`),
+  ],
+)
+
+export type CuentaDeDinero = typeof cuentasDeDinero.$inferSelect
+export type MovimientoDeDinero = typeof movimientosDeDinero.$inferSelect
