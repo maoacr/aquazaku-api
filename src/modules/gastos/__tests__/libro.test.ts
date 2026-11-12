@@ -15,7 +15,7 @@ import {
 import { poolConcurrente, resetDb } from '@/test/db'
 
 /**
- * El libro de dinero — M16.
+ * El libro de dinero — M17.
  *
  * Lo que se prueba acá es que la plata cuadre: que el saldo sea siempre la suma
  * del libro, que ninguna cuenta quede en negativo por ninguna vía, y que anular

@@ -148,7 +148,7 @@ const SE_AUDITAN_SOLAS: Record<string, string> = {
   'proveedores → compras:crear':
     'proveedores/compras.ts — emite el registro y el pago separados por `operacion`, cada uno en su transacción; la consulta de lo vencido se exime por ser lectura',
   /*
-   * ── M16 · Gastos y tesorería ───────────────────────────────────────────────
+   * ── M17 · Gastos y tesorería ───────────────────────────────────────────────
    *
    * TRES rutas comparten `gastos:crear` —egreso, ingreso y saldo inicial— y las
    * tres emiten su propia fila. Lo que las distingue en la bitácora es

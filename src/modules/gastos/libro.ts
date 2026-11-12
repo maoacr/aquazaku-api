@@ -14,7 +14,7 @@ import { aCentavos, aMonto } from '@/modules/ventas/precio'
 import { bloquearCuenta, saldoDe } from './cuentas'
 
 /**
- * El libro de dinero — M16.
+ * El libro de dinero — M17.
  *
  * ── Todo peso pasa por acá ──────────────────────────────────────────────────
  *

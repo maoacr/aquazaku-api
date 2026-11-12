@@ -23,7 +23,7 @@ import {
 } from './validation'
 
 /**
- * Gastos y tesorería — M16.
+ * Gastos y tesorería — M17.
  *
  * ── Todas las escrituras emiten su propia fila ──────────────────────────────
  *

@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { LARGO_MINIMO_MOTIVO } from '@/lib/motivos'
 
 /**
- * Esquemas de gastos y tesorería — M16.
+ * Esquemas de gastos y tesorería — M17.
  *
  * Validan **forma**. Que la cuenta exista y esté activa, que el saldo alcance,
  * que el saldo inicial no se cargue dos veces y que la fecha no sea futura lo

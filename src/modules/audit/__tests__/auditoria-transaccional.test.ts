@@ -53,7 +53,7 @@ const MODULOS = join(import.meta.dirname, '../..')
 const EMITE_EL_CAMBIO: Record<string, { transaccional: boolean; acciones: string[]; nota: string }> =
   {
     /*
-     * ── M16 · Gastos y tesorería ───────────────────────────────────────────
+     * ── M17 · Gastos y tesorería ───────────────────────────────────────────
      *
      * Los dos emiten DENTRO de la transacción que escribe el cambio. En un
      * libro de dinero eso no es una preferencia: si la fila de la bitácora

@@ -185,7 +185,7 @@ export const PERMISSION_MATRIX: Record<Role, readonly PermissionRule[]> = {
     { resource: 'compras', action: 'recibir', scope: 'todo' },
 
     /*
-     * ── M16 · Gastos y tesorería ───────────────────────────────────────────
+     * ── M17 · Gastos y tesorería ───────────────────────────────────────────
      *
      * Solo `admin`, y es una decisión, no un olvido. Un movimiento de dinero no
      * tiene contraparte física que lo delate: un insumo mal cargado se ve en el

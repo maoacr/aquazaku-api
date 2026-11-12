@@ -5,7 +5,7 @@ import { ErrorDeNegocio } from '@/lib/errors'
 import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
 
 /**
- * Las cuentas donde vive la plata — M16.
+ * Las cuentas donde vive la plata — M17.
  *
  * ── Las dos cajas no se crean: ya existen ───────────────────────────────────
  *
