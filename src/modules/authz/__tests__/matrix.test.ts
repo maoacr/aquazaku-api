@@ -31,6 +31,15 @@ const ESPERADO: Record<Role, string[]> = {
     'ventas:gestionar_cuentas_pendientes:todo',
     'cobros:ver:todo',
     'cobros:registrar:todo',
+    // M17 — solo `admin`: un movimiento de dinero no tiene contraparte física
+    // que lo delate, así que quien puede mover plata es quien ya responde por ella.
+    'gastos:ver:todo',
+    'gastos:crear:todo',
+    'gastos:anular:todo',
+    'cuentas:ver:todo',
+    'cuentas:crear:todo',
+    'cuentas:editar:todo',
+    'cuentas:desactivar:todo',
     'clientes:ver:todo',
     'clientes:crear:todo',
     'clientes:verificar_documento:todo',

@@ -90,7 +90,7 @@ export function poolConcurrente(conexiones: number) {
 
 /** Tablas en orden seguro para truncar (las hijas primero por las FK). */
 const TABLAS = [
-  // M16 — `movimientos_de_dinero` sí cuelga de `users` y `proveedores`, pero
+  // M17 — `movimientos_de_dinero` sí cuelga de `users` y `proveedores`, pero
   // `cuentas_de_dinero` no cuelga de nada: sin nombrarla el CASCADE no la
   // alcanza y las cuentas bancarias de un test sobreviven al siguiente.
   'movimientos_de_dinero',

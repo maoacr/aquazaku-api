@@ -2186,11 +2186,11 @@ export const seguimientosOcultos = pgTable(
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Gastos y tesorería — M16
+// Gastos y tesorería — M17
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Dónde vive la plata — M16.
+ * Dónde vive la plata — M17.
  *
  * Las dos cajas son físicas y hay una sola de cada una (lo garantiza un índice
  * parcial). Los bancos son N: una fila por cuenta, con su número, porque el
@@ -2205,7 +2205,7 @@ export const tipoDeCuentaDeDineroEnum = pgEnum('tipo_de_cuenta_de_dinero', [
 export const tipoDeCuentaBancariaEnum = pgEnum('tipo_de_cuenta_bancaria', ['ahorros', 'corriente'])
 
 /**
- * Cómo se mueve la plata — M16.
+ * Cómo se mueve la plata — M17.
  *
  * ── El signo lo da el tipo, no una columna ──────────────────────────────────
  *
@@ -2234,7 +2234,7 @@ export const tipoMovimientoDineroEnum = pgEnum('tipo_movimiento_dinero', [
 ])
 
 /**
- * Qué se pagó — M16.
+ * Qué se pagó — M17.
  *
  * ── Es un HECHO, no una clasificación contable ──────────────────────────────
  *
@@ -2282,7 +2282,7 @@ export const tipoDeEgresoEnum = pgEnum('tipo_de_egreso', [
   'otro',
 ])
 
-/** De dónde vino la plata que entró — M16. */
+/** De dónde vino la plata que entró — M17. */
 export const tipoDeIngresoEnum = pgEnum('tipo_de_ingreso', [
   'aporte_socio',
   'prestamo',
@@ -2300,7 +2300,7 @@ export const tipoDeIngresoEnum = pgEnum('tipo_de_ingreso', [
 ])
 
 /**
- * Costo, gasto o activo fijo — M16, y nace en `NULL`.
+ * Costo, gasto o activo fijo — M17, y nace en `NULL`.
  *
  * El hueco se registra en vez de inventarse. Clasificar depende del umbral de
  * capitalización y de quién lleve la contabilidad; registrar el hecho no depende
@@ -2313,7 +2313,7 @@ export const clasificacionDeEgresoEnum = pgEnum('clasificacion_de_egreso', [
 ])
 
 /**
- * Una cuenta donde vive plata — M16.
+ * Una cuenta donde vive plata — M17.
  *
  * No se borra: se desactiva. Su historial de movimientos sigue apuntándole, y
  * borrarla dejaría el libro sin explicar de dónde salió un peso.
@@ -2361,7 +2361,7 @@ export const cuentasDeDinero = pgTable(
 )
 
 /**
- * El libro de dinero — M16. Todo peso que entra o sale pasa por acá.
+ * El libro de dinero — M17. Todo peso que entra o sale pasa por acá.
  *
  * ── Por qué un libro único y no una tabla por documento ─────────────────────
  *

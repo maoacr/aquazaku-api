@@ -11,6 +11,7 @@ import { auditRoutes } from '@/modules/audit/routes'
 import { contadorRoutes } from '@/modules/contador/routes'
 import { productoRoutes } from '@/modules/productos/routes'
 import { proveedoresRoutes } from '@/modules/proveedores/routes'
+import { gastosRoutes } from '@/modules/gastos/routes'
 import { insumosRoutes } from '@/modules/insumos/routes'
 import { clientesRoutes } from '@/modules/clientes/routes'
 import { retornablesRoutes } from '@/modules/retornables/routes'
@@ -107,6 +108,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(ventasRoutes)
   await app.register(retornablesRoutes)
   await app.register(proveedoresRoutes)
+  await app.register(gastosRoutes)
   await app.register(contadorRoutes)
 
   return app
