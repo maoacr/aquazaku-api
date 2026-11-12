@@ -83,5 +83,18 @@ export const esquemaDeCompra = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'la fecha va como 2026-09-30')
     .optional(),
 
+  /**
+   * De qué cuenta sale la plata — RN-GAS-11.
+   *
+   * Obligatoria salvo a crédito, y las dos mitades las verifica el servicio,
+   * donde el mensaje puede explicar por qué. Acá solo se valida la forma.
+   */
+  cuentaId: z.string().uuid().optional(),
+
   lineas: z.array(lineaDeCompra).min(1, 'una compra sin líneas no es una compra'),
+})
+
+/** Pagar una compra a crédito exige decir de dónde sale la plata. */
+export const esquemaDePagoDeCompra = z.object({
+  cuentaId: z.string().uuid('hay que decir de qué cuenta sale la plata'),
 })

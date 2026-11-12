@@ -1,8 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
-import { clientes, cobros, proveedores } from '@/db/schema'
+import { clientes, cobros, cuentasDeDinero, proveedores } from '@/db/schema'
 import { crearInsumo } from '@/modules/insumos/service'
 import { registrarCompra } from '@/modules/proveedores/compras'
+import { hoyEnLaPlanta } from '@/lib/dia'
+import { registrarSaldoInicial } from '@/modules/gastos/libro'
 import { resetDb } from '@/test/db'
 import { extracto } from '@/modules/contador/extracto'
 
@@ -46,6 +48,8 @@ const HASTA = '2026-08-31'
 let clienteId: string
 let proveedorId: string
 let tapaId: string
+/** La caja de la que sale la plata de las compras — RN-GAS-11. */
+let cajaId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -69,6 +73,20 @@ beforeEach(async () => {
   proveedorId = p!.id
 
   tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 }, UN_CONTEXTO)).id
+
+  /*
+   * Desde M17 una compra de contado descuenta de una cuenta (RN-GAS-11), así
+   * que la caja necesita con qué pagar. El extracto no mira el libro de dinero
+   * —son dos libros distintos, RN-GAS-10— pero la compra no se puede registrar
+   * sin cuenta, y es la compra lo que este archivo necesita para probar.
+   */
+  const [caja] = await db.select().from(cuentasDeDinero)
+  cajaId = caja!.id
+  await registrarSaldoInicial(
+    { cuentaId: cajaId, monto: '99999999', ocurridoEl: hoyEnLaPlanta(), concepto: 'caja de pruebas' },
+    null,
+    UN_CONTEXTO,
+  )
 })
 
 afterAll(async () => {
@@ -80,6 +98,7 @@ const unaCompra = (total: string) =>
     {
       proveedorId,
       medioDePago: 'efectivo',
+      cuentaId: cajaId,
       lineas: [{ insumoId: tapaId, cantidad: 100, costoUnitario: total }],
     },
     null,

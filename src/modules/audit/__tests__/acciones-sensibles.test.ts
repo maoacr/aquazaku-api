@@ -3,8 +3,10 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { buildApp } from '@/app'
 import { closeDb, db } from '@/db/client'
-import { auditLog, clientes, insumos, lineasDeVenta, productos } from '@/db/schema'
+import { auditLog, clientes, cuentasDeDinero, insumos, lineasDeVenta, productos } from '@/db/schema'
 import { crearLoteConEntrada } from '@/modules/stock/service'
+import { hoyEnLaPlanta } from '@/lib/dia'
+import { registrarSaldoInicial } from '@/modules/gastos/libro'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado, direccionDe } from '@/test/fixtures'
 
@@ -883,10 +885,28 @@ describe('la bitácora de proveedores y compras dice a quién y por cuánto', ()
 
     const compraId = compra.json().compra.id as string
 
+    /*
+     * Pagar mueve plata, así que hay que decir de qué cuenta sale — RN-GAS-11.
+     * La compra fue a crédito: no tocó ninguna cuenta al registrarse, y es acá
+     * donde el dinero se mueve de verdad.
+     */
+    const [caja] = await db.select().from(cuentasDeDinero)
+    await registrarSaldoInicial(
+      {
+        cuentaId: caja!.id,
+        monto: '99999999',
+        ocurridoEl: hoyEnLaPlanta(),
+        concepto: 'caja de pruebas',
+      },
+      null,
+      { userId: null, rolEjercido: ['admin'], requestId: 'req-de-prueba' },
+    )
+
     const pago = await app.inject({
       method: 'POST',
       url: `/compras/${compraId}/pago`,
       headers: { cookie: admin.cookie },
+      payload: { cuentaId: caja!.id },
     })
 
     expect(pago.statusCode).toBe(200)

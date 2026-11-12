@@ -4,6 +4,10 @@ import { buildApp } from '@/app'
 import { closeDb } from '@/db/client'
 import type { Role } from '@/modules/authz/matrix'
 import { crearInsumo } from '@/modules/insumos/service'
+import { cuentasDeDinero } from '@/db/schema'
+import { db } from '@/db/client'
+import { hoyEnLaPlanta } from '@/lib/dia'
+import { registrarSaldoInicial } from '@/modules/gastos/libro'
 import { resetDb } from '@/test/db'
 import { usuarioAutenticado } from '@/test/fixtures'
 
@@ -13,6 +17,8 @@ const UN_CONTEXTO = { userId: null, rolEjercido: ['admin'], requestId: 'req-de-p
 let app: FastifyInstance
 let admin: { cookie: string }
 let tapaId: string
+/** La caja de la que sale la plata de las compras — RN-GAS-11. */
+let cajaId: string
 
 beforeEach(async () => {
   await resetDb()
@@ -20,6 +26,18 @@ beforeEach(async () => {
   await app.ready()
   admin = await usuarioAutenticado('admin')
   tapaId = (await crearInsumo({ codigo: 'TAPA', nombre: 'Tapa de botellón', minimo: 200 }, UN_CONTEXTO)).id
+
+  /*
+   * Desde M17 una compra de contado descuenta de una cuenta. La caja arranca
+   * con fondo para que estos tests midan lo que dicen medir y no el saldo.
+   */
+  const [caja] = await db.select().from(cuentasDeDinero)
+  cajaId = caja!.id
+  await registrarSaldoInicial(
+    { cuentaId: cajaId, monto: '99999999', ocurridoEl: hoyEnLaPlanta(), concepto: 'caja de pruebas' },
+    null,
+    UN_CONTEXTO,
+  )
 })
 
 afterAll(async () => {
@@ -127,6 +145,7 @@ describe('las compras', () => {
       payload: {
         proveedorId: await conProveedor(),
         medioDePago: 'efectivo',
+        cuentaId: cajaId,
         lineas: [{ insumoId: tapaId, cantidad: 500, costoUnitario: '120.00' }],
       },
     })
@@ -143,6 +162,7 @@ describe('las compras', () => {
       payload: {
         proveedorId: await conProveedor(),
         medioDePago: 'efectivo',
+        cuentaId: cajaId,
         lineas: [{ botellones: 20, cantidad: 20, costoUnitario: '18000.00' }],
       },
     })
@@ -157,6 +177,7 @@ describe('las compras', () => {
       payload: {
         proveedorId: await conProveedor(),
         medioDePago: 'efectivo',
+        cuentaId: cajaId,
         lineas: [{ botellones: 5, bases: 5, cantidad: 5, costoUnitario: '100.00' }],
       },
     })
@@ -172,6 +193,7 @@ describe('las compras', () => {
       payload: {
         proveedorId: await conProveedor(),
         medioDePago: 'efectivo',
+        cuentaId: cajaId,
         lineas: [{ botellones: 5, cantidad: 5, kilos: 3, costoUnitario: '100.00' }],
       },
     })
@@ -235,12 +257,17 @@ describe('las compras', () => {
         payload: {
           proveedorId: await conProveedor(),
           medioDePago: 'efectivo',
+          cuentaId: cajaId,
           lineas: [{ botellones: 5, cantidad: 5, costoUnitario: '100.00' }],
         },
       })
     ).json().compra
 
-    const res = await comoAdmin({ method: 'POST', url: `/compras/${compra.id}/pago` })
+    const res = await comoAdmin({
+      method: 'POST',
+      url: `/compras/${compra.id}/pago`,
+      payload: { cuentaId: cajaId },
+    })
 
     expect(res.statusCode).toBe(422)
     expect(res.json().code).toBe('COMPRA_YA_PAGADA')

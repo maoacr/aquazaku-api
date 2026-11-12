@@ -34,7 +34,10 @@ type TipoEscribible = 'egreso' | 'ingreso' | 'saldo_inicial'
 export interface DatosDeEgreso {
   cuentaId: string
   tipoDeEgreso:
-    | 'recibo_publico'
+    | 'energia'
+    | 'acueducto'
+    | 'gas'
+    | 'internet'
     | 'arriendo'
     | 'nomina'
     | 'software'
@@ -359,6 +362,80 @@ export async function anularMovimiento(
   })
 }
 
+/**
+ * El pago de una compra a proveedor — RN-GAS-11.
+ *
+ * ── Se llama DESDE la transacción de la compra, no desde una ruta ───────────
+ *
+ * No tiene ruta propia a propósito. La plata de una compra sale en el mismo
+ * acto en que entra la mercadería, igual que el inventario: separarlos dejaría
+ * que alguien registre la compra y se olvide del pago, y entonces la caja del
+ * sistema diría más plata de la que hay. Es el mismo argumento por el que
+ * `registrarCompra` escribe el documento y el movimiento de inventario juntos.
+ *
+ * Por eso recibe la transacción abierta y NO abre la suya: si la compra falla
+ * después, el pago se va con ella.
+ *
+ * ── Qué valida, y qué no ────────────────────────────────────────────────────
+ *
+ * Valida lo mismo que un egreso: cuenta activa y saldo suficiente. Que la
+ * compra exista y cuánto vale lo sabe quien la está escribiendo, y volver a
+ * consultarlo acá sería leer dos veces el mismo dato adentro de la misma
+ * transacción.
+ *
+ * Que una compra no se pague dos veces lo garantiza el índice único de la base,
+ * no un chequeo acá: el caso que importa es el reintento del formulario, y ahí
+ * dos peticiones corren en paralelo.
+ */
+export async function registrarPagoDeCompra(
+  tx: Ejecutor,
+  datos: {
+    compraId: string
+    cuentaId: string
+    /** El total congelado de la compra — RN-PRO-04. */
+    monto: string
+    ocurridoEl: string
+    /** Quién cobró, para que la fila del libro se lea sola. */
+    proveedor: string
+  },
+  registradoPor: string | null,
+  contexto: ContextoDeAuditoria,
+): Promise<MovimientoDeDinero> {
+  const centavos = montoValido(datos.monto)
+  const cuenta = await bloquearCuenta(datos.cuentaId, tx)
+  const saldo = await saldoDe(datos.cuentaId, tx)
+
+  if (saldo - centavos < 0) {
+    throw new ErrorDeNegocio(
+      'SALDO_INSUFICIENTE',
+      422,
+      `${cuenta.nombre} tiene ${aMonto(saldo)} y la compra es de ${aMonto(centavos)}. Una caja no queda en negativo: si la plata salió de ahí, falta registrar de dónde entró`,
+    )
+  }
+
+  const [movimiento] = await tx
+    .insert(movimientosDeDinero)
+    .values({
+      cuentaId: datos.cuentaId,
+      tipo: 'egreso',
+      monto: aMonto(centavos),
+      ocurridoEl: datos.ocurridoEl,
+      concepto: `Compra a ${datos.proveedor}`,
+      compraRelacionada: datos.compraId,
+      registradoPor,
+    })
+    .returning()
+
+  await auditar(tx, contexto, 'gastos:crear', movimiento!, {
+    operacion: 'pago_de_compra',
+    compraRelacionada: datos.compraId,
+    cuenta: cuenta.nombre,
+    saldoResultante: aMonto(saldo - centavos),
+  })
+
+  return movimiento!
+}
+
 export interface FiltrosDelLibro {
   cuentaId?: string
   desde?: string
@@ -381,6 +458,8 @@ export interface FilaDelLibro {
   tipoDeIngreso: string | null
   proveedor: string | null
   beneficiario: string | null
+  /** El id de la compra que paga, si es el pago de una compra — RN-GAS-11. */
+  compraRelacionada: string | null
   numeroDeFactura: string | null
   anulado: boolean
   motivoAnulacion: string | null
@@ -434,6 +513,7 @@ export async function listarMovimientos(filtros: FiltrosDelLibro = {}): Promise<
     tipoDeIngreso: f.m.tipoDeIngreso,
     proveedor: f.proveedor,
     beneficiario: f.m.beneficiario,
+    compraRelacionada: f.m.compraRelacionada,
     numeroDeFactura: f.m.numeroDeFactura,
     anulado: f.m.anulado,
     motivoAnulacion: f.m.motivoAnulacion,

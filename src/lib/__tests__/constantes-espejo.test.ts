@@ -95,12 +95,15 @@ describe('las constantes que `web/` espeja', () => {
    * `Record<TipoDeEgreso, string>`, así que a esas el compilador de `web/` ya
    * las obliga; la lista del desplegable no, y es la que se olvida.
    */
-  it('hay catorce tipos de gasto, y ninguno mueve inventario', () => {
+  it('hay diecisiete tipos de gasto, y ninguno mueve inventario', () => {
     expect(
       tipoDeEgresoEnum.enumValues,
       'si agregás un tipo de gasto, agregalo en `web/src/lib/api-types.ts` (`TipoDeEgreso`) y en `TIPOS_DE_EGRESO` de `web/src/lib/gastos.ts`: sin eso no se puede elegir desde la pantalla',
     ).toEqual([
-      'recibo_publico',
+      'energia',
+      'acueducto',
+      'gas',
+      'internet',
       'arriendo',
       'nomina',
       'software',

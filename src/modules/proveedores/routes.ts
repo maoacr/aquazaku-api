@@ -5,7 +5,12 @@ import { auditarSinBloquear } from '@/modules/auth/routes'
 import { requireAuth, requirePermission } from '@/modules/authz/middleware'
 import { comprasVencidas, marcarPagada, registrarCompra } from './compras'
 import { cambiarEstado, crearProveedor, listarProveedores } from './service'
-import { esquemaDeCompra, esquemaDeEstado, esquemaDeProveedor } from './validation'
+import {
+  esquemaDeCompra,
+  esquemaDeEstado,
+  esquemaDePagoDeCompra,
+  esquemaDeProveedor,
+} from './validation'
 import { hoyEnLaPlanta } from '@/lib/dia'
 
 /**
@@ -152,16 +157,28 @@ export async function proveedoresRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requirePermission('compras', 'crear', { auditaLaRuta: true })] },
     async (req, reply) => {
       const { id } = req.params as { id: string }
+      /*
+       * Pagar mueve plata, así que hay que decir de qué cuenta sale — RN-GAS-11.
+       * Antes esta ruta no pedía nada y la compra quedaba pagada sin que
+       * ninguna caja bajara.
+       */
+      const datos = validar(esquemaDePagoDeCompra, req.body, reply)
+      if (!datos) return
 
       try {
         /* La fila la escribe el servicio, dentro de su transacción — ADR-0007. */
-        const pagada = await marcarPagada(id, {
-          userId: req.user?.id ?? null,
-          rolEjercido: req.user?.roles ?? [],
-          requestId: String(req.id),
-          ip: req.ip,
-          userAgent: req.headers['user-agent'],
-        })
+        const pagada = await marcarPagada(
+          id,
+          datos.cuentaId,
+          {
+            userId: req.user?.id ?? null,
+            rolEjercido: req.user?.roles ?? [],
+            requestId: String(req.id),
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+          },
+          req.user?.id ?? null,
+        )
 
         return pagada
       } catch (err) {
