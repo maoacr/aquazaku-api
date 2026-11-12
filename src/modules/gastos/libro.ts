@@ -34,7 +34,10 @@ type TipoEscribible = 'egreso' | 'ingreso' | 'saldo_inicial'
 export interface DatosDeEgreso {
   cuentaId: string
   tipoDeEgreso:
-    | 'recibo_publico'
+    | 'energia'
+    | 'acueducto'
+    | 'gas'
+    | 'internet'
     | 'arriendo'
     | 'nomina'
     | 'software'

@@ -25,7 +25,10 @@ const concepto = z
   .min(3, 'el concepto dice qué fue el movimiento: es lo que se lee en la lista')
 
 export const TIPOS_DE_EGRESO = [
-  'recibo_publico',
+  'energia',
+  'acueducto',
+  'gas',
+  'internet',
   'arriendo',
   'nomina',
   'software',

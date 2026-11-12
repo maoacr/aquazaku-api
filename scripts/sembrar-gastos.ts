@@ -250,7 +250,7 @@ async function main(): Promise<void> {
       {
         cuando: haceMeses(m, 9),
         cuentaId: cajaMenor.id,
-        tipoDeEgreso: 'recibo_publico',
+        tipoDeEgreso: 'energia',
         monto: cerca(740_000, m + 3),
         ocurridoEl: haceMeses(m, 9),
         concepto: 'Energía de la planta',
@@ -260,7 +260,7 @@ async function main(): Promise<void> {
       {
         cuando: haceMeses(m, 10),
         cuentaId: cajaMenor.id,
-        tipoDeEgreso: 'recibo_publico',
+        tipoDeEgreso: 'acueducto',
         monto: cerca(185_000, m + 4),
         ocurridoEl: haceMeses(m, 10),
         concepto: 'Acueducto y alcantarillado',
@@ -268,10 +268,18 @@ async function main(): Promise<void> {
       {
         cuando: haceMeses(m, 11),
         cuentaId: cajaMenor.id,
-        tipoDeEgreso: 'software',
+        tipoDeEgreso: 'internet',
         monto: '96000',
         ocurridoEl: haceMeses(m, 11),
         concepto: 'Internet de la planta',
+      },
+      {
+        cuando: haceMeses(m, 10),
+        cuentaId: cajaMenor.id,
+        tipoDeEgreso: 'gas',
+        monto: cerca(72_000, m + 12),
+        ocurridoEl: haceMeses(m, 10),
+        concepto: 'Gas de la planta',
       },
       {
         cuando: haceMeses(m, 8),
@@ -296,6 +304,14 @@ async function main(): Promise<void> {
         monto: cerca(310_000, m + 7),
         ocurridoEl: haceMeses(m, 18),
         concepto: 'Mantenimiento de la planta de tratamiento',
+      },
+      {
+        cuando: haceMeses(m, 7),
+        cuentaId: banco.id,
+        tipoDeEgreso: 'software',
+        monto: '129000',
+        ocurridoEl: haceMeses(m, 7),
+        concepto: 'Hosting y licencias del sistema',
       },
       {
         cuando: haceMeses(m, 25),

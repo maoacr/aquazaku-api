@@ -310,7 +310,7 @@ describe('en qué se gastó la plata del período', () => {
     await fondear(cajaMayor, '5000000')
     await gastar(cajaMayor, '300000', { tipoDeEgreso: 'nomina', concepto: 'quincena de noviembre' })
     await gastar(cajaMayor, '150000', { tipoDeEgreso: 'nomina', concepto: 'quincena, el otro' })
-    await gastar(cajaMayor, '90000', { tipoDeEgreso: 'recibo_publico', concepto: 'la luz' })
+    await gastar(cajaMayor, '90000', { tipoDeEgreso: 'energia', concepto: 'la luz' })
     const anulado = await gastar(cajaMayor, '700000', {
       tipoDeEgreso: 'equipo',
       concepto: 'un computador que devolvimos',
@@ -319,7 +319,7 @@ describe('en qué se gastó la plata del período', () => {
 
     expect(await gastosPorTipo(HOY, HOY)).toEqual([
       { tipoDeEgreso: 'nomina', total: '450000.00', cuantos: 2 },
-      { tipoDeEgreso: 'recibo_publico', total: '90000.00', cuantos: 1 },
+      { tipoDeEgreso: 'energia', total: '90000.00', cuantos: 1 },
     ])
   })
 

@@ -2255,7 +2255,19 @@ export const tipoMovimientoDineroEnum = pgEnum('tipo_movimiento_dinero', [
  * Al no existir el valor, no hay dónde escribir el duplicado.
  */
 export const tipoDeEgresoEnum = pgEnum('tipo_de_egreso', [
-  'recibo_publico', // agua, luz, gas, internet
+  /*
+   * Un servicio público por EMPRESA que factura, no uno solo.
+   *
+   * `recibo_publico` agrupaba los cuatro y era el único valor del enum que
+   * nombraba más de un hecho. Con él, «¿cuánto se me va en luz?» no se podía
+   * contestar: el reporte por tipo devolvía un total y nada más.
+   */
+  'energia',
+  'acueducto',
+  'gas',
+  /* El internet estaba en `software` por descarte. Hosting y licencias se
+   * contratan y se dan de baja; esto es un servicio fijo del local. */
+  'internet',
   'arriendo',
   'nomina',
   'software', // hosting, licencias, SaaS
