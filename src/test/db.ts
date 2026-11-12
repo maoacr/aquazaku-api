@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 import * as schema from '@/db/schema'
 import { PARAMETROS_INICIALES } from '@/modules/alertas/parametros'
+import { CAJAS_INICIALES } from '@/modules/gastos/cajas'
 
 /**
  * Utilidades de base para los tests. Solo se importan desde tests.
@@ -89,6 +90,12 @@ export function poolConcurrente(conexiones: number) {
 
 /** Tablas en orden seguro para truncar (las hijas primero por las FK). */
 const TABLAS = [
+  // M16 — `movimientos_de_dinero` sí cuelga de `users` y `proveedores`, pero
+  // `cuentas_de_dinero` no cuelga de nada: sin nombrarla el CASCADE no la
+  // alcanza y las cuentas bancarias de un test sobreviven al siguiente.
+  'movimientos_de_dinero',
+  'cuentas_de_dinero',
+
   // M9 — cuelgan de `users` e `insumos`, pero `proveedores` no cuelga de nada:
   // sin nombrarla, el CASCADE no la alcanza y los datos sobreviven al reset.
   'lineas_de_compra',
@@ -136,6 +143,21 @@ export async function resetDb(): Promise<void> {
      */
     for (const p of PARAMETROS_INICIALES) {
       await sql.unsafe('UPDATE parametros SET valor = $1 WHERE clave = $2', [p.valor, p.clave])
+    }
+
+    /*
+     * Las dos cajas vuelven a existir.
+     *
+     * Las siembra la migración 0030 porque no son una preferencia: el negocio
+     * las tiene y el módulo no puede registrar nada sin ellas. Truncar la tabla
+     * se las lleva, así que acá se reponen — mismo criterio que los umbrales,
+     * y la copia la vigila `cajas-iniciales.test.ts`.
+     */
+    for (const caja of CAJAS_INICIALES) {
+      await sql.unsafe('INSERT INTO cuentas_de_dinero (nombre, tipo) VALUES ($1, $2)', [
+        caja.nombre,
+        caja.tipo,
+      ])
     }
 
     await sql.unsafe('ALTER TABLE audit_log DISABLE TRIGGER USER')

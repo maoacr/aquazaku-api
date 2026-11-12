@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { db } from '@/db/client'
 import { codigosDeDescuento, lineasDeVenta, productos, ventas } from '@/db/schema'
+import { hoyEnLaPlanta } from '@/lib/dia'
 import { registrarVenta } from '@/modules/ventas/venta'
 import { crearLoteConEntrada } from '@/modules/stock/service'
 import { resetDb } from '@/test/db'
@@ -268,15 +269,57 @@ describe('el precio manual cuando FIFO parte el ítem', () => {
   })
 })
 
+/**
+ * Las fechas de ESTE describe se calculan; las del resto del archivo son fijas.
+ *
+ * ── Por qué la diferencia ───────────────────────────────────────────────────
+ *
+ * El archivo vive en un mundo fijo —`HOY = '2026-08-26'`, lote del 1-ago— y eso
+ * está bien para todo lo que no mire el calendario real. Pero
+ * `exigirFechaRegistrable` **llama al reloj adentro** en vez de recibir el `hoy`
+ * que le inyecta el resto del módulo, así que el tope de RN-VEN-14 se mide
+ * contra la fecha de verdad.
+ *
+ * Con `ocurrioEn: '2026-08-12'` escrito a mano, este test se puso rojo solo el
+ * 12-nov-2026: esa fecha quedó a 92 días y el tope son 90. Nadie tocó el
+ * código. Es la misma trampa que ya documenta `asignar-direccion.test.ts`, y se
+ * sale igual: calcular la fecha desde `hoyEnLaPlanta()`.
+ *
+ * Y entonces el lote también tiene que vivir en el presente: `ocurrioEn`
+ * reemplaza a `hoy` para TODO lo que se evalúa por fecha, incluido FEFO, así
+ * que un lote empacado en agosto no existe para una venta de hace dos semanas.
+ */
+const haceDias = (dias: number) => {
+  const d = new Date(`${hoyEnLaPlanta()}T12:00:00-05:00`)
+  d.setDate(d.getDate() - dias)
+
+  return d.toISOString().slice(0, 10)
+}
+
 describe('el precio manual junto con la fecha anterior', () => {
   /**
    * El caso completo por el que existe la feature: una venta de hace dos
    * semanas, al precio que de verdad se cobró ese día.
    */
   it('queda fechada ese día y con el precio de ese día', async () => {
+    const haceDosSemanas = haceDias(14)
+
+    /* Un lote que ya existía hace dos semanas: el del `beforeEach` es de agosto. */
+    await crearLoteConEntrada(
+      {
+        productoId: botellonId,
+        fechaEmpaque: haceDias(20),
+        cantidad: 10,
+        tipo: 'produccion',
+        registradoPor: null,
+      },
+      db,
+    )
+
     const { venta } = await vender({
       items: [{ productoId: botellonId, cantidad: 2, precioManual: '3500' }],
-      ocurrioEn: '2026-08-12',
+      ocurrioEn: haceDosSemanas,
+      hoy: hoyEnLaPlanta(),
     })
 
     const [guardada] = await db.select().from(ventas).where(eq(ventas.id, venta.id))
@@ -284,7 +327,7 @@ describe('el precio manual junto con la fecha anterior', () => {
       guardada!.createdAt,
     )
 
-    expect(dia).toBe('2026-08-12')
+    expect(dia).toBe(haceDosSemanas)
     expect(guardada?.total).toBe('7000.00')
   })
 })
