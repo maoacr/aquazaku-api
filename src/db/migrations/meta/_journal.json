@@ -218,6 +218,13 @@
       "when": 1794496938607,
       "tag": "0030_gastos_y_tesoreria",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794501067189,
+      "tag": "0031_la_compra_descuenta_la_plata",
+      "breakpoints": true
     }
   ]
 }

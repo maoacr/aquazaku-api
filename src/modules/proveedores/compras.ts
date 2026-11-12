@@ -11,8 +11,10 @@ import {
 } from '@/db/schema'
 import { ErrorDeNegocio } from '@/lib/errors'
 import { type ContextoDeAuditoria, emit } from '@/modules/authz/audit'
+import { registrarPagoDeCompra } from '@/modules/gastos/libro'
 import { registrarEntrada } from '@/modules/insumos/service'
 import { comprarBases } from '@/modules/retornables/bases'
+import { hoyEnLaPlanta } from '@/lib/dia'
 import { aCentavos, aMonto } from '@/modules/ventas/precio'
 
 /**
@@ -28,6 +30,19 @@ import { aCentavos, aMonto } from '@/modules/ventas/precio'
  * que una venta escribe la venta y el descuento de stock. Registrar la compra
  * sin mover el inventario deja mercadería pagada que el sistema no ve; mover el
  * inventario sin la compra deja stock que apareció de la nada.
+ *
+ * ── Y tampoco crea plata: la descuenta de una cuenta — RN-GAS-11 ───────────
+ *
+ * Hasta M17 la compra movía el inventario y congelaba el costo, pero no tocaba
+ * ninguna caja. La plata salía del cajón de verdad y el saldo del sistema
+ * seguía igual, así que el módulo de gastos mostraba más plata de la que había
+ * por el total de lo comprado a proveedores — y nada lo explicaba.
+ *
+ * Ahora el pago sale en el MISMO acto, por la misma razón que el inventario:
+ * separarlos dejaría que alguien registre la compra y se olvide del pago.
+ *
+ * Lo de contado paga al registrarse; lo de crédito paga cuando se marca pagada,
+ * que es cuando la plata se mueve de verdad.
  *
  * ── Producto terminado NO se compra ────────────────────────────────────────
  *
@@ -65,12 +80,21 @@ export interface DatosDeCompra {
   medioDePago: 'efectivo' | 'transferencia' | 'credito'
   /** Obligatoria a crédito, prohibida si no — RN-PRO-07. */
   venceEl?: string
+  /**
+   * De qué cuenta sale la plata — RN-GAS-11.
+   *
+   * Obligatoria salvo a crédito: lo que se fía no mueve plata hoy, la mueve el
+   * día que se paga. Opcional en el tipo por eso, y el servicio lo exige.
+   */
+  cuentaId?: string
   lineas: LineaPedida[]
 }
 
 export interface ResultadoDeCompra {
   compra: Compra
   lineas: LineaDeCompra[]
+  /** El movimiento del libro, salvo a crédito — RN-GAS-11. */
+  pago: { cuentaId: string; monto: string } | null
 }
 
 export async function registrarCompra(
@@ -102,6 +126,25 @@ export async function registrarCompra(
       'VENCIMIENTO_SIN_CREDITO',
       422,
       'lo que se paga de contado no vence: ya está pagado',
+    )
+  }
+
+  /*
+   * De dónde sale la plata — RN-GAS-11. Las dos mitades, como el vencimiento.
+   */
+  if (!aCredito && !datos.cuentaId) {
+    throw new ErrorDeNegocio(
+      'CUENTA_REQUERIDA',
+      422,
+      'una compra que se paga ahora tiene que decir de qué cuenta sale la plata: si no, la caja del sistema queda con más plata de la que hay',
+    )
+  }
+
+  if (aCredito && datos.cuentaId) {
+    throw new ErrorDeNegocio(
+      'CUENTA_SIN_PAGO',
+      422,
+      'lo que se compra a crédito no mueve plata hoy: la cuenta se elige el día que se paga',
     )
   }
 
@@ -276,7 +319,31 @@ export async function registrarCompra(
       tx,
     )
 
-    return { compra: compra!, lineas: guardadas }
+    /*
+     * El pago, en la MISMA transacción. Si la cuenta no tiene saldo, la compra
+     * entera se cae — y es lo correcto: registrar mercadería que no se pudo
+     * pagar deja un inventario que el dinero no explica.
+     */
+    const pago = aCredito
+      ? null
+      : await registrarPagoDeCompra(
+          tx,
+          {
+            compraId: compra!.id,
+            cuentaId: datos.cuentaId!,
+            monto: compra!.total,
+            ocurridoEl: hoyEnLaPlanta(),
+            proveedor: proveedor.nombre,
+          },
+          registradoPor,
+          contexto,
+        )
+
+    return {
+      compra: compra!,
+      lineas: guardadas,
+      pago: pago && { cuentaId: pago.cuentaId, monto: pago.monto },
+    }
   })
 }
 
@@ -339,7 +406,10 @@ export async function comprasVencidas(hoy: string): Promise<CompraVencida[]> {
  */
 export async function marcarPagada(
   compraId: string,
+  /** De qué cuenta sale la plata — RN-GAS-11. */
+  cuentaId: string,
   contexto: ContextoDeAuditoria,
+  registradoPor: string | null = null,
 ): Promise<Compra> {
   return db.transaction(async (tx) => {
     const [compra] = await tx.select().from(compras).where(eq(compras.id, compraId))
@@ -371,6 +441,28 @@ export async function marcarPagada(
       .set({ pagada: true })
       .where(eq(compras.id, compraId))
       .returning()
+
+    /*
+     * Acá es cuando la plata se mueve de verdad: la compra a crédito no tocó
+     * ninguna cuenta el día que entró la mercadería.
+     */
+    const [proveedor] = await tx
+      .select()
+      .from(proveedores)
+      .where(eq(proveedores.id, pagada!.proveedorId))
+
+    await registrarPagoDeCompra(
+      tx,
+      {
+        compraId: pagada!.id,
+        cuentaId,
+        monto: pagada!.total,
+        ocurridoEl: hoyEnLaPlanta(),
+        proveedor: proveedor!.nombre,
+      },
+      registradoPor,
+      contexto,
+    )
 
     /*
      * El otro lado de `operacion`: acá se cierra la deuda. El total va repetido

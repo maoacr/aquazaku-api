@@ -2458,6 +2458,25 @@ export const movimientosDeDinero = pgTable(
     /* ── Contexto del ingreso ── */
     tipoDeIngreso: tipoDeIngresoEnum('tipo_de_ingreso'),
 
+    /**
+     * El pago de una compra a proveedor — RN-GAS-11.
+     *
+     * ── Por qué NO es un `tipo_de_egreso` más ──────────────────────────────
+     *
+     * Un pago a proveedor no es una categoría de gasto: QUÉ se compró ya está
+     * escrito en las líneas de la compra, con su cantidad y su costo unitario.
+     * Un tipo `pago_a_proveedor` sería una segunda clasificación del mismo
+     * hecho, y las dos podrían decir cosas distintas.
+     *
+     * Por eso un egreso lleva `tipo_de_egreso` **o** `compra_relacionada`,
+     * exactamente uno. Y como el desplegable de gastos solo ofrece tipos, no
+     * hay forma de registrar el pago de una compra «suelto»: RN-GAS-07 sigue
+     * valiendo, y ahora con más fuerza — la única puerta es la compra misma.
+     */
+    compraRelacionada: uuid('compra_relacionada').references(() => compras.id, {
+      onDelete: 'restrict',
+    }),
+
     /* ── Contexto del traslado. Lo escribe el tramo 2 ── */
     /** Agrupa las dos patas del mismo traslado. Sin tabla: son dos filas. */
     trasladoId: uuid('traslado_id'),
@@ -2484,9 +2503,23 @@ export const movimientosDeDinero = pgTable(
      * se contaría como gasto en el reporte por tipo mientras suma al saldo: dos
      * lecturas contradictorias de la misma fila.
      */
+    /*
+     * Un egreso dice QUÉ fue: o una categoría de gasto, o la compra que paga.
+     * Y como `compra_relacionada` obliga a `tipo = 'egreso'`, no hace falta un
+     * CHECK aparte para eso.
+     */
     check(
       'movimientos_dinero_egreso_con_su_tipo',
-      sql`(${t.tipo} = 'egreso') = (${t.tipoDeEgreso} IS NOT NULL)`,
+      sql`(${t.tipo} = 'egreso') = (${t.tipoDeEgreso} IS NOT NULL OR ${t.compraRelacionada} IS NOT NULL)`,
+    ),
+    /*
+     * Nunca los dos. Un pago de compra con categoría propia abriría la puerta a
+     * que el reporte «en qué se gastó» cuente la compra como un gasto más,
+     * encima de lo que ya cuenta el extracto del contador.
+     */
+    check(
+      'movimientos_dinero_pago_de_compra_sin_categoria',
+      sql`NOT (${t.tipoDeEgreso} IS NOT NULL AND ${t.compraRelacionada} IS NOT NULL)`,
     ),
     check(
       'movimientos_dinero_ingreso_con_su_tipo',
@@ -2525,6 +2558,18 @@ export const movimientosDeDinero = pgTable(
     index('movimientos_dinero_por_tipo_egreso_idx')
       .on(t.tipoDeEgreso, t.ocurridoEl)
       .where(sql`${t.tipoDeEgreso} IS NOT NULL`),
+    /*
+     * Una compra se paga UNA sola vez — RN-GAS-11.
+     *
+     * Sin esto, reintentar el formulario sacaría la plata dos veces por la
+     * misma factura, y el libro tendría dos salidas legítimas contra un único
+     * documento. `WHERE NOT anulado` deja volver a registrarlo si el pago se
+     * cargó en la cuenta equivocada: se anula y se rehace.
+     */
+    uniqueIndex('movimientos_dinero_una_compra_un_pago')
+      .on(t.compraRelacionada)
+      .where(sql`${t.compraRelacionada} IS NOT NULL AND NOT ${t.anulado}`),
+
     /*
      * Un solo saldo inicial por cuenta.
      *
