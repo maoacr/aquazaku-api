@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { closeDb, db } from '@/db/client'
-import { cuentasDeDinero, movimientosDeDinero, proveedores } from '@/db/schema'
+import { bases, cuentasDeDinero, movimientosDeDinero, proveedores } from '@/db/schema'
 import { hoyEnLaPlanta } from '@/lib/dia'
 import { saldoDe } from '@/modules/gastos/cuentas'
 import { anularMovimiento, listarMovimientos, registrarSaldoInicial } from '@/modules/gastos/libro'
 import { crearInsumo } from '@/modules/insumos/service'
+import { botellonesEnBodega } from '@/modules/retornables/conservacion'
 import { marcarPagada, registrarCompra } from '@/modules/proveedores/compras'
 import { PG_ERROR, pgErrorOf, resetDb } from '@/test/db'
 
@@ -129,6 +130,107 @@ describe('la compra de contado saca la plata de la cuenta', () => {
         UN_CONTEXTO,
       ),
     ).rejects.toMatchObject({ code: 'CUENTA_REQUERIDA' })
+  })
+})
+
+/**
+ * Comprar envases retornables: UN registro, tres efectos.
+ *
+ * ── La pregunta que esto contesta ───────────────────────────────────────────
+ *
+ * «¿Tengo que registrar dos veces la compra de botellones — una en Proveedores
+ * para el inventario y otra en Gastos para la plata?»
+ *
+ * No. Y no es una comodidad: registrar dos veces sería el doble conteo que
+ * RN-GAS-07 existe para impedir. El camino es Proveedores, y de ahí salen los
+ * tres efectos en la MISMA transacción — documento, inventario y dinero.
+ *
+ * Los tests de `compras.test.ts` ya cubren que el inventario se mueva. Lo que
+ * se verifica acá es que el inventario Y la plata caigan JUNTOS, que es lo que
+ * se podría romper al agregar el pago sin tocar las líneas.
+ */
+describe('comprar envases retornables mueve inventario y plata a la vez', () => {
+  it('los botellones entran al parque y la plata sale de la caja, en un solo registro', async () => {
+    const antes = await botellonesEnBodega()
+
+    const { compra, pago } = await registrarCompra(
+      {
+        proveedorId,
+        medioDePago: 'efectivo',
+        cuentaId: cajaMenor,
+        lineas: [{ botellones: 50, cantidad: 50, costoUnitario: '18000.00' }],
+      },
+      null,
+      UN_CONTEXTO,
+    )
+
+    // 50 × 18.000 = 900.000
+    expect(compra.total).toBe('900000.00')
+    expect(await botellonesEnBodega()).toBe(antes + 50)
+    expect(await saldoDe(cajaMenor)).toBe(10000000)
+    expect(pago).toMatchObject({ cuentaId: cajaMenor, monto: '900000.00' })
+
+    const [fila] = await listarMovimientos({ tipo: 'egreso' })
+    expect(fila!.compraRelacionada).toBe(compra.id)
+    expect(fila!.concepto).toBe('Compra a Plásticos del Caribe')
+  })
+
+  it('las bases entran numeradas y la plata sale igual', async () => {
+    const { compra } = await registrarCompra(
+      {
+        proveedorId,
+        medioDePago: 'efectivo',
+        cuentaId: cajaMenor,
+        lineas: [{ bases: 3, cantidad: 3, tipoDeBase: 'dispensador', costoUnitario: '80000.00' }],
+      },
+      null,
+      UN_CONTEXTO,
+    )
+
+    const creadas = await db.select().from(bases).orderBy(bases.idSticker)
+
+    expect(creadas.map((b) => b.idSticker)).toEqual(['0001', '0002', '0003'])
+    expect(creadas.every((b) => b.tipo === 'dispensador')).toBe(true)
+    expect(compra.total).toBe('240000.00')
+    // 1.000.000 − 240.000
+    expect(await saldoDe(cajaMenor)).toBe(76000000)
+  })
+
+  /*
+   * Lo que de verdad protege el invariante: si la caja no alcanza, NO entran
+   * los botellones. Un parque que creció sin que saliera la plata es un
+   * inventario que el dinero no explica, y el faltante aparecería meses después
+   * en un arqueo sin nada que lo ate a esta compra.
+   */
+  it('sin saldo no entran los botellones tampoco', async () => {
+    const antes = await botellonesEnBodega()
+
+    await expect(
+      registrarCompra(
+        {
+          proveedorId,
+          medioDePago: 'efectivo',
+          cuentaId: cajaMayor, // está en cero
+          lineas: [{ botellones: 50, cantidad: 50, costoUnitario: '18000.00' }],
+        },
+        null,
+        UN_CONTEXTO,
+      ),
+    ).rejects.toMatchObject({ code: 'SALDO_INSUFICIENTE' })
+
+    expect(await botellonesEnBodega()).toBe(antes)
+  })
+
+  /*
+   * Y la otra mitad: el gasto suelto NO ofrece botellones ni bases. Si los
+   * ofreciera, el mismo hecho se podría escribir por los dos lados.
+   */
+  it('el enum de gastos no tiene dónde escribir un botellón ni una base', async () => {
+    const { tipoDeEgresoEnum } = await import('@/db/schema')
+
+    for (const prohibido of ['botellon', 'botellones', 'base', 'bases', 'insumo']) {
+      expect(tipoDeEgresoEnum.enumValues as readonly string[]).not.toContain(prohibido)
+    }
   })
 })
 
